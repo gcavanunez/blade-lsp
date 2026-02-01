@@ -1,0 +1,37 @@
+{
+  "name": "blade-lsp",
+  "version": "0.1.0",
+  "description": "Language Server Protocol implementation for Laravel Blade templates",
+  "main": "dist/server.js",
+  "bin": {
+    "blade-lsp": "./dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/server.ts --stdio",
+    "start": "node dist/server.js --stdio",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "cd node_modules/tree-sitter-blade && npx node-gyp rebuild || true"
+  },
+  "dependencies": {
+    "tree-sitter": "0.20.6",
+    "tree-sitter-blade": "^0.11.0",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "laravel",
+    "blade",
+    "lsp",
+    "language-server"
+  ],
+  "license": "MIT"
+}
