@@ -18,6 +18,7 @@ import {
   Location,
   Range,
   DefinitionParams,
+  TextEdit,
 } from "vscode-languageserver/node";
 import * as path from "path";
 import { TextDocument } from "vscode-languageserver-textdocument";
@@ -222,7 +223,7 @@ connection.onCompletion((params: TextDocumentPositionParams): CompletionItem[] =
     
     // Check for component tag start
     if (textBeforeCursor.endsWith("<x-") || /<x-[\w.-]*$/.test(textBeforeCursor)) {
-      items.push(...getComponentCompletions(textBeforeCursor));
+      items.push(...getComponentCompletions(textBeforeCursor, position));
     }
     
     // Check for component prop completion (inside component tag)
@@ -288,22 +289,30 @@ function createCustomDirectiveCompletionItem(
   };
 }
 
-function getComponentCompletions(textBeforeCursor: string): CompletionItem[] {
+function getComponentCompletions(textBeforeCursor: string, position: Position): CompletionItem[] {
   const items: CompletionItem[] = [];
+  
+  // Calculate the start position of the component tag (where '<x-' begins)
+  const match = textBeforeCursor.match(/<(x-[\w.-]*)$/);
+  const partialName = match ? match[1] : 'x-';
+  const matchedText = match ? match[0] : '<x-';
+  const startCharacter = position.character - matchedText.length;
+  
+  const replaceRange = Range.create(
+    Position.create(position.line, startCharacter),
+    position
+  );
   
   if (!laravelManager.isAvailable()) {
     // Return static component suggestions if no Laravel project
-    return [
-      { label: "x-button", kind: CompletionItemKind.Class, detail: "Component" },
-      { label: "x-alert", kind: CompletionItemKind.Class, detail: "Component" },
-      { label: "x-input", kind: CompletionItemKind.Class, detail: "Component" },
-      { label: "x-card", kind: CompletionItemKind.Class, detail: "Component" },
-    ];
+    const staticComponents = ['x-button', 'x-alert', 'x-input', 'x-card'];
+    return staticComponents.map(tag => ({
+      label: tag,
+      kind: CompletionItemKind.Class,
+      detail: "Component",
+      textEdit: TextEdit.replace(replaceRange, `<${tag}`),
+    }));
   }
-  
-  // Extract partial component name from cursor position
-  const match = textBeforeCursor.match(/<(x-[\w.-]*)$/);
-  const partialName = match ? match[1] : 'x-';
   
   const components = componentRepository.getItems();
   
@@ -311,7 +320,7 @@ function getComponentCompletions(textBeforeCursor: string): CompletionItem[] {
     // Match standard x- components
     if (component.fullTag.startsWith('x-')) {
       if (component.fullTag.startsWith(partialName) || partialName === 'x-') {
-        items.push(createComponentCompletionItem(component));
+        items.push(createComponentCompletionItem(component, replaceRange));
       }
     }
   }
@@ -319,7 +328,7 @@ function getComponentCompletions(textBeforeCursor: string): CompletionItem[] {
   return items;
 }
 
-function createComponentCompletionItem(component: ComponentItem): CompletionItem {
+function createComponentCompletionItem(component: ComponentItem, replaceRange: Range): CompletionItem {
   let documentation = `**${component.fullTag}**\n\n`;
   documentation += `Type: ${component.type}\n`;
   documentation += `Path: \`${component.path}\`\n`;
@@ -336,15 +345,15 @@ function createComponentCompletionItem(component: ComponentItem): CompletionItem
     }
   }
   
-  // Build snippet with common props
-  let snippet = component.fullTag;
+  // Build snippet with common props - include the < prefix since we're replacing from there
+  let snippet = `<${component.fullTag}`;
   if (component.props && Array.isArray(component.props)) {
     const requiredProps = component.props.filter(p => p.required);
     if (requiredProps.length > 0) {
       const propsSnippet = requiredProps
         .map((p, i) => `:${p.name}="\${${i + 1}}"`)
         .join(' ');
-      snippet = `${component.fullTag} ${propsSnippet}`;
+      snippet = `<${component.fullTag} ${propsSnippet}`;
     }
   }
   
@@ -356,7 +365,7 @@ function createComponentCompletionItem(component: ComponentItem): CompletionItem
       kind: MarkupKind.Markdown,
       value: documentation,
     },
-    insertText: snippet.replace(/^x-/, ''), // Remove x- prefix since it's already typed
+    textEdit: TextEdit.replace(replaceRange, snippet),
     insertTextFormat: InsertTextFormat.Snippet,
     sortText: component.isVendor ? "1" + component.key : "0" + component.key,
   };
