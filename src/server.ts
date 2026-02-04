@@ -22,6 +22,7 @@ import {
   Connection,
 } from 'vscode-languageserver/node';
 import * as path from 'path';
+import * as fs from 'fs';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Tree } from './parser';
 import {
@@ -246,6 +247,11 @@ export namespace Server {
           items.push(...Completions.getComponentCompletions(textBeforeCursor, position));
         }
 
+        // Check for livewire component tag start
+        if (textBeforeCursor.endsWith('<livewire:') || /<livewire:[\w.-]*$/.test(textBeforeCursor)) {
+          items.push(...Completions.getLivewireCompletions(textBeforeCursor, position));
+        }
+
         // Check for component prop completion (inside component tag)
         const componentPropContext = Completions.getComponentPropContext(
           source,
@@ -324,6 +330,12 @@ export namespace Server {
         return componentHover;
       }
 
+      // Check for component prop hover
+      const propHover = Hovers.getPropHover(source, lineText, position.line, position.character);
+      if (propHover) {
+        return propHover;
+      }
+
       // Check for view hover in directives
       const viewHover = Hovers.getViewHover(lineText, position.character);
       if (viewHover) {
@@ -358,6 +370,17 @@ export namespace Server {
       const componentDefinition = Definitions.getComponentDefinition(currentLine, position.character);
       if (componentDefinition) {
         return componentDefinition;
+      }
+
+      // Check for component prop/attribute reference
+      const propDefinition = Definitions.getPropDefinition(
+        source,
+        currentLine,
+        position.line,
+        position.character
+      );
+      if (propDefinition) {
+        return propDefinition;
       }
 
       return null;
@@ -463,6 +486,73 @@ export namespace Completions {
     }
 
     return items;
+  }
+
+  export function getLivewireCompletions(textBeforeCursor: string, position: Position): CompletionItem[] {
+    const items: CompletionItem[] = [];
+
+    // Calculate the start position of the livewire tag (where '<livewire:' begins)
+    const match = textBeforeCursor.match(/<(livewire:[\w.-]*)$/);
+    const partialName = match ? match[1] : 'livewire:';
+    const matchedText = match ? match[0] : '<livewire:';
+    const startCharacter = position.character - matchedText.length;
+
+    const replaceRange = Range.create(Position.create(position.line, startCharacter), position);
+
+    if (!Laravel.isAvailable()) {
+      return items;
+    }
+
+    // Get Livewire components from views (views starting with 'livewire.')
+    const views = Views.getItems();
+    const livewireViews = views.filter((v) => v.key.startsWith('livewire.'));
+
+    for (const view of livewireViews) {
+      // Convert view key 'livewire.counter' to tag 'livewire:counter'
+      const componentName = view.key.replace('livewire.', '').replace(/\./g, '.');
+      const fullTag = `livewire:${componentName}`;
+
+      // Check if it matches the partial name being typed
+      if (fullTag.startsWith(partialName) || partialName === 'livewire:') {
+        items.push(createLivewireCompletionItem(view, componentName, replaceRange));
+      }
+    }
+
+    return items;
+  }
+
+  export function createLivewireCompletionItem(
+    view: ViewItem,
+    componentName: string,
+    replaceRange: Range
+  ): CompletionItem {
+    const fullTag = `livewire:${componentName}`;
+    let documentation = `**${fullTag}**\n\n`;
+    documentation += `**Type:** Livewire component\n\n`;
+    documentation += `**Path:** \`${view.path}\`\n`;
+
+    // Include Livewire-specific props if available
+    if (view.livewire?.props && view.livewire.props.length > 0) {
+      documentation += '\n**Props:**\n\n';
+      documentation += '| Name | Type |\n';
+      documentation += '|------|------|\n';
+      for (const prop of view.livewire.props) {
+        documentation += `| \`${prop.name}\` | ${prop.type} |\n`;
+      }
+    }
+
+    return {
+      label: fullTag,
+      kind: CompletionItemKind.Class,
+      detail: view.isVendor ? 'Livewire component (vendor)' : 'Livewire component',
+      documentation: {
+        kind: MarkupKind.Markdown,
+        value: documentation,
+      },
+      textEdit: TextEdit.replace(replaceRange, `<${fullTag}`),
+      insertTextFormat: InsertTextFormat.PlainText,
+      sortText: view.isVendor ? '1' + componentName : '0' + componentName,
+    };
   }
 
   export function createComponentCompletionItem(component: ComponentItem, replaceRange: Range): CompletionItem {
@@ -1092,6 +1182,51 @@ Contains all attributes passed to a component.
       };
     }
 
+    // Handle Livewire components
+    if (componentTag.startsWith('livewire:')) {
+      const componentName = componentTag.replace('livewire:', '');
+      const viewKey = `livewire.${componentName}`;
+      const view = Views.find(viewKey);
+
+      if (!view) {
+        return {
+          contents: {
+            kind: MarkupKind.Markdown,
+            value: `## ${componentTag}\n\nLivewire component (not found in project)`,
+          },
+        };
+      }
+
+      let content = `## ${componentTag}\n\n`;
+      content += `**Type:** Livewire component\n\n`;
+      content += `**Path:** \`${view.path}\`\n\n`;
+
+      if (view.livewire?.files && view.livewire.files.length > 0) {
+        content += '**Files:**\n';
+        for (const file of view.livewire.files) {
+          content += `- \`${file}\`\n`;
+        }
+        content += '\n';
+      }
+
+      if (view.livewire?.props && view.livewire.props.length > 0) {
+        content += '**Props:**\n\n';
+        content += '| Name | Type |\n';
+        content += '|------|------|\n';
+        for (const prop of view.livewire.props) {
+          content += `| \`${prop.name}\` | ${prop.type} |\n`;
+        }
+      }
+
+      return {
+        contents: {
+          kind: MarkupKind.Markdown,
+          value: content,
+        },
+      };
+    }
+
+    // Handle standard Blade components
     const component =
       Components.findByTag(componentTag) ||
       Components.find(componentTag.replace(/^x-/, ''));
@@ -1121,6 +1256,94 @@ Contains all attributes passed to a component.
         }
       }
     }
+
+    return {
+      contents: {
+        kind: MarkupKind.Markdown,
+        value: content,
+      },
+    };
+  }
+
+  /**
+   * Get hover info for a component prop/attribute
+   */
+  export function getPropHover(
+    source: string,
+    line: string,
+    lineNumber: number,
+    column: number
+  ): Hover | null {
+    // Check if we're inside a component tag
+    const context = Completions.getComponentPropContext(source, lineNumber, column);
+    if (!context) {
+      return null;
+    }
+
+    // Check if cursor is on an attribute name
+    const attrPattern = /(?::|)([\w-]+)(?:\s*=)?/g;
+    let match;
+    let propName: string | null = null;
+
+    while ((match = attrPattern.exec(line)) !== null) {
+      const attrStart = match.index;
+      const attrNameStart = match[0].startsWith(':') ? attrStart + 1 : attrStart;
+      const attrNameEnd = attrNameStart + match[1].length;
+
+      if (column >= attrNameStart && column <= attrNameEnd) {
+        propName = match[1];
+        break;
+      }
+    }
+
+    if (!propName) {
+      return null;
+    }
+
+    // Find the component
+    if (!Laravel.isAvailable()) {
+      return null;
+    }
+
+    const component =
+      Components.findByTag(context.componentName) ||
+      Components.find(context.componentName.replace(/^x-/, ''));
+
+    if (!component) {
+      return null;
+    }
+
+    // Find prop info
+    let propInfo: { name: string; type: string; required: boolean; default: unknown } | null = null;
+
+    if (component.props) {
+      if (typeof component.props === 'string') {
+        // Parse the @props string to find this specific prop
+        const parsed = Completions.parsePropsString(component.props);
+        propInfo = parsed.find((p) => p.name === propName) || null;
+      } else if (Array.isArray(component.props)) {
+        propInfo = component.props.find((p) => p.name === propName) || null;
+      }
+    }
+
+    // Build hover content
+    let content = `## \`${propName}\`\n\n`;
+    content += `**Component:** \`${context.componentName}\`\n\n`;
+
+    if (propInfo) {
+      content += `**Type:** \`${propInfo.type}\`\n\n`;
+      content += `**Required:** ${propInfo.required ? 'Yes' : 'No'}\n\n`;
+      if (propInfo.default !== null && propInfo.default !== undefined) {
+        const defaultStr = typeof propInfo.default === 'string' 
+          ? propInfo.default 
+          : JSON.stringify(propInfo.default);
+        content += `**Default:** \`${defaultStr}\`\n`;
+      }
+    } else {
+      content += `*Prop not found in \`@props\` directive*\n`;
+    }
+
+    content += `\n**Path:** \`${component.path}\``;
 
     return {
       contents: {
@@ -1333,6 +1556,24 @@ export namespace Definitions {
       return null;
     }
 
+    // Handle Livewire components (livewire:component-name)
+    if (componentTag.startsWith('livewire:')) {
+      const componentName = componentTag.replace('livewire:', '');
+      // Convert to view key format: livewire:counter -> livewire.counter
+      const viewKey = `livewire.${componentName}`;
+      const view = Views.find(viewKey);
+
+      if (view) {
+        const fullPath = path.join(workspaceRoot, view.path);
+        return {
+          uri: `file://${fullPath}`,
+          range: Range.create(0, 0, 0, 0),
+        };
+      }
+      return null;
+    }
+
+    // Handle standard Blade components (x-component-name)
     const component =
       Components.findByTag(componentTag) ||
       Components.find(componentTag.replace(/^x-/, ''));
@@ -1347,6 +1588,120 @@ export namespace Definitions {
       uri: `file://${fullPath}`,
       range: Range.create(0, 0, 0, 0),
     };
+  }
+
+  /**
+   * Get definition location for a component prop/attribute
+   */
+  export function getPropDefinition(
+    source: string,
+    line: string,
+    lineNumber: number,
+    column: number
+  ): Location | null {
+    // First, find which component tag we're inside
+    const context = Completions.getComponentPropContext(source, lineNumber, column);
+    if (!context) {
+      return null;
+    }
+
+    // Check if cursor is on an attribute name (not value)
+    // Match attribute patterns: propName, propName=, :propName, :propName=
+    const attrPattern = /(?::|)([\w-]+)(?:\s*=)?/g;
+    let match;
+    let propName: string | null = null;
+
+    while ((match = attrPattern.exec(line)) !== null) {
+      const attrStart = match.index;
+      const attrNameStart = match[0].startsWith(':') ? attrStart + 1 : attrStart;
+      const attrNameEnd = attrNameStart + match[1].length;
+
+      // Check if cursor is on the attribute name
+      if (column >= attrNameStart && column <= attrNameEnd) {
+        propName = match[1];
+        break;
+      }
+    }
+
+    if (!propName) {
+      return null;
+    }
+
+    // Find the component file
+    const workspaceRoot = Server.getWorkspaceRoot();
+    if (!Laravel.isAvailable() || !workspaceRoot) {
+      return null;
+    }
+
+    const component =
+      Components.findByTag(context.componentName) ||
+      Components.find(context.componentName.replace(/^x-/, ''));
+
+    if (!component) {
+      return null;
+    }
+
+    const fullPath = path.join(workspaceRoot, component.path);
+
+    // Read the component file and find the @props directive
+    try {
+      const content = fs.readFileSync(fullPath, 'utf-8');
+      const lines = content.split('\n');
+
+      for (let i = 0; i < lines.length; i++) {
+        const fileLine = lines[i];
+
+        // Look for @props directive
+        if (fileLine.includes('@props')) {
+          // Find the prop name in this line or subsequent lines
+          // Handle multi-line @props
+          let propsBlock = fileLine;
+          let endLine = i;
+
+          // If @props spans multiple lines, collect them
+          if (!fileLine.includes('])')) {
+            for (let j = i + 1; j < lines.length && j < i + 20; j++) {
+              propsBlock += '\n' + lines[j];
+              endLine = j;
+              if (lines[j].includes('])')) break;
+            }
+          }
+
+          // Find the prop name in the props block
+          // Match 'propName' patterns
+          const propPattern = new RegExp(`'(${propName})'`, 'g');
+          let propMatch;
+          let searchLine = i;
+          let searchCol = 0;
+
+          // Search through each line of the props block
+          for (let j = i; j <= endLine; j++) {
+            const searchInLine = lines[j];
+            propMatch = searchInLine.match(propPattern);
+            if (propMatch) {
+              searchLine = j;
+              searchCol = searchInLine.indexOf(`'${propName}'`);
+              break;
+            }
+          }
+
+          if (searchCol >= 0) {
+            return {
+              uri: `file://${fullPath}`,
+              range: Range.create(searchLine, searchCol, searchLine, searchCol + propName.length + 2),
+            };
+          }
+        }
+      }
+
+      // If no @props found, still go to the file
+      return {
+        uri: `file://${fullPath}`,
+        range: Range.create(0, 0, 0, 0),
+      };
+    } catch {
+      return null;
+    }
   }
 }
 

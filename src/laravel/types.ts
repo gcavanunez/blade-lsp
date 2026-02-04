@@ -7,6 +7,7 @@ export interface ViewItem {
   path: string;          // Relative path from project root
   isVendor: boolean;     // From vendor package
   namespace: string | null; // Package namespace if applicable
+  livewire?: LivewireInfo; // Livewire component info if applicable
 }
 
 export interface ComponentProp {
