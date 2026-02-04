@@ -4,10 +4,9 @@ error_reporting(E_ERROR | E_PARSE);
 
 define('LARAVEL_START', microtime(true));
 
-// __BLADE_LSP_PROJECT_ROOT__ will be replaced with the actual project path
-$projectRoot = '__BLADE_LSP_PROJECT_ROOT__';
-
-require_once $projectRoot . '/vendor/autoload.php';
+// Scripts are written to vendor/blade-lsp/ so paths are relative from there
+// This allows the same script to work in both local and Docker environments
+require_once __DIR__ . '/../autoload.php';
 
 class BladeLspHelper
 {
@@ -37,7 +36,7 @@ class BladeLspHelper
 }
 
 try {
-    $app = require_once $projectRoot . '/bootstrap/app.php';
+    $app = require_once __DIR__ . '/../../bootstrap/app.php';
 } catch (\Throwable $e) {
     BladeLspHelper::startupError($e);
     exit(1);

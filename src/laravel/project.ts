@@ -1,23 +1,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { Log } from '../utils/log';
 
 export interface LaravelProject {
   root: string;
   artisanPath: string;
   composerPath: string;
-  phpPath: string;
-  phpCommand?: string[];      // For Docker etc: ['docker', 'compose', 'exec', 'app', 'php']
-  phpDockerWorkdir?: string;  // Working directory inside Docker container
+  // Command array to execute PHP (e.g., ['php'], ['docker', 'compose', 'exec', 'app', 'php'])
+  phpCommand: string[];
   vendorPath: string;
   viewsPath: string;
   componentsPath: string;
 }
 
 export interface PhpOptions {
-  phpPath?: string;
+  // Command array to execute PHP (defaults to ['php'] if not provided)
   phpCommand?: string[];
-  phpDockerWorkdir?: string;
 }
 
 /**
@@ -63,48 +62,27 @@ export function detectLaravelProject(workspaceRoot: string, options: PhpOptions 
     return null;
   }
 
-  // Handle PHP command (for Docker, etc.)
+  // Determine PHP command
+  let phpCommand: string[];
+  
   if (options.phpCommand && options.phpCommand.length > 0) {
-    // Use the provided command array - first element is the binary, rest are args
-    return {
-      root: workspaceRoot,
-      artisanPath,
-      composerPath,
-      phpPath: options.phpCommand[0], // First element is the command
-      phpCommand: options.phpCommand,  // Full command array
-      phpDockerWorkdir: options.phpDockerWorkdir, // Path inside container
-      vendorPath,
-      viewsPath,
-      componentsPath,
-    };
-  }
-
-  // Find PHP binary - use custom path if provided, otherwise auto-detect
-  let phpPath: string | null = null;
-  
-  if (options.phpPath) {
-    // Verify the custom PHP path exists
-    if (fs.existsSync(options.phpPath)) {
-      phpPath = options.phpPath;
-    } else {
-      console.error(`[Laravel] Custom PHP path does not exist: ${options.phpPath}`);
-      // Fall back to auto-detection
-      phpPath = findPhpPath();
-    }
+    // Use the provided command array (e.g., ['docker', 'compose', 'exec', 'app', 'php'])
+    phpCommand = options.phpCommand;
   } else {
-    phpPath = findPhpPath();
-  }
-  
-  if (!phpPath) {
-    console.error('[Laravel] No PHP binary found');
-    return null;
+    // Auto-detect PHP binary
+    const phpPath = findPhpPath();
+    if (!phpPath) {
+      Log.Default.warn('No PHP binary found');
+      return null;
+    }
+    phpCommand = [phpPath];
   }
 
   return {
     root: workspaceRoot,
     artisanPath,
     composerPath,
-    phpPath,
+    phpCommand,
     vendorPath,
     viewsPath,
     componentsPath,

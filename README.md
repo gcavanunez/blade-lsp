@@ -156,13 +156,187 @@ npm run dev
 ```
 blade-lsp/
 ├── src/
-│   ├── server.ts      # Main LSP server
-│   ├── parser.ts      # Tree-sitter based Blade parser
-│   ├── directives.ts  # Directive definitions
-│   └── types/         # Type declarations
-├── dist/              # Built output
-├── package.json
-└── tsconfig.json
+│   ├── server.ts          # LSP server + Completions, Hovers, Definitions namespaces
+│   ├── parser.ts          # Tree-sitter Blade parser
+│   ├── directives.ts      # Built-in directive definitions
+│   ├── laravel/           # Laravel project integration
+│   │   ├── index.ts       # Laravel namespace (main entry)
+│   │   ├── context.ts     # LaravelContext namespace (state management)
+│   │   ├── project.ts     # Project detection & validation
+│   │   ├── php-runner.ts  # PhpRunner namespace (PHP script execution)
+│   │   ├── views.ts       # Views namespace
+│   │   ├── components.ts  # Components namespace
+│   │   ├── directives.ts  # Directives namespace (custom directives)
+│   │   └── types.ts       # Shared types
+│   ├── utils/             # Standalone utilities
+│   │   ├── context.ts     # Context.create() - AsyncLocalStorage wrapper
+│   │   ├── error.ts       # NamedError.create() - Typed errors with Zod
+│   │   ├── format-error.ts# FormatError() - User-facing error messages
+│   │   ├── log.ts         # Log.create() - Structured logging
+│   │   ├── lock.ts        # Lock.read/write() - Async read/write locks
+│   │   ├── defer.ts       # defer() - Cleanup with using/Symbol.dispose
+│   │   ├── retry.ts       # retry() - Exponential backoff
+│   │   └── lazy.ts        # lazy() - Lazy evaluation
+│   └── types/             # Type declarations
+├── scripts/               # PHP scripts for Laravel extraction
+│   ├── bootstrap-laravel.php
+│   ├── extract-views.php
+│   ├── extract-components.php
+│   └── extract-directives.php
+├── dist/                  # Built output
+└── vs-code-extension/     # VS Code client extension
+```
+
+## Architecture
+
+This LSP follows patterns inspired by [opencode](https://github.com/anthropics/opencode), using **export namespaces** instead of classes for module organization.
+
+### Namespace Module Pattern
+
+Each module exports a namespace containing related functions, types, and errors:
+
+```typescript
+// Instead of classes with singletons
+export namespace Views {
+  // Errors (Zod-validated, typed)
+  export const RefreshError = NamedError.create('ViewsRefreshError', z.object({ ... }));
+  export const NotFoundError = NamedError.create('ViewsNotFoundError', z.object({ ... }));
+
+  // Functions (not methods)
+  export async function refresh(): Promise<void> { ... }
+  export function find(key: string): ViewItem | undefined { ... }
+  export function get(key: string): ViewItem { ... } // throws NotFoundError
+}
+
+// Usage
+await Views.refresh();
+const view = Views.find('layouts.app');
+```
+
+### Error Handling
+
+Errors are defined using `NamedError.create()` with Zod schemas for type-safe error data:
+
+```typescript
+// Definition (inside namespace)
+export const TimeoutError = NamedError.create(
+  'PhpRunnerTimeoutError',
+  z.object({
+    timeoutMs: z.number(),
+    scriptName: z.string(),
+  })
+);
+
+// Throwing
+throw new PhpRunner.TimeoutError({ timeoutMs: 30000, scriptName: 'extract-views' });
+
+// Catching (type-safe)
+if (PhpRunner.TimeoutError.isInstance(error)) {
+  console.log(error.data.scriptName); // Type-safe access
+}
+
+// User-facing formatting
+const message = FormatError(error); // "PHP script 'extract-views' timed out after 30000ms"
+```
+
+### Context & State Management
+
+Global state is managed via `LaravelContext` using AsyncLocalStorage with a global fallback:
+
+```typescript
+// Set during initialization
+LaravelContext.setGlobal(state);
+
+// Access anywhere (throws if not available)
+const state = LaravelContext.use();
+const views = state.views.items;
+
+// Check availability
+if (LaravelContext.isAvailable()) { ... }
+```
+
+### Concurrency Control
+
+Async operations use `Lock` for mutual exclusion:
+
+```typescript
+export async function refresh(): Promise<void> {
+  using _ = await Lock.write('views-refresh');
+  // Only one refresh can run at a time
+  // Lock automatically released when scope exits
+}
+```
+
+### Utility Patterns
+
+| Utility | Purpose | Example |
+|---------|---------|---------|
+| `Lock.write(key)` | Exclusive async lock | `using _ = await Lock.write('refresh')` |
+| `Log.create(tags)` | Structured logging | `log.info('msg', { key: 'value' })` |
+| `Log.time(msg)` | Timing with auto-log | `using _ = log.time('operation')` |
+| `defer(fn)` | Cleanup on scope exit | `using _ = defer(() => cleanup())` |
+| `retry(fn, opts)` | Exponential backoff | `retry(() => fetch(), { attempts: 3 })` |
+| `lazy(fn)` | Lazy evaluation | `const value = lazy(() => expensive())` |
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         LSP Server                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
+│  │ Completions  │  │    Hovers    │  │    Definitions       │   │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘   │
+│         │                 │                      │               │
+│         └─────────────────┼──────────────────────┘               │
+│                           │                                      │
+│                           ▼                                      │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                    Laravel Namespace                        │  │
+│  │  ┌─────────┐  ┌────────────┐  ┌────────────┐               │  │
+│  │  │  Views  │  │ Components │  │ Directives │               │  │
+│  │  └────┬────┘  └─────┬──────┘  └─────┬──────┘               │  │
+│  │       │             │               │                       │  │
+│  │       └─────────────┼───────────────┘                       │  │
+│  │                     │                                       │  │
+│  │                     ▼                                       │  │
+│  │            ┌─────────────────┐                              │  │
+│  │            │  LaravelContext │ (global state)               │  │
+│  │            └────────┬────────┘                              │  │
+│  │                     │                                       │  │
+│  │                     ▼                                       │  │
+│  │            ┌─────────────────┐                              │  │
+│  │            │   PhpRunner     │ (executes PHP scripts)       │  │
+│  │            └────────┬────────┘                              │  │
+│  └─────────────────────┼──────────────────────────────────────┘  │
+└─────────────────────────┼────────────────────────────────────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │   Laravel Project     │
+              │  (vendor/blade-lsp/)  │
+              │                       │
+              │  PHP scripts execute  │
+              │  in Laravel context   │
+              └───────────────────────┘
+```
+
+### PHP Script Execution
+
+The LSP extracts data from Laravel by:
+
+1. Writing combined PHP scripts to `vendor/blade-lsp/`
+2. Executing via configured PHP command (local, Docker, Sail)
+3. Parsing JSON output between markers
+4. Caching results in `LaravelContext`
+
+```typescript
+// Scripts are cached by content hash
+const data = await PhpRunner.runScript<ViewItem[]>({
+  project: state.project,
+  scriptName: 'extract-views',
+  timeout: 30000,
+  retry: { attempts: 2, delay: 1000 },
+});
 ```
 
 ## Technical Notes

@@ -1,152 +1,188 @@
 /**
  * Laravel project integration module
- * 
+ *
  * Provides dynamic extraction of views, components, and directives
  * from a Laravel project via PHP script execution.
  */
 
+import z from 'zod';
+import { NamedError } from '../utils/error';
+import { Log } from '../utils/log';
+
 export { LaravelProject, detectLaravelProject, validateLaravelProject, getLaravelVersion } from './project';
-export { runPhpScript, runViaTinker, PhpRunnerOptions, PhpRunnerResult } from './php-runner';
-export { ViewRepository, viewRepository } from './repositories/views';
-export { ComponentRepository, componentRepository } from './repositories/components';
-export { DirectiveRepository, directiveRepository } from './repositories/directives';
+export { PhpRunner } from './php-runner';
+export { LaravelContext } from './context';
+export { Views } from './views';
+export { Components } from './components';
+export { Directives } from './directives';
 export * from './types';
 
 import { LaravelProject, detectLaravelProject, validateLaravelProject } from './project';
-import { viewRepository } from './repositories/views';
-import { componentRepository } from './repositories/components';
-import { directiveRepository } from './repositories/directives';
+import { LaravelContext } from './context';
+import { Views } from './views';
+import { Components } from './components';
+import { Directives } from './directives';
 
-/**
- * Options for Laravel manager initialization
- */
-export interface LaravelManagerOptions {
-  phpPath?: string;           // Path to PHP binary
-  phpCommand?: string[];      // Command array for Docker etc
-  phpDockerWorkdir?: string;  // Working directory inside Docker container
-}
+export namespace Laravel {
+  // ─── Errors ────────────────────────────────────────────────────────────────
 
-/**
- * Laravel Project Manager
- * Coordinates initialization and refreshing of all repositories
- */
-export class LaravelManager {
-  private project: LaravelProject | null = null;
-  private initialized: boolean = false;
-  private initPromise: Promise<boolean> | null = null;
+  export const NotDetectedError = NamedError.create(
+    'LaravelNotDetectedError',
+    z.object({
+      workspaceRoot: z.string(),
+    })
+  );
+
+  export const ValidationError = NamedError.create(
+    'LaravelValidationError',
+    z.object({
+      projectRoot: z.string(),
+      message: z.string().optional(),
+    })
+  );
+
+  export const NotAvailableError = NamedError.create(
+    'LaravelNotAvailableError',
+    z.object({
+      message: z.string().optional(),
+    })
+  );
+
+  // ─── Logger ────────────────────────────────────────────────────────────────
+
+  const log = Log.create({ service: 'laravel' });
+
+  // ─── Types ─────────────────────────────────────────────────────────────────
 
   /**
-   * Initialize the Laravel integration for a workspace
+   * Options for Laravel initialization
    */
-  async initialize(workspaceRoot: string, options: LaravelManagerOptions = {}): Promise<boolean> {
-    // Return existing initialization promise if in progress
-    if (this.initPromise) {
-      return this.initPromise;
+  export interface Options {
+    // Command array to execute PHP (defaults to ['php'] if not provided)
+    // Examples:
+    //   - Local: ['php'] or ['/usr/bin/php']
+    //   - Docker: ['docker', 'compose', 'exec', 'app', 'php']
+    //   - Sail: ['./vendor/bin/sail', 'php']
+    phpCommand?: string[];
+  }
+
+  let initPromise: Promise<boolean> | null = null;
+
+  /**
+   * Initialize the Laravel integration for a workspace.
+   * Returns true if initialization succeeded, false otherwise.
+   */
+  export async function initialize(workspaceRoot: string, options: Options = {}): Promise<boolean> {
+    if (initPromise) {
+      return initPromise;
     }
 
-    this.initPromise = this.doInitialize(workspaceRoot, options);
-    const result = await this.initPromise;
-    this.initPromise = null;
+    initPromise = doInitialize(workspaceRoot, options);
+    const result = await initPromise;
+    initPromise = null;
     return result;
   }
 
-  private async doInitialize(workspaceRoot: string, options: LaravelManagerOptions): Promise<boolean> {
-    console.log('[LaravelManager] Initializing for workspace:', workspaceRoot);
+  async function doInitialize(workspaceRoot: string, options: Options): Promise<boolean> {
+    log.info('Initializing', { workspaceRoot });
 
-    // Detect Laravel project with optional custom PHP path/command
-    this.project = detectLaravelProject(workspaceRoot, {
-      phpPath: options.phpPath,
+    const project = detectLaravelProject(workspaceRoot, {
       phpCommand: options.phpCommand,
-      phpDockerWorkdir: options.phpDockerWorkdir,
     });
-    
-    if (!this.project) {
-      console.log('[LaravelManager] No Laravel project detected');
+
+    if (!project) {
+      log.info('No Laravel project detected');
       return false;
     }
 
-    console.log('[LaravelManager] Laravel project detected at:', this.project.root);
-    if (this.project.phpCommand) {
-      console.log('[LaravelManager] Using PHP command:', this.project.phpCommand.join(' '));
-    } else {
-      console.log('[LaravelManager] Using PHP:', this.project.phpPath);
-    }
+    log.info('Laravel project detected', {
+      root: project.root,
+      phpCommand: project.phpCommand.join(' '),
+    });
 
-    // Validate the project can be bootstrapped
-    const valid = await validateLaravelProject(this.project);
+    const valid = await validateLaravelProject(project);
     if (!valid) {
-      console.log('[LaravelManager] Laravel project validation failed');
-      this.project = null;
+      log.warn('Laravel project validation failed');
       return false;
     }
 
-    // Initialize repositories
-    viewRepository.initialize(this.project);
-    componentRepository.initialize(this.project);
-    directiveRepository.initialize(this.project);
+    // Create and set the global context state
+    const state = LaravelContext.createState(project);
+    LaravelContext.setGlobal(state);
 
-    this.initialized = true;
-    console.log('[LaravelManager] Initialization complete');
+    log.info('Initialization complete');
 
     // Trigger initial refresh in background
-    this.refreshAll().catch(err => {
-      console.error('[LaravelManager] Initial refresh failed:', err);
+    refreshAll().catch((err) => {
+      log.error('Initial refresh failed', { error: err });
     });
 
     return true;
   }
 
   /**
-   * Refresh all repositories
+   * Refresh all data (views, components, directives).
+   * Runs all refreshes in parallel. Individual failures don't stop others.
    */
-  async refreshAll(): Promise<void> {
-    if (!this.initialized || !this.project) {
+  export async function refreshAll(): Promise<void> {
+    if (!LaravelContext.isAvailable()) {
       return;
     }
 
-    console.log('[LaravelManager] Refreshing all repositories...');
+    using timer = log.time('Refreshing all');
 
-    // Run all refreshes in parallel
     const results = await Promise.allSettled([
-      viewRepository.refresh(),
-      componentRepository.refresh(),
-      directiveRepository.refresh(),
+      Views.refresh(),
+      Components.refresh(),
+      Directives.refresh(),
     ]);
 
     const [viewResult, componentResult, directiveResult] = results;
 
-    console.log('[LaravelManager] Refresh complete:', {
-      views: viewResult.status === 'fulfilled' ? viewResult.value : false,
-      components: componentResult.status === 'fulfilled' ? componentResult.value : false,
-      directives: directiveResult.status === 'fulfilled' ? directiveResult.value : false,
+    // Log individual failures
+    if (viewResult.status === 'rejected') {
+      log.error('Views refresh failed', { error: viewResult.reason });
+    }
+    if (componentResult.status === 'rejected') {
+      log.error('Components refresh failed', { error: componentResult.reason });
+    }
+    if (directiveResult.status === 'rejected') {
+      log.error('Directives refresh failed', { error: directiveResult.reason });
+    }
+
+    log.info('Refresh complete', {
+      views: viewResult.status === 'fulfilled' ? 'ok' : 'failed',
+      components: componentResult.status === 'fulfilled' ? 'ok' : 'failed',
+      directives: directiveResult.status === 'fulfilled' ? 'ok' : 'failed',
     });
   }
 
   /**
-   * Check if Laravel integration is available
+   * Check if Laravel integration is available.
    */
-  isAvailable(): boolean {
-    return this.initialized && this.project !== null;
+  export function isAvailable(): boolean {
+    return LaravelContext.isAvailable();
   }
 
   /**
-   * Get the current Laravel project
+   * Get the current Laravel project.
    */
-  getProject(): LaravelProject | null {
-    return this.project;
+  export function getProject(): LaravelProject | null {
+    try {
+      return LaravelContext.use().project;
+    } catch {
+      return null;
+    }
   }
 
   /**
-   * Dispose of resources
+   * Dispose of resources.
    */
-  dispose(): void {
-    viewRepository.clear();
-    componentRepository.clear();
-    directiveRepository.clear();
-    this.project = null;
-    this.initialized = false;
+  export function dispose(): void {
+    Views.clear();
+    Components.clear();
+    Directives.clear();
+    LaravelContext.setGlobal(null);
+    log.info('Disposed');
   }
 }
-
-// Singleton instance
-export const laravelManager = new LaravelManager();
