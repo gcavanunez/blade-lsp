@@ -11,6 +11,8 @@
     "copy-scripts": "cp -r scripts dist/",
     "dev": "tsx src/server.ts --stdio",
     "start": "node dist/server.js --stdio",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "postinstall": "cd node_modules/tree-sitter-blade && npx node-gyp rebuild || true"
   },
@@ -23,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "prettier": "^3.8.1",
     "tsx": "^4.19.0",
     "typescript": "^5.4.0"
   },
