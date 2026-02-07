@@ -1,42 +1,57 @@
 {
-  "name": "blade-lsp",
-  "version": "0.1.0",
-  "description": "Language Server Protocol implementation for Laravel Blade templates",
-  "main": "dist/server.js",
-  "bin": {
-    "blade-lsp": "./dist/server.js"
-  },
-  "scripts": {
-    "build": "tsc && npm run copy-scripts",
-    "copy-scripts": "cp -r scripts dist/",
-    "dev": "tsx src/server.ts --stdio",
-    "start": "node dist/server.js --stdio",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit",
-    "postinstall": "cd node_modules/tree-sitter-blade && npx node-gyp rebuild || true"
-  },
-  "dependencies": {
-    "tree-sitter": "0.20.6",
-    "tree-sitter-blade": "^0.11.0",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "prettier": "^3.8.1",
-    "tsx": "^4.19.0",
-    "typescript": "^5.4.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [
-    "laravel",
-    "blade",
-    "lsp",
-    "language-server"
-  ],
-  "license": "MIT"
+    "name": "blade-lsp",
+    "version": "0.1.0",
+    "description": "Language Server Protocol implementation for Laravel Blade templates",
+    "main": "dist/server.js",
+    "bin": {
+        "blade-lsp": "./dist/server.js"
+    },
+    "scripts": {
+        "build": "tsc && npm run copy-scripts && npm run copy-wasm",
+        "copy-wasm": "cp ./tree-sitter-blade.wasm dist/",
+        "copy-scripts": "cp -r scripts dist/",
+        "build:wasm": "npx tree-sitter build --wasm -o tree-sitter-blade.wasm node_modules/tree-sitter-blade",
+        "dev": "tsx src/server.ts --stdio",
+        "start": "node dist/server.js --stdio",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "dependencies": {
+        "vscode-languageserver": "^9.0.1",
+        "vscode-languageserver-textdocument": "^1.0.11",
+        "web-tree-sitter": "^0.26.5",
+        "zod": "^4.3.6"
+    },
+    "optionalDependencies": {
+        "tree-sitter": "0.20.6",
+        "tree-sitter-blade": "^0.11.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.2",
+        "@types/node": "^22.0.0",
+        "eslint": "^9.39.2",
+        "eslint-config-prettier": "^10.1.8",
+        "prettier": "^3.8.1",
+        "tree-sitter-cli": "^0.24.5",
+        "tsx": "^4.19.0",
+        "typescript": "^5.4.0",
+        "typescript-eslint": "^8.54.0",
+        "vitest": "^4.0.18",
+        "vscode-languageclient": "^9.0.1"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "keywords": [
+        "laravel",
+        "blade",
+        "lsp",
+        "language-server"
+    ],
+    "license": "MIT"
 }

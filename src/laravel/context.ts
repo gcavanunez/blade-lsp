@@ -1,90 +1,86 @@
 import { Context } from '../utils/context';
-import { LaravelProject } from './project';
+import { Project } from './project';
 import { ViewItem, ComponentItem, CustomDirective } from './types';
 
 export namespace LaravelContext {
-  export interface State {
-    project: LaravelProject;
-    views: {
-      items: ViewItem[];
-      lastUpdated: number;
-    };
-    components: {
-      items: ComponentItem[];
-      prefixes: string[];
-      lastUpdated: number;
-    };
-    directives: {
-      items: CustomDirective[];
-      lastUpdated: number;
-    };
-  }
-
-  // Global state for long-running processes (like LSP server)
-  let globalState: State | null = null;
-
-  // AsyncLocalStorage context for explicit scoping
-  const ctx = Context.create<State>('Laravel');
-
-  /**
-   * Set the global state (used during initialization)
-   */
-  export function setGlobal(state: State | null): void {
-    globalState = state;
-  }
-
-  /**
-   * Get the current Laravel context.
-   * Checks AsyncLocalStorage first, then falls back to global state.
-   * Throws if not available.
-   */
-  export function use(): State {
-    try {
-      return ctx.use();
-    } catch {
-      if (globalState) return globalState;
-      throw new Context.NotFound('Laravel');
+    export interface State {
+        project: Project.LaravelProject;
+        views: {
+            items: ViewItem[];
+            lastUpdated: number;
+        };
+        components: {
+            items: ComponentItem[];
+            prefixes: string[];
+            lastUpdated: number;
+        };
+        directives: {
+            items: CustomDirective[];
+            lastUpdated: number;
+        };
     }
-  }
 
-  /**
-   * Run a function within an explicit Laravel context.
-   */
-  export function provide<R>(state: State, fn: () => R): R {
-    return ctx.provide(state, fn);
-  }
+    // AsyncLocalStorage context — the single source of truth
+    const ctx = Context.create<State>('Laravel');
 
-  /**
-   * Check if we're currently in a Laravel context.
-   */
-  export function isAvailable(): boolean {
-    try {
-      use();
-      return true;
-    } catch {
-      return false;
+    // Internal reference to the current state (used by provide())
+    let current: State | null = null;
+
+    /**
+     * Set the current state (called during initialization).
+     * This does NOT make the state available to `use()` — you must
+     * call `provide(fn)` to scope it for handler execution.
+     */
+    export function set(state: State | null): void {
+        current = state;
     }
-  }
 
-  /**
-   * Create a new state object for a Laravel project.
-   */
-  export function createState(project: LaravelProject): State {
-    return {
-      project,
-      views: {
-        items: [],
-        lastUpdated: 0,
-      },
-      components: {
-        items: [],
-        prefixes: [],
-        lastUpdated: 0,
-      },
-      directives: {
-        items: [],
-        lastUpdated: 0,
-      },
-    };
-  }
+    /**
+     * Get the stored state reference (for inspection/disposal).
+     * Prefer `use()` inside request handlers.
+     */
+    export function get(): State | null {
+        return current;
+    }
+
+    /**
+     * Run `fn` within the Laravel context scope.
+     * All calls to `use()` inside `fn` (and its async descendants)
+     * will resolve to the current state.
+     */
+    export function provide<R>(fn: () => R): R {
+        if (!current) {
+            throw new Context.NotFound('Laravel');
+        }
+        return ctx.provide(current, fn);
+    }
+
+    /**
+     * Get the current Laravel context from AsyncLocalStorage.
+     * Must be called inside a `provide()` scope.
+     */
+    export const use = ctx.use;
+
+    export function isAvailable(): boolean {
+        return current !== null;
+    }
+
+    export function createState(project: Project.LaravelProject): State {
+        return {
+            project,
+            views: {
+                items: [],
+                lastUpdated: 0,
+            },
+            components: {
+                items: [],
+                prefixes: [],
+                lastUpdated: 0,
+            },
+            directives: {
+                items: [],
+                lastUpdated: 0,
+            },
+        };
+    }
 }
