@@ -1,6 +1,6 @@
 # Laravel Blade LSP
 
-A Language Server Protocol implementation for Laravel Blade templates, built with TypeScript, Node.js, and tree-sitter-blade.
+Built with TypeScript, Node.js, and tree-sitter-blade.
 
 ## Installation
 
