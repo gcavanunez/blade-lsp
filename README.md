@@ -2,11 +2,11 @@
 
 Built with TypeScript, Node.js, and tree-sitter-blade.
 
-## Installation
+## Installation (Development)
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/blade-lsp.git
+git clone https://github.com/gcavanunez/blade-lsp.git
 cd blade-lsp
 
 # Install dependencies (includes native tree-sitter build)
