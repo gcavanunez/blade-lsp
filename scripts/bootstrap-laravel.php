@@ -4,11 +4,9 @@ error_reporting(E_ERROR | E_PARSE);
 
 define('LARAVEL_START', microtime(true));
 
-// Scripts are written to vendor/blade-lsp/ so paths are relative from there
-// This allows the same script to work in both local and Docker environments
 require_once __DIR__ . '/../autoload.php';
 
-class BladeLspHelper
+class LaravelVsCode
 {
     public static function relativePath($path)
     {
@@ -26,7 +24,7 @@ class BladeLspHelper
 
     public static function outputMarker($key)
     {
-        return '__BLADE_LSP_' . $key . '__';
+        return '__VSCODE_LARAVEL_' . $key . '__';
     }
 
     public static function startupError(\Throwable $e)
@@ -38,7 +36,7 @@ class BladeLspHelper
 try {
     $app = require_once __DIR__ . '/../../bootstrap/app.php';
 } catch (\Throwable $e) {
-    BladeLspHelper::startupError($e);
+    LaravelVsCode::startupError($e);
     exit(1);
 }
 
@@ -60,12 +58,12 @@ try {
     $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
     $kernel->bootstrap();
 } catch (\Throwable $e) {
-    BladeLspHelper::startupError($e);
+    LaravelVsCode::startupError($e);
     exit(1);
 }
 
-echo BladeLspHelper::outputMarker('START_OUTPUT');
-__BLADE_LSP_OUTPUT__;
-echo BladeLspHelper::outputMarker('END_OUTPUT');
+echo LaravelVsCode::outputMarker('START_OUTPUT');
+__VSCODE_LARAVEL_OUTPUT__;
+echo LaravelVsCode::outputMarker('END_OUTPUT');
 
 exit(0);

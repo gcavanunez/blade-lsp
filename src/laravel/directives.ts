@@ -36,7 +36,7 @@ export namespace Directives {
         try {
             const data = await PhpRunner.runScript<CustomDirective[]>({
                 project: state.project,
-                scriptName: 'extract-directives',
+                scriptName: 'blade-directives',
                 timeout: 30000,
                 retry: { attempts: 2, delay: 1000 },
             });

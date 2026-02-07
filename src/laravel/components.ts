@@ -3,7 +3,7 @@ import { NamedError } from '../utils/error';
 import { Lock } from '../utils/lock';
 import { PhpRunner } from './php-runner';
 import { LaravelContext } from './context';
-import { ComponentItem, ComponentsResult } from './types';
+import { ComponentItem, ComponentsRawResult } from './types';
 
 export namespace Components {
     // ─── Errors ────────────────────────────────────────────────────────────────
@@ -34,15 +34,24 @@ export namespace Components {
         const state = LaravelContext.use();
 
         try {
-            const data = await PhpRunner.runScript<ComponentsResult>({
+            const raw = await PhpRunner.runScript<ComponentsRawResult>({
                 project: state.project,
-                scriptName: 'extract-components',
+                scriptName: 'blade-components',
                 timeout: 30000,
                 retry: { attempts: 2, delay: 1000 },
             });
 
-            state.components.items = data.components;
-            state.components.prefixes = data.prefixes;
+            // Normalize keyed object into flat array
+            const items: ComponentItem[] = Object.entries(raw.components).map(([key, data]) => ({
+                key,
+                path: data.paths[0] ?? '',
+                paths: data.paths,
+                isVendor: data.isVendor,
+                props: data.props,
+            }));
+
+            state.components.items = items;
+            state.components.prefixes = raw.prefixes;
             state.components.lastUpdated = Date.now();
         } catch (error) {
             throw new RefreshError(
@@ -70,10 +79,41 @@ export namespace Components {
     }
 
     /**
-     * Find a component by tag.
+     * Find a component by tag name (e.g., 'x-button', 'flux:button').
+     * Derives the key from the tag and looks it up.
      */
     export function findByTag(tag: string): ComponentItem | undefined {
-        return getItems().find((c) => c.fullTag === tag);
+        const key = tagToKey(tag);
+        return find(key);
+    }
+
+    /**
+     * Convert a tag name to a component key.
+     * 'x-button' -> 'button'
+     * 'x-turbo::frame' -> 'turbo::frame'
+     * 'flux:button' -> 'flux::button' (single colon tags map to double colon keys)
+     */
+    function tagToKey(tag: string): string {
+        if (tag.startsWith('x-')) {
+            return tag.slice(2);
+        }
+        // flux:button -> flux::button
+        const colonIndex = tag.indexOf(':');
+        if (colonIndex !== -1 && tag[colonIndex + 1] !== ':') {
+            return tag.slice(0, colonIndex) + '::' + tag.slice(colonIndex + 1);
+        }
+        return tag;
+    }
+
+    /**
+     * Derive a display tag from a component key.
+     * 'button' -> 'x-button'
+     * 'turbo::frame' -> 'x-turbo::frame'
+     * Keys with '::' that have flux prefix also get 'flux:' form.
+     */
+    export function keyToTag(key: string): string {
+        // Keys with :: keep it: 'turbo::frame' -> 'x-turbo::frame'
+        return `x-${key}`;
     }
 
     /**

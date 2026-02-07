@@ -85,9 +85,9 @@ export namespace PhpRunner {
 
     // Output markers used by bootstrap script
     const OUTPUT_MARKERS = {
-        START: '__BLADE_LSP_START_OUTPUT__',
-        END: '__BLADE_LSP_END_OUTPUT__',
-        STARTUP_ERROR: '__BLADE_LSP_STARTUP_ERROR__',
+        START: '__VSCODE_LARAVEL_START_OUTPUT__',
+        END: '__VSCODE_LARAVEL_END_OUTPUT__',
+        STARTUP_ERROR: '__VSCODE_LARAVEL_STARTUP_ERROR__',
     };
 
     // Directory inside vendor where we write PHP scripts
@@ -175,7 +175,7 @@ export namespace PhpRunner {
             .replace(/^<\?php\s*/, '') // Remove opening PHP tag
             .trim();
 
-        return bootstrapContent.replace('__BLADE_LSP_OUTPUT__;', extractCode);
+        return bootstrapContent.replace('__VSCODE_LARAVEL_OUTPUT__;', extractCode);
     }
 
     /**

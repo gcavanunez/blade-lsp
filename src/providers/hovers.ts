@@ -4,6 +4,7 @@ import { BladeDirectives } from '../directives';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
+import type { ComponentProp } from '../laravel/types';
 
 export namespace Hovers {
     export function formatDirective(directive: BladeDirectives.Directive): string {
@@ -147,8 +148,8 @@ Contains all attributes passed to a component.
             };
         }
 
-        let content = `## ${component.fullTag}\n\n`;
-        content += `**Type:** ${component.type}\n\n`;
+        const fullTag = Components.keyToTag(component.key);
+        let content = `## ${fullTag}\n\n`;
         content += `**Path:** \`${component.path}\`\n\n`;
 
         if (component.props) {
@@ -159,7 +160,8 @@ Contains all attributes passed to a component.
                 content += '| Name | Type | Required |\n';
                 content += '|------|------|----------|\n';
                 for (const prop of component.props) {
-                    content += `| \`${prop.name}\` | ${prop.type} | ${prop.required ? 'Yes' : 'No'} |\n`;
+                    const hasDefault = prop.default !== null && prop.default !== undefined;
+                    content += `| \`${prop.name}\` | ${prop.type} | ${hasDefault ? 'No' : 'Yes'} |\n`;
                 }
             }
         }
@@ -215,7 +217,7 @@ Contains all attributes passed to a component.
         }
 
         // Find prop info
-        let propInfo: { name: string; type: string; required: boolean; default: unknown } | null = null;
+        let propInfo: ComponentProp | null = null;
 
         if (component.props) {
             if (typeof component.props === 'string') {
@@ -232,8 +234,9 @@ Contains all attributes passed to a component.
         content += `**Component:** \`${context.componentName}\`\n\n`;
 
         if (propInfo) {
+            const hasDefault = propInfo.default !== null && propInfo.default !== undefined;
             content += `**Type:** \`${propInfo.type}\`\n\n`;
-            content += `**Required:** ${propInfo.required ? 'Yes' : 'No'}\n\n`;
+            content += `**Required:** ${hasDefault ? 'No' : 'Yes'}\n\n`;
             if (propInfo.default !== null && propInfo.default !== undefined) {
                 const defaultStr =
                     typeof propInfo.default === 'string' ? propInfo.default : JSON.stringify(propInfo.default);
@@ -324,8 +327,10 @@ Contains all attributes passed to a component.
 
         let content = `## ${view.key}\n\n`;
         content += `**Path:** \`${view.path}\`\n\n`;
-        if (view.namespace) {
-            content += `**Namespace:** \`${view.namespace}\`\n\n`;
+        // Derive namespace from key if it contains '::'
+        const nsMatch = view.key.match(/^([^:]+)::/);
+        if (nsMatch) {
+            content += `**Namespace:** \`${nsMatch[1]}\`\n\n`;
         }
         if (view.isVendor) {
             content += `*Vendor package view*\n`;
@@ -395,7 +400,7 @@ Contains all attributes passed to a component.
         }
 
         let content = `## Slot: \`${slotName}\`\n\n`;
-        content += `**Component:** \`${component.fullTag}\`\n\n`;
+        content += `**Component:** \`${Components.keyToTag(component.key)}\`\n\n`;
         content += `**Path:** \`${component.path}\`\n\n`;
         content += `*Named slot passed to the component*`;
 

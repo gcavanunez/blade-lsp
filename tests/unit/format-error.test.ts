@@ -11,10 +11,10 @@ describe('FormatError', () => {
     describe('PhpRunner errors', () => {
         it('formats ScriptNotFoundError', () => {
             const err = new PhpRunner.ScriptNotFoundError({
-                script: 'extract-views',
-                path: '/tmp/scripts/extract-views.php',
+                script: 'views',
+                path: '/tmp/scripts/views.php',
             });
-            expect(FormatError(err)).toBe("PHP script 'extract-views' not found at /tmp/scripts/extract-views.php");
+            expect(FormatError(err)).toBe("PHP script 'views' not found at /tmp/scripts/views.php");
         });
 
         it('formats VendorDirError', () => {
@@ -28,8 +28,8 @@ describe('FormatError', () => {
         });
 
         it('formats TimeoutError', () => {
-            const err = new PhpRunner.TimeoutError({ timeoutMs: 30000, scriptName: 'extract-views' });
-            expect(FormatError(err)).toBe("PHP script 'extract-views' timed out after 30000ms");
+            const err = new PhpRunner.TimeoutError({ timeoutMs: 30000, scriptName: 'views' });
+            expect(FormatError(err)).toBe("PHP script 'views' timed out after 30000ms");
         });
 
         it('formats StartupError', () => {

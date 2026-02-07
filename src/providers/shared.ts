@@ -172,18 +172,23 @@ export namespace Shared {
         const lines = source.split('\n');
         let depth = 0;
 
+        // Regex for self-closing component tags (excluding x-slot):
+        //   <x-button />, <x-button/>, <x-card prop="val" />, <flux:button />
+        const selfClosingPattern = /<(x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)(?:\s[^>]*)?\s*\/>/g;
+
         for (let i = currentLine; i >= 0; i--) {
             const line = lines[i];
 
+            // Strip self-closing tags from the line before counting opens/closes.
+            // Self-closing tags are neither opening nor closing — they don't affect depth.
+            const stripped = line.replace(selfClosingPattern, '');
+
             // Count closing tags (excluding x-slot), including namespaced like </x-turbo::frame>
-            const closingTags = line.match(/<\/x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?>/g);
+            const closingTags = stripped.match(/<\/x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?>/g);
             if (closingTags) depth += closingTags.length;
 
-            // Count closing x-slot tags separately (they don't affect component depth)
-            // Self-closing tags don't affect depth
-
             // Find opening tags (excluding x-slot), including namespaced like <x-turbo::frame
-            const openingMatch = line.match(/<(x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)(?:\s|>)/);
+            const openingMatch = stripped.match(/<(x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)(?:\s|>)/);
             if (openingMatch) {
                 if (depth === 0) {
                     return openingMatch[1];

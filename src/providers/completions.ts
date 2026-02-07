@@ -15,6 +15,7 @@ import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import type { ViewItem, ComponentItem, CustomDirective } from '../laravel/types';
+import { Components as ComponentsNs } from '../laravel/components';
 import { Server } from '../server';
 
 export namespace Completions {
@@ -49,10 +50,10 @@ export namespace Completions {
         return {
             label: `@${directive.name}`,
             kind: CompletionItemKind.Keyword,
-            detail: directive.file ? `Custom directive (${directive.file})` : 'Custom directive',
+            detail: 'Custom directive',
             documentation: {
                 kind: MarkupKind.Markdown,
-                value: `Custom Blade directive \`@${directive.name}\`${directive.file ? `\n\nDefined in: \`${directive.file}:${directive.line}\`` : ''}`,
+                value: `Custom Blade directive \`@${directive.name}\``,
             },
             insertText: snippetText.slice(prefix.length),
             insertTextFormat: directive.hasParams ? InsertTextFormat.Snippet : InsertTextFormat.PlainText,
@@ -86,14 +87,9 @@ export namespace Completions {
         const components = Components.getItems();
 
         for (const component of components) {
-            // Normalize fullTag: namespaced components (e.g. "turbo::frame") from the
-            // PHP extraction may lack the "x-" prefix. The VS Code extension handles
-            // this on the TS side: keys with "::" get "x-" prepended, keys with a
-            // single ":" (e.g. "flux:button") stay as-is.
-            const fullTag =
-                component.fullTag.includes('::') && !component.fullTag.startsWith('x-')
-                    ? `x-${component.fullTag}`
-                    : component.fullTag;
+            // Derive tag from key: keys with "::" get "x-" prepended,
+            // e.g. "button" -> "x-button", "turbo::frame" -> "x-turbo::frame"
+            const fullTag = ComponentsNs.keyToTag(component.key);
 
             if (fullTag.startsWith(partialName)) {
                 items.push(createComponentCompletionItem(component, replaceRange, fullTag));
@@ -175,9 +171,8 @@ export namespace Completions {
         replaceRange: Range,
         fullTagOverride?: string,
     ): CompletionItem {
-        const fullTag = fullTagOverride ?? component.fullTag;
+        const fullTag = fullTagOverride ?? ComponentsNs.keyToTag(component.key);
         let documentation = `**${fullTag}**\n\n`;
-        documentation += `Type: ${component.type}\n`;
         documentation += `Path: \`${component.path}\`\n`;
 
         if (component.props) {
@@ -186,7 +181,8 @@ export namespace Completions {
             } else if (Array.isArray(component.props) && component.props.length > 0) {
                 documentation += '\n**Props:**\n';
                 for (const prop of component.props) {
-                    const required = prop.required ? '(required)' : '';
+                    const hasDefault = prop.default !== null && prop.default !== undefined;
+                    const required = !hasDefault ? '(required)' : '';
                     documentation += `- \`${prop.name}\`: ${prop.type} ${required}\n`;
                 }
             }
@@ -195,7 +191,7 @@ export namespace Completions {
         // Build snippet with common props - include the < prefix since we're replacing from there
         let snippet = `<${fullTag}`;
         if (component.props && Array.isArray(component.props)) {
-            const requiredProps = component.props.filter((p) => p.required);
+            const requiredProps = component.props.filter((p) => p.default === null || p.default === undefined);
             if (requiredProps.length > 0) {
                 const propsSnippet = requiredProps.map((p, i) => `:${p.name}="\${${i + 1}}"`).join(' ');
                 snippet = `<${fullTag} ${propsSnippet}`;
@@ -382,7 +378,7 @@ export namespace Completions {
             detail: view.isVendor ? `View (vendor)` : `View`,
             documentation: {
                 kind: MarkupKind.Markdown,
-                value: `**${view.key}**\n\nPath: \`${view.path}\`${view.namespace ? `\nNamespace: \`${view.namespace}\`` : ''}`,
+                value: `**${view.key}**\n\nPath: \`${view.path}\``,
             },
             sortText: view.isVendor ? '1' + view.key : '0' + view.key,
         };
@@ -418,7 +414,8 @@ export namespace Completions {
             } else if (Array.isArray(component.props)) {
                 for (const prop of component.props) {
                     if (!existingProps.includes(prop.name)) {
-                        items.push(createPropCompletionItem(prop.name, prop.type, prop.required, prop.default));
+                        const isRequired = prop.default === null || prop.default === undefined;
+                        items.push(createPropCompletionItem(prop.name, prop.type, isRequired, prop.default));
                     }
                 }
             }
@@ -486,7 +483,7 @@ export namespace Completions {
                         detail: `Named slot in ${component.key}`,
                         documentation: {
                             kind: MarkupKind.Markdown,
-                            value: `Slot \`${slot.name}\` from component \`${component.fullTag}\``,
+                            value: `Slot \`${slot.name}\` from component \`${ComponentsNs.keyToTag(component.key)}\``,
                         },
                         insertText,
                         insertTextFormat: InsertTextFormat.Snippet,

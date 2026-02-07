@@ -36,7 +36,7 @@ export namespace Views {
         try {
             const data = await PhpRunner.runScript<ViewItem[]>({
                 project: state.project,
-                scriptName: 'extract-views',
+                scriptName: 'views',
                 timeout: 30000,
                 retry: { attempts: 2, delay: 1000 },
             });

@@ -8,7 +8,7 @@
 
 import { LaravelContext } from '../../src/laravel/context';
 import { Laravel } from '../../src/laravel/index';
-import type { ViewItem, ComponentItem, CustomDirective, ComponentProp } from '../../src/laravel/types';
+import type { ViewItem, ComponentItem, CustomDirective, ComponentProp, LivewireProp } from '../../src/laravel/types';
 import { Project } from '../../src/laravel/project';
 import { PhpEnvironment } from '../../src/laravel/php-environment';
 
@@ -19,72 +19,87 @@ export const DEFAULT_VIEWS: ViewItem[] = [
         key: 'layouts.app',
         path: 'resources/views/layouts/app.blade.php',
         isVendor: false,
-        namespace: null,
     },
     {
         key: 'partials.header',
         path: 'resources/views/partials/header.blade.php',
         isVendor: false,
-        namespace: null,
     },
     {
         key: 'partials.footer',
         path: 'resources/views/partials/footer.blade.php',
         isVendor: false,
-        namespace: null,
     },
     {
         key: 'components.alert',
         path: 'resources/views/components/alert.blade.php',
         isVendor: false,
-        namespace: null,
     },
     {
         key: 'mail::message',
         path: 'vendor/laravel/framework/src/Illuminate/Mail/resources/views/markdown/message.blade.php',
         isVendor: true,
-        namespace: 'mail',
     },
 ];
 
 export const DEFAULT_COMPONENT_PROPS: ComponentProp[] = [
-    { name: 'type', type: 'string', required: false, default: 'button' },
-    { name: 'variant', type: 'string', required: false, default: 'primary' },
-    { name: 'disabled', type: 'bool', required: false, default: false },
+    { name: 'type', type: 'string', default: 'button' },
+    { name: 'variant', type: 'string', default: 'primary' },
+    { name: 'disabled', type: 'bool', default: false },
 ];
 
 export const DEFAULT_COMPONENTS: ComponentItem[] = [
     {
         key: 'button',
-        fullTag: 'x-button',
         path: 'resources/views/components/button.blade.php',
+        paths: ['resources/views/components/button.blade.php'],
         isVendor: false,
-        type: 'anonymous',
         props: DEFAULT_COMPONENT_PROPS,
     },
     {
         key: 'alert',
-        fullTag: 'x-alert',
         path: 'app/View/Components/Alert.php',
+        paths: ['app/View/Components/Alert.php'],
         isVendor: false,
-        type: 'class',
-        class: 'App\\View\\Components\\Alert',
         props: [
-            { name: 'type', type: 'string', required: true, default: undefined },
-            { name: 'message', type: 'string', required: true, default: undefined },
-            { name: 'dismissible', type: 'bool', required: false, default: true },
+            { name: 'type', type: 'string', default: null },
+            { name: 'message', type: 'string', default: null },
+            { name: 'dismissible', type: 'bool', default: true },
         ],
     },
     {
         key: 'flux::button',
-        fullTag: 'flux:button',
         path: 'vendor/livewire/flux/resources/views/components/button.blade.php',
+        paths: ['vendor/livewire/flux/resources/views/components/button.blade.php'],
         isVendor: true,
-        type: 'vendor',
         props: [
-            { name: 'variant', type: 'string', required: false, default: 'primary' },
-            { name: 'size', type: 'string', required: false, default: 'md' },
+            { name: 'variant', type: 'string', default: 'primary' },
+            { name: 'size', type: 'string', default: 'md' },
         ],
+    },
+];
+
+export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
+    {
+        key: 'livewire.counter',
+        path: 'resources/views/livewire/counter.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [
+                { name: 'count', type: 'int', hasDefaultValue: true, defaultValue: 0 },
+                { name: 'label', type: 'string', hasDefaultValue: false, defaultValue: null },
+            ],
+            files: ['app/Livewire/Counter.php', 'resources/views/livewire/counter.blade.php'],
+        },
+    },
+    {
+        key: 'livewire.search-bar',
+        path: 'resources/views/livewire/search-bar.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: ['app/Livewire/SearchBar.php'],
+        },
     },
 ];
 
@@ -94,20 +109,14 @@ export const DEFAULT_DIRECTIVES: CustomDirective[] = [
     {
         name: 'datetime',
         hasParams: true,
-        file: 'app/Providers/AppServiceProvider.php',
-        line: 25,
     },
     {
         name: 'money',
         hasParams: true,
-        file: 'app/Providers/AppServiceProvider.php',
-        line: 30,
     },
     {
         name: 'admin',
         hasParams: false,
-        file: 'app/Providers/AppServiceProvider.php',
-        line: 35,
     },
 ];
 
@@ -142,7 +151,7 @@ export function createMockLaravelState(overrides?: MockLaravelOverrides): Larave
     return {
         project,
         views: {
-            items: overrides?.views ?? DEFAULT_VIEWS,
+            items: overrides?.views ?? [...DEFAULT_VIEWS, ...DEFAULT_LIVEWIRE_VIEWS],
             lastUpdated: Date.now(),
         },
         components: {

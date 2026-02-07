@@ -106,7 +106,7 @@ describe('LaravelContext.provide() pipeline', () => {
 
         // Component details only reachable via provide() → use()
         expect(value).toContain('alert');
-        expect(value).toContain('class');
+        expect(value).toContain('app/View/Components/Alert.php');
 
         await doc.close();
     });
