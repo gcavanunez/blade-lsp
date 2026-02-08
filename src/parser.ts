@@ -101,6 +101,10 @@ export namespace BladeParser {
 
     /**
      * Check if a position is inside a directive parameter.
+     *
+     * In tree-sitter-blade >=0.12, directive parameters are `parameter` nodes
+     * that sit between `(` and `)` siblings inside directive containers
+     * (conditional, loop, section, etc.).
      */
     export function isInsideDirectiveParameter(tree: Tree, row: number, column: number): boolean {
         const node = findNodeAtPosition(tree, row, column);
@@ -108,11 +112,7 @@ export namespace BladeParser {
 
         let current: SyntaxNode | null = node;
         while (current) {
-            if (
-                current.type === 'parameter' ||
-                current.type === 'bracket_parameter' ||
-                current.type === 'directive_parameter'
-            ) {
+            if (current.type === 'parameter') {
                 return true;
             }
             current = current.parent;
@@ -122,6 +122,11 @@ export namespace BladeParser {
 
     /**
      * Check if a position is inside an echo statement.
+     *
+     * In tree-sitter-blade >=0.12, echo statements are parsed as:
+     *   php_statement -> {{ / php_only / }}
+     *   php_statement -> {!! / php_only / !!}
+     * So we walk up looking for php_only or php_statement with echo delimiters.
      */
     export function isInsideEcho(tree: Tree, row: number, column: number): boolean {
         const node = findNodeAtPosition(tree, row, column);
@@ -129,13 +134,16 @@ export namespace BladeParser {
 
         let current: SyntaxNode | null = node;
         while (current) {
-            if (
-                current.type === 'echo_statement' ||
-                current.type === 'escaped_echo_statement' ||
-                current.type === 'unescaped_echo_statement' ||
-                current.type === 'php_only'
-            ) {
+            if (current.type === 'php_only') {
                 return true;
+            }
+            // php_statement wraps both echo ({{ }}) and @php blocks.
+            // Check if the first child is an echo delimiter to distinguish.
+            if (current.type === 'php_statement') {
+                const firstChild = current.child(0);
+                if (firstChild && (firstChild.type === '{{' || firstChild.type === '{!!')) {
+                    return true;
+                }
             }
             current = current.parent;
         }
@@ -207,13 +215,22 @@ export namespace BladeParser {
             };
         }
 
-        // Check if inside PHP block
-        if (node?.type === 'php' || node?.type === 'php_only') {
-            return {
-                type: 'php',
-                prefix: '',
-                node,
-            };
+        // Check if inside PHP block (@php ... @endphp or <?php ... ?>)
+        // In tree-sitter-blade >=0.12, @php blocks are php_statement with
+        // directive_start as first child. php_only is the content node.
+        if (node?.type === 'php_only') {
+            // Determine if we're in an echo or a PHP block
+            const parent = node.parent;
+            if (parent?.type === 'php_statement') {
+                const firstChild = parent.child(0);
+                if (firstChild?.type === 'directive_start' || firstChild?.type === 'php_tag') {
+                    return {
+                        type: 'php',
+                        prefix: '',
+                        node,
+                    };
+                }
+            }
         }
 
         return {
@@ -268,6 +285,154 @@ export namespace BladeParser {
             }
         }
     }
+
+    // ─── HTML / Component tag helpers (tree-sitter-blade >=0.12) ────────────
+
+    /**
+     * Extract the tag name from a start_tag, self_closing_tag, or end_tag node.
+     */
+    export function getTagName(tagNode: SyntaxNode): string | null {
+        for (let i = 0; i < tagNode.childCount; i++) {
+            const child = tagNode.child(i);
+            if (child?.type === 'tag_name') {
+                return child.text;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Check whether a tag name looks like a Blade component
+     * (x-prefixed or namespace:prefixed like flux:button).
+     */
+    export function isComponentTagName(name: string): boolean {
+        return name.startsWith('x-') || /^[\w]+:[\w.-]+$/.test(name);
+    }
+
+    /**
+     * Find the parent component element that encloses a given position.
+     *
+     * Walks up the AST from the node at (row, column) looking for an
+     * `element` whose `start_tag` has a component tag name (x-* or ns:*),
+     * skipping x-slot elements.
+     */
+    export function findParentComponentFromTree(tree: Tree, row: number, column: number): string | null {
+        let node = findNodeAtPosition(tree, row, column);
+        if (!node) return null;
+
+        // Walk up the tree looking for an enclosing element with a component tag name
+        let current: SyntaxNode | null = node;
+        while (current) {
+            if (current.type === 'element') {
+                const startTag = current.child(0);
+                if (startTag && (startTag.type === 'start_tag' || startTag.type === 'self_closing_tag')) {
+                    const tagName = getTagName(startTag);
+                    if (
+                        tagName &&
+                        isComponentTagName(tagName) &&
+                        tagName !== 'x-slot' &&
+                        !tagName.startsWith('x-slot:')
+                    ) {
+                        return tagName;
+                    }
+                }
+            }
+            current = current.parent;
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if a position is inside a component tag (start_tag or self_closing_tag)
+     * for prop completion context.
+     *
+     * Returns the component name and existing prop names, or null if not in a component tag.
+     */
+    export interface ComponentTagContext {
+        componentName: string;
+        existingProps: string[];
+    }
+
+    export function getComponentTagContext(tree: Tree, row: number, column: number): ComponentTagContext | null {
+        const node = findNodeAtPosition(tree, row, column);
+        if (!node) return null;
+
+        // Walk up to find the enclosing start_tag or self_closing_tag
+        let current: SyntaxNode | null = node;
+        while (current) {
+            if (current.type === 'start_tag' || current.type === 'self_closing_tag') {
+                const tagName = getTagName(current);
+                if (tagName && isComponentTagName(tagName) && tagName !== 'x-slot') {
+                    const existingProps = extractPropsFromTag(current);
+                    return { componentName: tagName, existingProps };
+                }
+                return null; // In a tag but not a component tag
+            }
+            current = current.parent;
+        }
+        return null;
+    }
+
+    /**
+     * Extract attribute names from a start_tag or self_closing_tag node.
+     */
+    function extractPropsFromTag(tagNode: SyntaxNode): string[] {
+        const props: string[] = [];
+        for (let i = 0; i < tagNode.childCount; i++) {
+            const child = tagNode.child(i);
+            if (child?.type === 'attribute') {
+                for (let j = 0; j < child.childCount; j++) {
+                    const attrChild = child.child(j);
+                    if (attrChild?.type === 'attribute_name') {
+                        // Strip leading : for dynamic props
+                        const name = attrChild.text.replace(/^:/, '');
+                        props.push(name);
+                        break;
+                    }
+                }
+            }
+        }
+        return props;
+    }
+
+    /**
+     * Collect all element nodes with component tag names from the tree.
+     * Useful for diagnostics (e.g. undefined component detection).
+     */
+    export interface ComponentReference {
+        tagName: string;
+        startPosition: { row: number; column: number };
+        endPosition: { row: number; column: number };
+    }
+
+    export function getAllComponentReferences(tree: Tree): ComponentReference[] {
+        const refs: ComponentReference[] = [];
+        collectComponentRefs(tree.rootNode, refs);
+        return refs;
+    }
+
+    function collectComponentRefs(node: SyntaxNode, refs: ComponentReference[]): void {
+        if (node.type === 'start_tag' || node.type === 'self_closing_tag') {
+            const tagName = getTagName(node);
+            if (tagName && isComponentTagName(tagName)) {
+                refs.push({
+                    tagName,
+                    startPosition: node.startPosition,
+                    endPosition: node.endPosition,
+                });
+            }
+        }
+
+        for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i);
+            if (child) {
+                collectComponentRefs(child, refs);
+            }
+        }
+    }
+
+    // ─── Debug helpers ───────────────────────────────────────────────────────
 
     /**
      * Debug: Print the AST structure.

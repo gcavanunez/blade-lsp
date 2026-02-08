@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { Shared } from '../../src/providers/shared';
 import { Hovers } from '../../src/providers/hovers';
+import { BladeParser } from '../../src/parser';
 import { installMockLaravel, clearMockLaravel, withMockLaravel } from '../utils/laravel-mock';
 
 describe('Slots', () => {
+    beforeAll(async () => {
+        await BladeParser.initialize('native');
+    });
+
     // ─── extractSlotsFromContent ────────────────────────────────────────────
 
     describe('extractSlotsFromContent', () => {
@@ -212,9 +217,10 @@ describe('Slots', () => {
     describe('getSlotHover', () => {
         it('returns hover for colon syntax <x-slot:name>', () => {
             const source = '<x-card>\n    <x-slot:header>Title</x-slot:header>\n</x-card>';
+            const tree = BladeParser.parse(source);
             const line = '    <x-slot:header>Title</x-slot:header>';
             const slotStart = line.indexOf('header');
-            const hover = Hovers.getSlotHover(source, line, 1, slotStart);
+            const hover = Hovers.getSlotHover(line, 1, slotStart, tree);
             expect(hover).not.toBeNull();
             const value =
                 typeof hover!.contents === 'string'
@@ -227,9 +233,10 @@ describe('Slots', () => {
 
         it('returns hover for name= syntax <x-slot name="footer">', () => {
             const source = '<x-card>\n    <x-slot name="footer">Content</x-slot>\n</x-card>';
+            const tree = BladeParser.parse(source);
             const line = '    <x-slot name="footer">Content</x-slot>';
             const slotStart = line.indexOf('footer');
-            const hover = Hovers.getSlotHover(source, line, 1, slotStart);
+            const hover = Hovers.getSlotHover(line, 1, slotStart, tree);
             expect(hover).not.toBeNull();
             const value =
                 typeof hover!.contents === 'string'
@@ -242,17 +249,19 @@ describe('Slots', () => {
 
         it('returns null when cursor is not on slot name', () => {
             const source = '<x-card>\n    <x-slot:header>Title</x-slot:header>\n</x-card>';
+            const tree = BladeParser.parse(source);
             const line = '    <x-slot:header>Title</x-slot:header>';
             // Cursor at column 0, far from slot name
-            const hover = Hovers.getSlotHover(source, line, 1, 0);
+            const hover = Hovers.getSlotHover(line, 1, 0, tree);
             expect(hover).toBeNull();
         });
 
         it('returns "no parent component found" when not inside a component', () => {
             const source = '<div>\n    <x-slot:header>Title</x-slot:header>\n</div>';
+            const tree = BladeParser.parse(source);
             const line = '    <x-slot:header>Title</x-slot:header>';
             const slotStart = line.indexOf('header');
-            const hover = Hovers.getSlotHover(source, line, 1, slotStart);
+            const hover = Hovers.getSlotHover(line, 1, slotStart, tree);
             expect(hover).not.toBeNull();
             const value =
                 typeof hover!.contents === 'string'
@@ -265,8 +274,9 @@ describe('Slots', () => {
 
         it('returns null for a line without any slot syntax', () => {
             const source = '<x-card>\n    <div>test</div>\n</x-card>';
+            const tree = BladeParser.parse(source);
             const line = '    <div>test</div>';
-            const hover = Hovers.getSlotHover(source, line, 1, 5);
+            const hover = Hovers.getSlotHover(line, 1, 5, tree);
             expect(hover).toBeNull();
         });
 
@@ -282,9 +292,10 @@ describe('Slots', () => {
             it('includes component path when component is found', () => {
                 withMockLaravel(() => {
                     const source = '<x-button>\n    <x-slot:header>Title</x-slot:header>\n</x-button>';
+                    const tree = BladeParser.parse(source);
                     const line = '    <x-slot:header>Title</x-slot:header>';
                     const slotStart = line.indexOf('header');
-                    const hover = Hovers.getSlotHover(source, line, 1, slotStart);
+                    const hover = Hovers.getSlotHover(line, 1, slotStart, tree);
                     expect(hover).not.toBeNull();
                     const value =
                         typeof hover!.contents === 'string'
@@ -300,9 +311,10 @@ describe('Slots', () => {
             it('shows "not found in project" for unknown component', () => {
                 withMockLaravel(() => {
                     const source = '<x-unknown>\n    <x-slot:header>Title</x-slot:header>\n</x-unknown>';
+                    const tree = BladeParser.parse(source);
                     const line = '    <x-slot:header>Title</x-slot:header>';
                     const slotStart = line.indexOf('header');
-                    const hover = Hovers.getSlotHover(source, line, 1, slotStart);
+                    const hover = Hovers.getSlotHover(line, 1, slotStart, tree);
                     expect(hover).not.toBeNull();
                     const value =
                         typeof hover!.contents === 'string'

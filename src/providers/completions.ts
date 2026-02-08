@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Shared } from './shared';
 import { BladeDirectives } from '../directives';
+import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
@@ -19,12 +20,8 @@ import { Components as ComponentsNs } from '../laravel/components';
 import { Server } from '../server';
 
 export namespace Completions {
-    // Re-export shared types and functions so existing call sites work
-    export type ComponentPropContext = Shared.ComponentPropContext;
+    // Re-export shared utilities still used by providers
     export type ParsedProp = Shared.ParsedProp;
-    export const getComponentPropContext = Shared.getComponentPropContext;
-    export const extractExistingProps = Shared.extractExistingProps;
-    export const findParentComponent = Shared.findParentComponent;
     export const parsePropsString = Shared.parsePropsString;
 
     export function createDirectiveItem(directive: BladeDirectives.Directive, prefix: string): CompletionItem {
@@ -455,14 +452,14 @@ export namespace Completions {
      * @param syntax - 'colon' for <x-slot:name> or 'name' for <x-slot name="name">
      */
     export function getSlotCompletions(
-        source: string,
         currentLine: number,
         syntax: 'colon' | 'name' = 'colon',
+        tree: BladeParser.Tree,
     ): CompletionItem[] {
         const items: CompletionItem[] = [];
 
-        // Find the parent component to suggest its slots
-        const componentContext = Shared.findParentComponent(source, currentLine);
+        // Find the parent component via the tree-sitter AST
+        const componentContext = BladeParser.findParentComponentFromTree(tree, currentLine, 0);
 
         if (componentContext && Laravel.isAvailable()) {
             const component =

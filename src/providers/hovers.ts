@@ -1,6 +1,7 @@
 import { Hover, MarkupKind } from 'vscode-languageserver/node';
 import { Shared } from './shared';
 import { BladeDirectives } from '../directives';
+import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
@@ -177,9 +178,14 @@ Contains all attributes passed to a component.
     /**
      * Get hover info for a component prop/attribute
      */
-    export function getPropHover(source: string, line: string, lineNumber: number, column: number): Hover | null {
-        // Check if we're inside a component tag
-        const context = Shared.getComponentPropContext(source, lineNumber, column);
+    export function getPropHover(
+        line: string,
+        lineNumber: number,
+        column: number,
+        tree: BladeParser.Tree,
+    ): Hover | null {
+        // Check if we're inside a component tag via tree-sitter AST
+        const context = BladeParser.getComponentTagContext(tree, lineNumber, column);
         if (!context) {
             return null;
         }
@@ -347,7 +353,12 @@ Contains all attributes passed to a component.
     /**
      * Get hover info for a slot reference
      */
-    export function getSlotHover(source: string, line: string, lineNumber: number, column: number): Hover | null {
+    export function getSlotHover(
+        line: string,
+        lineNumber: number,
+        column: number,
+        tree: BladeParser.Tree,
+    ): Hover | null {
         // Match <x-slot:name> syntax
         const colonMatch = line.match(/<x-slot:([\w-]+)/);
         // Match <x-slot name="name"> syntax
@@ -367,8 +378,8 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        // Find the parent component
-        const componentContext = Shared.findParentComponent(source, lineNumber);
+        // Find the parent component via tree-sitter AST
+        const componentContext = BladeParser.findParentComponentFromTree(tree, lineNumber, column);
         if (!componentContext) {
             return {
                 contents: {

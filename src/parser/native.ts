@@ -19,6 +19,8 @@ export namespace NativeBackend {
             const Blade = require('tree-sitter-blade');
 
             const instance = new Parser();
+            // tree-sitter-blade >=0.12.0 exports { name, language, nodeTypeInfo }
+            // and tree-sitter >=0.25.0 accepts this object directly.
             instance.setLanguage(Blade);
             return instance;
         }
