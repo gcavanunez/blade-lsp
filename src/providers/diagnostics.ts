@@ -12,6 +12,7 @@
  */
 
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
+import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
@@ -31,13 +32,14 @@ export namespace Diagnostics {
 
     /**
      * Run all semantic diagnostics on the given source text.
-     * Returns an array of LSP Diagnostic objects.
+     * When a tree is provided, tree-sitter is used for component detection
+     * instead of regex.
      */
-    export function analyze(source: string): Diagnostic[] {
+    export function analyze(source: string, tree?: BladeParser.Tree): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
 
         diagnostics.push(...getUndefinedViewDiagnostics(source));
-        diagnostics.push(...getUndefinedComponentDiagnostics(source));
+        diagnostics.push(...getUndefinedComponentDiagnostics(source, tree));
         diagnostics.push(...getUnclosedDirectiveDiagnostics(source));
         diagnostics.push(...getInvalidMethodDiagnostics(source));
 
@@ -121,10 +123,69 @@ export namespace Diagnostics {
      */
     const BUILT_IN_COMPONENT_TAGS = new Set(['x-slot', 'x-slot:']);
 
-    export function getUndefinedComponentDiagnostics(source: string): Diagnostic[] {
+    export function getUndefinedComponentDiagnostics(source: string, tree?: BladeParser.Tree): Diagnostic[] {
         if (!Laravel.isAvailable()) return [];
 
         const diagnostics: Diagnostic[] = [];
+
+        // When a tree is available, use tree-sitter to find all component references
+        // instead of scanning line-by-line with regex.
+        if (tree) {
+            const refs = BladeParser.getAllComponentReferences(tree);
+            for (const ref of refs) {
+                const tag = ref.tagName;
+
+                // Skip built-in tags
+                if (isBuiltInComponentTag(tag)) continue;
+
+                // Handle livewire: prefix -- these resolve to views, not components
+                if (tag.startsWith('livewire:')) {
+                    const componentName = tag.replace('livewire:', '');
+                    const viewKey = `livewire.${componentName}`;
+                    if (!Views.find(viewKey)) {
+                        // Position the diagnostic on the tag_name, not the whole tag.
+                        // tag_name starts 1 char after start_tag/self_closing_tag (after '<').
+                        const tagNameStart = ref.startPosition.column + 1;
+                        diagnostics.push({
+                            severity: DiagnosticSeverity.Warning,
+                            range: Range.create(
+                                ref.startPosition.row,
+                                tagNameStart,
+                                ref.startPosition.row,
+                                tagNameStart + tag.length,
+                            ),
+                            message: `Livewire component '${componentName}' not found.`,
+                            source: 'blade-lsp',
+                            code: Code.undefinedComponent,
+                        });
+                    }
+                    continue;
+                }
+
+                // Standard x- components and prefixed components
+                const component = Components.findByTag(tag) || Components.find(tag.replace(/^x-/, ''));
+
+                if (!component) {
+                    const tagNameStart = ref.startPosition.column + 1;
+                    diagnostics.push({
+                        severity: DiagnosticSeverity.Warning,
+                        range: Range.create(
+                            ref.startPosition.row,
+                            tagNameStart,
+                            ref.startPosition.row,
+                            tagNameStart + tag.length,
+                        ),
+                        message: `Component '${tag}' not found.`,
+                        source: 'blade-lsp',
+                        code: Code.undefinedComponent,
+                    });
+                }
+            }
+
+            return diagnostics;
+        }
+
+        // Fallback: regex-based scanning when no tree is available
         const lines = source.split('\n');
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {

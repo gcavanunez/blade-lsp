@@ -1,7 +1,7 @@
 import { Location, Range } from 'vscode-languageserver/node';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Shared } from './shared';
+import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
@@ -150,13 +150,13 @@ export namespace Definitions {
      * Get definition location for a component prop/attribute
      */
     export function getPropDefinition(
-        source: string,
         line: string,
         lineNumber: number,
         column: number,
+        tree: BladeParser.Tree,
     ): Location | null {
-        // First, find which component tag we're inside
-        const context = Shared.getComponentPropContext(source, lineNumber, column);
+        // Find which component tag we're inside via tree-sitter AST
+        const context = BladeParser.getComponentTagContext(tree, lineNumber, column);
         if (!context) {
             return null;
         }
@@ -264,10 +264,10 @@ export namespace Definitions {
      * Handles both <x-slot:name> and <x-slot name="name"> syntax
      */
     export function getSlotDefinition(
-        source: string,
         line: string,
         lineNumber: number,
         column: number,
+        tree: BladeParser.Tree,
     ): Location | null {
         // Match <x-slot:name> syntax
         const colonMatch = line.match(/<x-slot:([\w-]+)/);
@@ -288,8 +288,8 @@ export namespace Definitions {
             return null;
         }
 
-        // Find the parent component
-        const componentContext = Shared.findParentComponent(source, lineNumber);
+        // Find the parent component via tree-sitter AST
+        const componentContext = BladeParser.findParentComponentFromTree(tree, lineNumber, column);
         if (!componentContext || !Laravel.isAvailable()) {
             return null;
         }

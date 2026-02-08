@@ -322,7 +322,7 @@ export namespace Server {
                 }));
 
                 // 2. Semantic diagnostics (view refs, component refs, unclosed directives, @method)
-                const semanticDiagnostics = Diagnostics.analyze(source);
+                const semanticDiagnostics = Diagnostics.analyze(source, tree);
 
                 conn.sendDiagnostics({
                     uri: document.uri,
@@ -401,9 +401,9 @@ export namespace Server {
                         items.push(...Completions.getComponentCompletions(textBeforeCursor, position));
                     }
 
-                    // Check for component prop completion (inside component tag)
-                    const componentPropContext = Completions.getComponentPropContext(
-                        source,
+                    // Check for component prop completion (inside component tag).
+                    const componentPropContext = BladeParser.getComponentTagContext(
+                        tree,
                         position.line,
                         position.character,
                     );
@@ -421,7 +421,7 @@ export namespace Server {
                     const isNameSyntax = /<x-slot\s+name=["'][\w-]*$/.test(textBeforeCursor);
                     if (isColonSyntax || isNameSyntax) {
                         items.push(
-                            ...Completions.getSlotCompletions(source, position.line, isColonSyntax ? 'colon' : 'name'),
+                            ...Completions.getSlotCompletions(position.line, isColonSyntax ? 'colon' : 'name', tree),
                         );
                     }
 
@@ -510,7 +510,7 @@ export namespace Server {
                 }
 
                 // Check for component prop hover
-                const propHover = Hovers.getPropHover(source, lineText, position.line, position.character);
+                const propHover = Hovers.getPropHover(lineText, position.line, position.character, tree);
                 if (propHover) {
                     return propHover;
                 }
@@ -522,7 +522,7 @@ export namespace Server {
                 }
 
                 // Check for slot hover (<x-slot:name> or <x-slot name="name">)
-                const slotHover = Hovers.getSlotHover(source, lineText, position.line, position.character);
+                const slotHover = Hovers.getSlotHover(lineText, position.line, position.character, tree);
                 if (slotHover) {
                     return slotHover;
                 }
@@ -537,6 +537,7 @@ export namespace Server {
                 const document = docs.get(params.textDocument.uri);
                 if (!document) return null;
 
+                const tree = cache.get(params.textDocument.uri) || parseDocument(document);
                 const source = document.getText();
                 const position = params.position;
                 const lines = source.split('\n');
@@ -561,10 +562,10 @@ export namespace Server {
 
                 // Check for component prop/attribute reference
                 const propDefinition = Definitions.getPropDefinition(
-                    source,
                     currentLine,
                     position.line,
                     position.character,
+                    tree,
                 );
                 if (propDefinition) {
                     return propDefinition;
@@ -572,10 +573,10 @@ export namespace Server {
 
                 // Check for slot reference (<x-slot:name> or <x-slot name="name">)
                 const slotDefinition = Definitions.getSlotDefinition(
-                    source,
                     currentLine,
                     position.line,
                     position.character,
+                    tree,
                 );
                 if (slotDefinition) {
                     return slotDefinition;
