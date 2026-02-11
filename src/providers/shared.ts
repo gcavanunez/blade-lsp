@@ -16,6 +16,18 @@ export namespace Shared {
     }
 
     /**
+     * Check if a line has a closing `>` that isn't followed by a new opening `<`.
+     * Used to detect tag boundaries when scanning backwards.
+     */
+    function hasUnpairedClosingBracket(lineText: string): boolean {
+        const stripped = stripQuotedStrings(lineText);
+        if (!stripped.includes('>')) return false;
+        const lastClose = stripped.lastIndexOf('>');
+        const afterClose = stripped.slice(lastClose + 1);
+        return !afterClose.includes('<');
+    }
+
+    /**
      * Detect if cursor is inside a component tag for prop completion
      */
     export function getComponentPropContext(source: string, row: number, column: number): ComponentPropContext | null {
@@ -33,15 +45,8 @@ export namespace Shared {
             // Check if we found a closing > that would mean we're not in a tag.
             // Strip quoted strings first so that > inside attribute values
             // (e.g. $user->id, arrow functions) is not mistaken for a tag boundary.
-            if (lineIndex !== row) {
-                const stripped = stripQuotedStrings(lineText);
-                if (stripped.includes('>')) {
-                    const lastClose = stripped.lastIndexOf('>');
-                    const afterClose = stripped.slice(lastClose + 1);
-                    if (!afterClose.includes('<')) {
-                        break;
-                    }
-                }
+            if (lineIndex !== row && hasUnpairedClosingBracket(lineText)) {
+                break;
             }
 
             // Look for component tag opening (including namespaced like x-turbo::frame)
@@ -61,11 +66,15 @@ export namespace Shared {
                 const afterTag = lineIndex === row ? currentLine.slice(tagStart, column) : lineText.slice(tagStart);
                 const afterTagStripped = stripQuotedStrings(afterTag);
 
-                if (afterTagStripped.includes('>') && !afterTagStripped.includes('/>')) {
-                    const closePos = afterTagStripped.indexOf('>');
-                    if (lineIndex === row && tagStart + closePos < column) {
-                        break; // We're past the tag
-                    }
+                // If the tag is closed before the cursor position, we're past it
+                const closePos = afterTagStripped.indexOf('>');
+                const isClosedBeforeCursor =
+                    closePos >= 0 &&
+                    !afterTagStripped.includes('/>') &&
+                    lineIndex === row &&
+                    tagStart + closePos < column;
+                if (isClosedBeforeCursor) {
+                    break;
                 }
 
                 // We're inside this component tag
@@ -252,17 +261,12 @@ export namespace Shared {
         // Step 3: Determine slots based on whether @props exists
         const slots = new Set<string>();
 
-        if (declaredProps.size > 0) {
-            // If @props exists, only props that are echoed standalone are slots
-            for (const prop of declaredProps) {
-                if (echoedVars.has(prop)) {
-                    slots.add(prop);
-                }
-            }
-        } else {
-            // No @props - use standalone echoed variables as potential slots (fallback)
-            for (const varName of echoedVars) {
-                slots.add(varName);
+        // If @props exists, only props that are echoed standalone are slots.
+        // Otherwise, use all standalone echoed variables as potential slots.
+        const candidates = declaredProps.size > 0 ? declaredProps : echoedVars;
+        for (const name of candidates) {
+            if (echoedVars.has(name)) {
+                slots.add(name);
             }
         }
 

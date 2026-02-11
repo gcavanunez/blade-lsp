@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { MarkupKind } from 'vscode-languageserver/node';
 import { Hovers } from '../../src/providers/hovers';
 import { BladeDirectives } from '../../src/directives';
+import { installMockLaravel, clearMockLaravel, getHoverValue } from '../utils/laravel-mock';
 
 describe('Hovers', () => {
     describe('formatDirective', () => {
@@ -93,6 +95,224 @@ describe('Hovers', () => {
         it('returns empty string for non-word position', () => {
             const result = Hovers.getWordAtPosition('   ', 1);
             expect(result).toBe('');
+        });
+    });
+
+    // ─── getComponentHover ───────────────────────────────────────────────────
+
+    describe('getComponentHover', () => {
+        describe('without Laravel', () => {
+            it('returns fallback hover with just the tag name', () => {
+                const line = '<x-button type="primary">';
+                const tagStart = line.indexOf('x-button');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('x-button');
+                expect(value).toContain('Blade component');
+            });
+        });
+
+        describe('with Laravel mock', () => {
+            beforeEach(() => {
+                installMockLaravel();
+            });
+
+            afterEach(() => {
+                clearMockLaravel();
+            });
+
+            it('returns hover with path and props table for known component', () => {
+                const line = '<x-button type="primary">';
+                const tagStart = line.indexOf('x-button');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('x-button');
+                expect(value).toContain('button.blade.php');
+                // Props table
+                expect(value).toContain('type');
+                expect(value).toContain('variant');
+                expect(value).toContain('disabled');
+            });
+
+            it('shows "not found in project" for unknown component', () => {
+                const line = '<x-nonexistent />';
+                const tagStart = line.indexOf('x-nonexistent');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('not found in project');
+            });
+
+            it('returns Livewire component hover with type and props', () => {
+                const line = '<livewire:counter />';
+                const tagStart = line.indexOf('livewire:counter');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('livewire:counter');
+                expect(value).toContain('Livewire component');
+                expect(value).toContain('counter.blade.php');
+                // Props
+                expect(value).toContain('count');
+                expect(value).toContain('int');
+                // Files
+                expect(value).toContain('Counter.php');
+            });
+
+            it('shows Livewire "not found" for unknown Livewire component', () => {
+                const line = '<livewire:nonexistent />';
+                const tagStart = line.indexOf('livewire:nonexistent');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('not found in project');
+            });
+
+            it('handles component with string props', () => {
+                clearMockLaravel();
+                installMockLaravel({
+                    components: [
+                        {
+                            key: 'card',
+                            path: 'resources/views/components/card.blade.php',
+                            paths: ['resources/views/components/card.blade.php'],
+                            isVendor: false,
+                            props: "@props(['title', 'subtitle' => null])",
+                        },
+                    ],
+                });
+                const line = '<x-card>';
+                const tagStart = line.indexOf('x-card');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('```php');
+                expect(value).toContain("@props(['title'");
+            });
+        });
+
+        it('returns null when cursor is outside the tag name', () => {
+            const line = '<x-button type="primary">';
+            // Cursor way past the tag name
+            const hover = Hovers.getComponentHover(line, 20);
+            expect(hover).toBeNull();
+        });
+
+        it('returns null for non-component tags', () => {
+            const line = '<div class="test">';
+            const hover = Hovers.getComponentHover(line, 3);
+            expect(hover).toBeNull();
+        });
+    });
+
+    // ─── getViewHover ────────────────────────────────────────────────────────
+
+    describe('getViewHover', () => {
+        beforeEach(() => {
+            installMockLaravel();
+        });
+
+        afterEach(() => {
+            clearMockLaravel();
+        });
+
+        for (const directive of [
+            'extends',
+            'include',
+            'includeIf',
+            'includeWhen',
+            'includeUnless',
+            'includeFirst',
+            'each',
+            'component',
+        ]) {
+            it(`returns hover for @${directive} view reference`, () => {
+                const line = `@${directive}('layouts.app')`;
+                const viewStart = line.indexOf('layouts.app');
+                const hover = Hovers.getViewHover(line, viewStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('layouts.app');
+            });
+        }
+
+        it('returns hover for view() helper', () => {
+            const line = "{{ view('layouts.app') }}";
+            const viewStart = line.indexOf('layouts.app');
+            const hover = Hovers.getViewHover(line, viewStart + 1);
+
+            expect(hover).not.toBeNull();
+            const value = getHoverValue(hover!);
+            expect(value).toContain('layouts.app');
+        });
+
+        it('returns null when cursor is outside the view name', () => {
+            const line = "@include('layouts.app')";
+            const hover = Hovers.getViewHover(line, 0);
+            expect(hover).toBeNull();
+        });
+
+        it('returns null for non-matching lines', () => {
+            const line = '<div class="test">Hello</div>';
+            const hover = Hovers.getViewHover(line, 5);
+            expect(hover).toBeNull();
+        });
+    });
+
+    // ─── getViewHoverContent ─────────────────────────────────────────────────
+
+    describe('getViewHoverContent', () => {
+        describe('with Laravel mock', () => {
+            beforeEach(() => {
+                installMockLaravel();
+            });
+
+            afterEach(() => {
+                clearMockLaravel();
+            });
+
+            it('returns path for a known view', () => {
+                const hover = Hovers.getViewHoverContent('layouts.app');
+                const value = getHoverValue(hover);
+                expect(value).toContain('layouts.app');
+                expect(value).toContain('resources/views/layouts/app.blade.php');
+            });
+
+            it('shows "View not found" for unknown view', () => {
+                const hover = Hovers.getViewHoverContent('nonexistent.view');
+                const value = getHoverValue(hover);
+                expect(value).toContain('View not found in project');
+            });
+
+            it('shows vendor tag for vendor views', () => {
+                const hover = Hovers.getViewHoverContent('mail::message');
+                const value = getHoverValue(hover);
+                expect(value).toContain('Vendor package view');
+            });
+
+            it('shows namespace for namespaced views', () => {
+                const hover = Hovers.getViewHoverContent('mail::message');
+                const value = getHoverValue(hover);
+                expect(value).toContain('**Namespace:** `mail`');
+            });
+        });
+
+        describe('without Laravel', () => {
+            it('returns basic fallback hover', () => {
+                const hover = Hovers.getViewHoverContent('layouts.app');
+                const value = getHoverValue(hover);
+                expect(value).toContain('layouts.app');
+                expect(value).toContain('Blade view');
+            });
         });
     });
 });

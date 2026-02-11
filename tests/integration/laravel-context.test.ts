@@ -1,35 +1,35 @@
 /**
  * Laravel Context Integration Tests
  *
- * These tests verify that LaravelContext.provide() correctly scopes state
- * through AsyncLocalStorage for every LSP handler in the server pipeline.
+ * These tests verify that LaravelContext state is correctly available
+ * to every LSP handler through the Effect service container.
  *
  * Each test sends a real LSP request through the protocol and asserts that
  * the response contains data that is ONLY reachable via LaravelContext.use()
- * inside a provide() scope. If the withContext() wrapper in server.ts stops
- * working, these tests will fail because use() throws without an active
- * ALS scope — there is no fallback.
+ * reading from the container's laravelState MutableRef. If the container
+ * is not properly initialized or the mock state is not installed, these
+ * tests will fail because use() throws without available state.
  *
  * The chain for each handler:
- *   LSP request → server.ts handler → withContext() → LaravelContext.provide()
- *     → provider function → LaravelContext.use() (ALS) → mock state
+ *   LSP request → server.ts handler → provider function
+ *     → LaravelContext.use() → container.laravelState → mock state
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createClient, type Client } from '../utils/client';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
 
-describe('LaravelContext.provide() pipeline', () => {
+describe('LaravelContext container pipeline', () => {
     let client: Client;
 
     beforeAll(async () => {
-        installMockLaravel();
         client = await createClient({
             settings: {
                 parserBackend: 'wasm',
                 enableLaravelIntegration: false,
             },
         });
+        installMockLaravel();
     });
 
     afterAll(async () => {
@@ -38,7 +38,7 @@ describe('LaravelContext.provide() pipeline', () => {
     });
 
     // ─── Completions ─────────────────────────────────────────────────────
-    // Completion handler → withContext() → Directives.search() → use()
+    // Completion handler → Directives.search() → use() → container
 
     it('onCompletion: custom directives from context', async () => {
         const doc = await client.open({ text: '<div>\n@\n</div>' });
@@ -46,7 +46,7 @@ describe('LaravelContext.provide() pipeline', () => {
         const labels = items.map((i) => i.label);
 
         // @datetime only exists in mock LaravelContext.State.directives
-        // Reaching it requires: provide() → use() → state.directives.items
+        // Reaching it requires: use() → container.laravelState → state.directives.items
         expect(labels).toContain('@datetime');
         expect(labels).toContain('@money');
 
@@ -90,7 +90,7 @@ describe('LaravelContext.provide() pipeline', () => {
     });
 
     // ─── Hover ───────────────────────────────────────────────────────────
-    // Hover handler → withContext() → Components.findByTag() → use()
+    // Hover handler → Components.findByTag() → use() → container
 
     it('onHover: component hover returns data from context', async () => {
         const doc = await client.open({ text: '<x-alert type="error" />' });
@@ -104,7 +104,7 @@ describe('LaravelContext.provide() pipeline', () => {
                   ? hover!.contents.value
                   : '';
 
-        // Component details only reachable via provide() → use()
+        // Component details only reachable via use() → container.laravelState
         expect(value).toContain('alert');
         expect(value).toContain('app/View/Components/Alert.php');
 
@@ -124,7 +124,7 @@ describe('LaravelContext.provide() pipeline', () => {
                   ? hover!.contents.value
                   : '';
 
-        // Prop type+default from mock state — requires provide() → use()
+        // Prop type+default from mock state — requires use() → container.laravelState
         expect(value).toContain('type');
         expect(value).toContain('string');
         expect(value).toContain('button');
@@ -152,13 +152,13 @@ describe('LaravelContext.provide() pipeline', () => {
     });
 
     // ─── Diagnostics ─────────────────────────────────────────────────────
-    // onDidChangeContent → withContext() → Views.find() / Components.findByTag() → use()
+    // onDidChangeContent → Views.find() / Components.findByTag() → use() → container
 
     it('onDidChangeContent: detects undefined view via context', async () => {
         const doc = await client.open({ text: "@include('nonexistent.view')" });
         const diags = await doc.diagnostics();
 
-        // Diagnostic requires provide() → use() → state.views.items lookup
+        // Diagnostic requires use() → container.laravelState → state.views.items lookup
         const undefinedViews = diags.filter((d) => d.code === 'blade/undefined-view');
         expect(undefinedViews.length).toBe(1);
 

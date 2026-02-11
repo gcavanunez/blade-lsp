@@ -13,6 +13,7 @@
 
 import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver/node';
 import { BladeParser } from '../parser';
+import { iife } from '../utils/iife';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
@@ -27,6 +28,64 @@ export namespace Diagnostics {
         unclosedDirective: 'blade/unclosed-directive',
         invalidMethod: 'blade/invalid-method',
     } as const;
+
+    // ─── Shared regex helpers ───────────────────────────────────────────────
+
+    interface RegexMatch {
+        match: RegExpExecArray;
+        captured: string; // The first capture group
+    }
+
+    /**
+     * Collect all regex matches from a string into a flat array.
+     * Eliminates the `while (regex.exec)` pattern inside loops.
+     */
+    function collectRegexMatches(line: string, pattern: RegExp): RegexMatch[] {
+        const results: RegexMatch[] = [];
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(line)) !== null) {
+            results.push({ match, captured: match[1] });
+        }
+        return results;
+    }
+
+    /**
+     * Create an "undefined view" diagnostic.
+     */
+    function createUndefinedViewDiagnostic(
+        lineNum: number,
+        line: string,
+        viewName: string,
+        matchIndex: number,
+    ): Diagnostic {
+        const viewStart = line.indexOf(viewName, matchIndex);
+        return {
+            severity: DiagnosticSeverity.Warning,
+            range: Range.create(lineNum, viewStart, lineNum, viewStart + viewName.length),
+            message: `View '${viewName}' not found.`,
+            source: 'blade-lsp',
+            code: Code.undefinedView,
+        };
+    }
+
+    /**
+     * Create an "undefined component" diagnostic.
+     */
+    function createUndefinedComponentDiagnostic(
+        row: number,
+        colStart: number,
+        tag: string,
+        isLivewire: boolean,
+    ): Diagnostic {
+        const componentName = isLivewire ? tag.replace('livewire:', '') : tag;
+        return {
+            severity: DiagnosticSeverity.Warning,
+            range: Range.create(row, colStart, row, colStart + tag.length),
+            message: isLivewire ? `Livewire component '${componentName}' not found.` : `Component '${tag}' not found.`,
+            source: 'blade-lsp',
+            code: Code.undefinedComponent,
+        };
+    }
 
     // ─── Public API ────────────────────────────────────────────────────────
 
@@ -58,6 +117,33 @@ export namespace Diagnostics {
      */
     const VIEW_DIRECTIVES = ['extends', 'include', 'includeWhen', 'includeUnless', 'each', 'component'] as const;
 
+    /**
+     * Build a regex pattern for a view directive.
+     */
+    function buildViewDirectivePattern(directive: string): RegExp {
+        return directive === 'includeWhen' || directive === 'includeUnless'
+            ? new RegExp(`@${directive}\\s*\\([^,]+,\\s*['"]([^'"]+)['"]`, 'g')
+            : new RegExp(`@${directive}\\s*\\(\\s*['"]([^'"]+)['"]`, 'g');
+    }
+
+    /** All view-reference patterns, pre-built once. */
+    const VIEW_PATTERNS: RegExp[] = [
+        ...VIEW_DIRECTIVES.map(buildViewDirectivePattern),
+        /\bview\s*\(\s*['"]([^'"]+)['"]/g,
+    ];
+
+    /** Collect undefined-view diagnostics from a single line against all patterns. */
+    function collectUndefinedViewsOnLine(lineNum: number, line: string, diagnostics: Diagnostic[]): void {
+        for (const pattern of VIEW_PATTERNS) {
+            pattern.lastIndex = 0;
+            for (const { match, captured: viewName } of collectRegexMatches(line, pattern)) {
+                if (!Views.find(viewName)) {
+                    diagnostics.push(createUndefinedViewDiagnostic(lineNum, line, viewName, match.index));
+                }
+            }
+        }
+    }
+
     export function getUndefinedViewDiagnostics(source: string): Diagnostic[] {
         if (!Laravel.isAvailable()) return [];
 
@@ -65,52 +151,7 @@ export namespace Diagnostics {
         const lines = source.split('\n');
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            const line = lines[lineNum];
-
-            // ── Single-view directives ──────────────────────────────────
-            for (const directive of VIEW_DIRECTIVES) {
-                // @includeWhen(condition, 'view') -- view is the second string arg
-                // @each('view', ...) -- view is the first string arg
-                // The rest: @extends('view'), @include('view'), ...
-                const pattern =
-                    directive === 'includeWhen' || directive === 'includeUnless'
-                        ? new RegExp(`@${directive}\\s*\\([^,]+,\\s*['"]([^'"]+)['"]`, 'g')
-                        : new RegExp(`@${directive}\\s*\\(\\s*['"]([^'"]+)['"]`, 'g');
-
-                let match: RegExpExecArray | null;
-                while ((match = pattern.exec(line)) !== null) {
-                    const viewName = match[1];
-                    const view = Views.find(viewName);
-
-                    if (!view) {
-                        const viewStart = line.indexOf(viewName, match.index);
-                        diagnostics.push({
-                            severity: DiagnosticSeverity.Warning,
-                            range: Range.create(lineNum, viewStart, lineNum, viewStart + viewName.length),
-                            message: `View '${viewName}' not found.`,
-                            source: 'blade-lsp',
-                            code: Code.undefinedView,
-                        });
-                    }
-                }
-            }
-
-            // ── view() helper ───────────────────────────────────────────
-            const viewHelperPattern = /\bview\s*\(\s*['"]([^'"]+)['"]/g;
-            let helperMatch: RegExpExecArray | null;
-            while ((helperMatch = viewHelperPattern.exec(line)) !== null) {
-                const viewName = helperMatch[1];
-                if (!Views.find(viewName)) {
-                    const viewStart = line.indexOf(viewName, helperMatch.index);
-                    diagnostics.push({
-                        severity: DiagnosticSeverity.Warning,
-                        range: Range.create(lineNum, viewStart, lineNum, viewStart + viewName.length),
-                        message: `View '${viewName}' not found.`,
-                        source: 'blade-lsp',
-                        code: Code.undefinedView,
-                    });
-                }
-            }
+            collectUndefinedViewsOnLine(lineNum, lines[lineNum], diagnostics);
         }
 
         return diagnostics;
@@ -123,6 +164,22 @@ export namespace Diagnostics {
      */
     const BUILT_IN_COMPONENT_TAGS = new Set(['x-slot', 'x-slot:']);
 
+    function isBuiltInComponentTag(tag: string): boolean {
+        return BUILT_IN_COMPONENT_TAGS.has(tag) || tag.startsWith('x-slot:');
+    }
+
+    /**
+     * Check whether a component tag resolves to a known component/view.
+     * Returns true if the tag is valid (found or built-in), false if undefined.
+     */
+    function isComponentDefined(tag: string): boolean {
+        if (tag.startsWith('livewire:')) {
+            const viewKey = `livewire.${tag.replace('livewire:', '')}`;
+            return !!Views.find(viewKey);
+        }
+        return !!(Components.findByTag(tag) || Components.find(tag.replace(/^x-/, '')));
+    }
+
     export function getUndefinedComponentDiagnostics(source: string, tree?: BladeParser.Tree): Diagnostic[] {
         if (!Laravel.isAvailable()) return [];
 
@@ -134,51 +191,18 @@ export namespace Diagnostics {
             const refs = BladeParser.getAllComponentReferences(tree);
             for (const ref of refs) {
                 const tag = ref.tagName;
-
-                // Skip built-in tags
                 if (isBuiltInComponentTag(tag)) continue;
 
-                // Handle livewire: prefix -- these resolve to views, not components
-                if (tag.startsWith('livewire:')) {
-                    const componentName = tag.replace('livewire:', '');
-                    const viewKey = `livewire.${componentName}`;
-                    if (!Views.find(viewKey)) {
-                        // Position the diagnostic on the tag_name, not the whole tag.
-                        // tag_name starts 1 char after start_tag/self_closing_tag (after '<').
-                        const tagNameStart = ref.startPosition.column + 1;
-                        diagnostics.push({
-                            severity: DiagnosticSeverity.Warning,
-                            range: Range.create(
-                                ref.startPosition.row,
-                                tagNameStart,
-                                ref.startPosition.row,
-                                tagNameStart + tag.length,
-                            ),
-                            message: `Livewire component '${componentName}' not found.`,
-                            source: 'blade-lsp',
-                            code: Code.undefinedComponent,
-                        });
-                    }
-                    continue;
-                }
-
-                // Standard x- components and prefixed components
-                const component = Components.findByTag(tag) || Components.find(tag.replace(/^x-/, ''));
-
-                if (!component) {
+                if (!isComponentDefined(tag)) {
                     const tagNameStart = ref.startPosition.column + 1;
-                    diagnostics.push({
-                        severity: DiagnosticSeverity.Warning,
-                        range: Range.create(
+                    diagnostics.push(
+                        createUndefinedComponentDiagnostic(
                             ref.startPosition.row,
                             tagNameStart,
-                            ref.startPosition.row,
-                            tagNameStart + tag.length,
+                            tag,
+                            tag.startsWith('livewire:'),
                         ),
-                        message: `Component '${tag}' not found.`,
-                        source: 'blade-lsp',
-                        code: Code.undefinedComponent,
-                    });
+                    );
                 }
             }
 
@@ -190,48 +214,17 @@ export namespace Diagnostics {
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
             const line = lines[lineNum];
-
-            // Match opening component tags: <x-button, <x-alert.danger, <x-turbo::frame, <flux:button
-            // Also matches self-closing: <x-button />
-            // Intentionally does NOT match closing tags: </x-button>
             const componentPattern = /<(?!\/)(?:(x-[\w.-]+(?:::[\w.-]+)?)|([\w]+:[\w.-]+))/g;
-            let match: RegExpExecArray | null;
 
-            while ((match = componentPattern.exec(line)) !== null) {
+            for (const { match } of collectRegexMatches(line, componentPattern)) {
                 const tag = match[1] || match[2];
-
-                // Skip built-in tags
                 if (isBuiltInComponentTag(tag)) continue;
 
-                // Handle livewire: prefix -- these resolve to views, not components
-                if (tag.startsWith('livewire:')) {
-                    const componentName = tag.replace('livewire:', '');
-                    const viewKey = `livewire.${componentName}`;
-                    if (!Views.find(viewKey)) {
-                        const tagStart = match.index + 1; // +1 to skip <
-                        diagnostics.push({
-                            severity: DiagnosticSeverity.Warning,
-                            range: Range.create(lineNum, tagStart, lineNum, tagStart + tag.length),
-                            message: `Livewire component '${componentName}' not found.`,
-                            source: 'blade-lsp',
-                            code: Code.undefinedComponent,
-                        });
-                    }
-                    continue;
-                }
-
-                // Standard x- components and prefixed components
-                const component = Components.findByTag(tag) || Components.find(tag.replace(/^x-/, ''));
-
-                if (!component) {
+                if (!isComponentDefined(tag)) {
                     const tagStart = match.index + 1; // +1 to skip <
-                    diagnostics.push({
-                        severity: DiagnosticSeverity.Warning,
-                        range: Range.create(lineNum, tagStart, lineNum, tagStart + tag.length),
-                        message: `Component '${tag}' not found.`,
-                        source: 'blade-lsp',
-                        code: Code.undefinedComponent,
-                    });
+                    diagnostics.push(
+                        createUndefinedComponentDiagnostic(lineNum, tagStart, tag, tag.startsWith('livewire:')),
+                    );
                 }
             }
         }
@@ -239,40 +232,129 @@ export namespace Diagnostics {
         return diagnostics;
     }
 
-    function isBuiltInComponentTag(tag: string): boolean {
-        if (BUILT_IN_COMPONENT_TAGS.has(tag)) return true;
-        // x-slot:anything is built-in slot syntax
-        if (tag.startsWith('x-slot:')) return true;
-        return false;
-    }
-
     // ─── 3. Unclosed Block Directives ──────────────────────────────────────
 
     /**
-     * Build a map of opening directive → closing directive from the
+     * Build a map of opening directive -> closing directive from the
      * static directive definitions that have `hasEndTag: true`.
      */
-    const BLOCK_DIRECTIVE_PAIRS: Map<string, string> = (() => {
+    const BLOCK_DIRECTIVE_PAIRS: Map<string, string> = iife(() => {
         const pairs = new Map<string, string>();
         for (const d of BladeDirectives.all) {
             if (d.hasEndTag && d.endTag) {
-                // '@if' → '@endif'
+                // '@if' -> '@endif'
                 pairs.set(d.name, d.endTag);
             }
         }
         return pairs;
-    })();
+    });
 
     /**
-     * Reverse map: '@endif' → '@if', used to match closers to openers.
+     * Reverse map: '@endif' -> '@if', used to match closers to openers.
+     *
+     * Also includes alternate closers for directives that accept multiple
+     * closing tags. For example, `@section` can be closed by `@endsection`,
+     * `@show`, `@stop`, or `@overwrite`.
      */
-    const CLOSING_TO_OPENING: Map<string, string> = (() => {
+    const CLOSING_TO_OPENING: Map<string, string> = iife(() => {
         const map = new Map<string, string>();
         for (const [open, close] of BLOCK_DIRECTIVE_PAIRS) {
             map.set(close, open);
         }
+
+        // @section can also be closed by @show, @stop, or @overwrite
+        map.set('@show', '@section');
+        map.set('@stop', '@section');
+        map.set('@overwrite', '@section');
+
         return map;
-    })();
+    });
+
+    /**
+     * Directives that act as clause separators inside specific parent blocks.
+     * When encountered inside the parent, they should be ignored (not treated
+     * as block openers). Outside their parent, they behave as normal block
+     * directives.
+     *
+     * Example: `@empty` inside `@forelse` is a clause separator, but
+     * standalone `@empty($var)` is a block directive needing `@endempty`.
+     */
+    const CLAUSE_DIRECTIVES: Map<string, string> = new Map([['@empty', '@forelse']]);
+
+    /**
+     * Block directives that become inline when followed by parentheses.
+     *
+     * `@php($x = 1)` is an inline expression -- no `@endphp` needed.
+     * `@php\n  ...\n@endphp` is a block -- needs closing.
+     */
+    const INLINE_WHEN_PARENS = new Set(['@php']);
+
+    /**
+     * Block directives that become inline when called with two arguments.
+     *
+     * `@section('title', 'My Page')` is inline -- no `@endsection` needed.
+     * `@section('content')` with one arg is a block -- needs closing.
+     *
+     * Same pattern applies to @push, @pushOnce, @prepend, @prependOnce, @slot.
+     */
+    const INLINE_WHEN_TWO_ARGS = new Set(['@section', '@push', '@pushOnce', '@prepend', '@prependOnce', '@slot']);
+
+    /**
+     * Check if a directive invocation has two top-level arguments in its
+     * parentheses. We look for a comma after the first quoted string argument
+     * that sits at the top nesting level (not inside brackets, nested parens,
+     * or strings).
+     *
+     * Examples:
+     *   "@section('title', 'My Page')"  -> true  (two args)
+     *   "@section('content')"           -> false (one arg)
+     *   "@push('scripts', '<script>')"  -> true  (two args)
+     */
+    function hasTwoArgs(afterDirective: string): boolean {
+        // Must start with optional whitespace then (
+        const parenMatch = afterDirective.match(/^\s*\(/);
+        if (!parenMatch) return false;
+
+        const startIndex = parenMatch[0].length;
+        let depth = 0; // extra paren/bracket nesting inside the outer ()
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
+
+        for (let i = startIndex; i < afterDirective.length; i++) {
+            const ch = afterDirective[i];
+            const prev = i > 0 ? afterDirective[i - 1] : '';
+
+            if (inSingleQuote) {
+                if (ch === "'" && prev !== '\\') inSingleQuote = false;
+                continue;
+            }
+            if (inDoubleQuote) {
+                if (ch === '"' && prev !== '\\') inDoubleQuote = false;
+                continue;
+            }
+
+            if (ch === "'") {
+                inSingleQuote = true;
+                continue;
+            }
+            if (ch === '"') {
+                inDoubleQuote = true;
+                continue;
+            }
+            if (ch === '(' || ch === '[') {
+                depth++;
+                continue;
+            }
+            if (ch === ')' || ch === ']') {
+                if (depth === 0) return false; // closing outer paren -- end of args
+                depth--;
+                continue;
+            }
+            if (ch === ',' && depth === 0) return true; // top-level comma -> two args
+        }
+
+        return false;
+    }
 
     interface DirectiveOccurrence {
         name: string; // e.g. '@if'
@@ -281,67 +363,96 @@ export namespace Diagnostics {
         colEnd: number;
     }
 
-    export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
-        const diagnostics: Diagnostic[] = [];
-        const lines = source.split('\n');
+    /**
+     * Check if a block directive should be treated as inline at a given position.
+     * Extracted to flatten nested conditionals in the scan loop.
+     */
+    function isInlineDirective(name: string, afterDirective: string): boolean {
+        if (INLINE_WHEN_PARENS.has(name) && /^\s*\(/.test(afterDirective)) {
+            return true;
+        }
+        if (INLINE_WHEN_TWO_ARGS.has(name) && hasTwoArgs(afterDirective)) {
+            return true;
+        }
+        return false;
+    }
 
-        // Collect all directive occurrences
+    /**
+     * Scan source lines and collect all block/closing directive occurrences.
+     */
+    function scanDirectiveOccurrences(lines: string[]): DirectiveOccurrence[] {
         const occurrences: DirectiveOccurrence[] = [];
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
             const line = lines[lineNum];
-            // Match @word directives
             const directivePattern = /@(\w+)/g;
-            let match: RegExpExecArray | null;
 
-            while ((match = directivePattern.exec(line)) !== null) {
+            for (const { match } of collectRegexMatches(line, directivePattern)) {
                 const name = `@${match[1]}`;
+
                 // Only care about directives that are openers or closers
-                if (BLOCK_DIRECTIVE_PAIRS.has(name) || CLOSING_TO_OPENING.has(name)) {
-                    occurrences.push({
-                        name,
-                        line: lineNum,
-                        colStart: match.index,
-                        colEnd: match.index + match[0].length,
-                    });
-                }
+                if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
+
+                // Skip directives that behave as inline at this call site
+                const afterDirective = line.slice(match.index + match[0].length);
+                if (isInlineDirective(name, afterDirective)) continue;
+
+                occurrences.push({
+                    name,
+                    line: lineNum,
+                    colStart: match.index,
+                    colEnd: match.index + match[0].length,
+                });
             }
         }
 
+        return occurrences;
+    }
+
+    /**
+     * Find and remove the matching opener from the stack.
+     * Returns true if a match was found.
+     */
+    function findAndRemoveMatchingOpener(stack: DirectiveOccurrence[], expectedOpener: string): boolean {
+        for (let i = stack.length - 1; i >= 0; i--) {
+            if (stack[i].name === expectedOpener) {
+                stack.splice(i, 1);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
+        const diagnostics: Diagnostic[] = [];
+        const lines = source.split('\n');
+
+        const occurrences = scanDirectiveOccurrences(lines);
+
         // Use a stack to match openers with closers.
-        // Each stack entry tracks the opening directive occurrence.
         const stack: DirectiveOccurrence[] = [];
 
         for (const occ of occurrences) {
             if (BLOCK_DIRECTIVE_PAIRS.has(occ.name)) {
-                // This is an opener -- push onto stack
+                // Check if this directive is a clause separator inside its parent block.
+                const clauseParent = CLAUSE_DIRECTIVES.get(occ.name);
+                if (clauseParent && stack.length > 0 && stack[stack.length - 1].name === clauseParent) {
+                    continue;
+                }
                 stack.push(occ);
-            } else if (CLOSING_TO_OPENING.has(occ.name)) {
-                // This is a closer
-                const expectedOpener = CLOSING_TO_OPENING.get(occ.name)!;
+                continue;
+            }
 
-                // Walk back the stack looking for the matching opener.
-                // We search from the top because Blade directives nest.
-                let found = false;
-                for (let i = stack.length - 1; i >= 0; i--) {
-                    if (stack[i].name === expectedOpener) {
-                        // Matched -- remove it from the stack
-                        stack.splice(i, 1);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found) {
-                    // Unexpected closing directive (no matching opener)
-                    diagnostics.push({
-                        severity: DiagnosticSeverity.Error,
-                        range: Range.create(occ.line, occ.colStart, occ.line, occ.colEnd),
-                        message: `Unexpected '${occ.name}' without a matching '${expectedOpener}'.`,
-                        source: 'blade-lsp',
-                        code: Code.unclosedDirective,
-                    });
-                }
+            // This is a closer
+            const expectedOpener = CLOSING_TO_OPENING.get(occ.name)!;
+            if (!findAndRemoveMatchingOpener(stack, expectedOpener)) {
+                diagnostics.push({
+                    severity: DiagnosticSeverity.Error,
+                    range: Range.create(occ.line, occ.colStart, occ.line, occ.colEnd),
+                    message: `Unexpected '${occ.name}' without a matching '${expectedOpener}'.`,
+                    source: 'blade-lsp',
+                    code: Code.unclosedDirective,
+                });
             }
         }
 
@@ -375,15 +486,10 @@ export namespace Diagnostics {
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
             const line = lines[lineNum];
-
             const methodPattern = /@method\s*\(\s*['"]([^'"]*)['"]\s*\)/g;
-            let match: RegExpExecArray | null;
 
-            while ((match = methodPattern.exec(line)) !== null) {
-                const value = match[1];
-                const upperValue = value.toUpperCase();
-
-                if (!VALID_METHODS.has(upperValue)) {
+            for (const { match, captured: value } of collectRegexMatches(line, methodPattern)) {
+                if (!VALID_METHODS.has(value.toUpperCase())) {
                     const valueStart = line.indexOf(value, match.index);
                     diagnostics.push({
                         severity: DiagnosticSeverity.Error,

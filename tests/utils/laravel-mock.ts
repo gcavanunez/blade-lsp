@@ -4,6 +4,10 @@
  * Provides factory functions to pre-populate LaravelContext with fixture
  * data so tests can exercise Laravel-dependent features (views, components,
  * directives) without running PHP.
+ *
+ * State is stored in the service container's laravelState MutableRef.
+ * No AsyncLocalStorage scoping required — `installMockLaravel()` writes
+ * directly and all provider code reads from the same container.
  */
 
 import { LaravelContext } from '../../src/laravel/context';
@@ -11,6 +15,8 @@ import { Laravel } from '../../src/laravel/index';
 import type { ViewItem, ComponentItem, CustomDirective, ComponentProp, LivewireProp } from '../../src/laravel/types';
 import { Project } from '../../src/laravel/project';
 import { PhpEnvironment } from '../../src/laravel/php-environment';
+import { Container } from '../../src/runtime/container';
+import { MutableRef } from 'effect';
 
 // ─── Default Fixture Data ───────────────────────────────────────────────────
 
@@ -167,10 +173,47 @@ export function createMockLaravelState(overrides?: MockLaravelOverrides): Larave
 }
 
 /**
+ * Ensure the service container is initialized.
+ *
+ * Unit tests that call provider functions directly (outside the LSP
+ * server pipeline) need a container so that `LaravelContext.set/get`
+ * have somewhere to write. This creates a minimal stub container
+ * with no-op implementations for services that unit tests don't invoke.
+ */
+export function ensureContainer(): void {
+    if (Container.isReady()) return;
+
+    // Minimal stub container for unit tests.
+    // Integration tests go through Server.start() which calls buildRuntime().
+    const noopLogger = { info: () => {}, warn: () => {}, error: () => {} };
+    const noopProgress = { begin: () => ({ report: () => {}, done: () => {} }) };
+
+    Container.init({
+        connection: {} as any,
+        documents: {} as any,
+        parser: {
+            initialize: async () => {},
+            parse: () => ({ rootNode: { children: [] } }) as any,
+        },
+        logger: noopLogger as any,
+        progress: noopProgress as any,
+        settings: MutableRef.make({}),
+        workspaceRoot: MutableRef.make<string | null>('/test/project'),
+        treeCache: new Map(),
+        laravelState: MutableRef.make<LaravelContext.State | null>(null),
+        watchCapability: MutableRef.make(false),
+        parserBackend: MutableRef.make(null),
+        laravelInitPromise: MutableRef.make(null),
+        laravelRefreshResult: MutableRef.make(null),
+    });
+}
+
+/**
  * Install mock Laravel data into the context.
  * Call this in `beforeAll` or `beforeEach`.
  */
 export function installMockLaravel(overrides?: MockLaravelOverrides): void {
+    ensureContainer();
     const state = createMockLaravelState(overrides);
     LaravelContext.set(state);
 }
@@ -188,11 +231,21 @@ export function clearMockLaravel(): void {
     }
 }
 
+// ─── Test Helpers ───────────────────────────────────────────────────────────
+
+import type { Hover, MarkupContent } from 'vscode-languageserver/node';
+
 /**
- * Run `fn` within a scoped Laravel context (AsyncLocalStorage).
- * Use this in unit tests that call provider functions directly
- * (outside the LSP handler pipeline).
+ * Extract the string value from a Hover's contents.
+ *
+ * Handles the three possible shapes:
+ *   - string
+ *   - MarkupContent  ({ kind, value })
+ *   - MarkedString   ({ language, value })
  */
-export function withMockLaravel<R>(fn: () => R): R {
-    return LaravelContext.provide(fn);
+export function getHoverValue(hover: Hover): string {
+    const contents = hover.contents;
+    if (typeof contents === 'string') return contents;
+    if ('value' in contents) return (contents as MarkupContent).value;
+    return '';
 }

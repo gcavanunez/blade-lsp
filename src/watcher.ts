@@ -16,13 +16,7 @@ import {
     FileChangeType,
     FileEvent,
 } from 'vscode-languageserver/node';
-import { Log } from './utils/log';
-
 export namespace Watcher {
-    // ─── Logger ────────────────────────────────────────────────────────────────
-
-    const log = Log.create({ service: 'watcher' });
-
     // ─── Glob Patterns ────────────────────────────────────────────────────────
     // These patterns are registered with the LSP client via
     // `workspace/didChangeWatchedFiles` dynamic registration.
