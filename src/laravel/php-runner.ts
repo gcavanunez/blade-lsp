@@ -1,10 +1,10 @@
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs';
 import z from 'zod';
+import { Effect, Schedule } from 'effect';
 import { NamedError } from '../utils/error';
-import { retry, RetryOptions } from '../utils/retry';
 import { Project } from './project';
 
 export namespace PhpRunner {
@@ -74,14 +74,25 @@ export namespace PhpRunner {
         }),
     );
 
+    /** Union of all errors that `executePhp` can produce. */
+    export type ExecuteError = InstanceType<
+        typeof TimeoutError | typeof StartupError | typeof OutputError | typeof ParseError | typeof SpawnError
+    >;
+
+    /** Union of all errors that `runScript` can produce. */
+    export type RunScriptError =
+        | InstanceType<typeof ScriptNotFoundError | typeof VendorDirError | typeof WriteError>
+        | ExecuteError;
+
     // ─── Types ─────────────────────────────────────────────────────────────────
 
     interface Options {
         project: Project.LaravelProject;
         scriptName: string;
-        timeout?: number;
-        retry?: RetryOptions;
     }
+
+    /** Default timeout for PHP script execution (ms) */
+    const TIMEOUT = 30_000;
 
     // Output markers used by bootstrap script
     const OUTPUT_MARKERS = {
@@ -137,7 +148,7 @@ export namespace PhpRunner {
      * Write a PHP script to the vendor directory
      * @returns The relative path (for use with Docker)
      * @throws VendorDirError if directory cannot be created
-     * @throws WriteError if script cannot be written
+     * @throws WriteError if script can't be written
      */
     function writePhpScript(projectRoot: string, content: string, scriptName: string): string {
         ensureVendorDir(projectRoot);
@@ -178,139 +189,178 @@ export namespace PhpRunner {
         return bootstrapContent.replace('__VSCODE_LARAVEL_OUTPUT__;', extractCode);
     }
 
+    // ─── Process output parsing ─────────────────────────────────────────────
+
     /**
-     * Execute PHP and parse the output
-     * @throws TimeoutError, StartupError, OutputError, ParseError, SpawnError
+     * Parse the raw stdout from a PHP process into a typed result.
+     * Pure function — all error paths return NamedError instances.
+     */
+    function parseOutput<T>(stdout: string, stderr: string): T {
+        // Check for startup error
+        if (stdout.includes(OUTPUT_MARKERS.STARTUP_ERROR)) {
+            const errorMatch = stdout.match(new RegExp(`${OUTPUT_MARKERS.STARTUP_ERROR}: (.+)`));
+            throw new StartupError({ message: errorMatch?.[1] || 'Unknown error' });
+        }
+
+        // Extract output between markers
+        const startIdx = stdout.indexOf(OUTPUT_MARKERS.START);
+        const endIdx = stdout.indexOf(OUTPUT_MARKERS.END);
+
+        if (startIdx === -1 || endIdx === -1) {
+            throw new OutputError({
+                message: 'Output markers not found',
+                stdout: stdout.substring(0, 500),
+                stderr: stderr.substring(0, 500),
+            });
+        }
+
+        const jsonOutput = stdout.substring(startIdx + OUTPUT_MARKERS.START.length, endIdx).trim();
+
+        try {
+            return JSON.parse(jsonOutput) as T;
+        } catch (e) {
+            throw new ParseError({
+                message: e instanceof Error ? e.message : String(e),
+                output: jsonOutput.substring(0, 500),
+            });
+        }
+    }
+
+    // ─── Effect-based process execution ─────────────────────────────────────
+
+    /**
+     * Spawn a PHP child process, collect its output, and parse the result.
+     *
+     * Returns an `Effect` that:
+     *   - Spawns the process and sets up a timeout
+     *   - Collects stdout/stderr
+     *   - On close, parses the output into `T`
+     *   - On interruption or abort, kills the process with SIGTERM
+     *
+     * Error channel: `ExecuteError` (TimeoutError | StartupError | OutputError | ParseError | SpawnError)
      */
     function executePhp<T>(
         project: Project.LaravelProject,
         scriptPath: string,
         scriptName: string,
         timeout: number,
-    ): Promise<T> {
-        return new Promise((resolve, reject) => {
+    ): Effect.Effect<T, ExecuteError> {
+        return Effect.async<T, ExecuteError>((resume, signal) => {
             let stdout = '';
             let stderr = '';
-            let killed = false;
+            let proc: ChildProcess;
 
             const command = project.phpCommand[0];
             const args = [...project.phpCommand.slice(1), scriptPath];
 
-            const proc = spawn(command, args, {
-                cwd: project.root,
-                env: {
-                    ...process.env,
-                    XDEBUG_MODE: 'off',
-                },
-            });
+            try {
+                proc = spawn(command, args, {
+                    cwd: project.root,
+                    env: {
+                        ...process.env,
+                        XDEBUG_MODE: 'off',
+                    },
+                });
+            } catch (err) {
+                resume(
+                    Effect.fail(
+                        new SpawnError({
+                            command: project.phpCommand.join(' '),
+                            message: err instanceof Error ? err.message : String(err),
+                        }),
+                    ),
+                );
+                return;
+            }
 
+            // Kill on timeout
             const timeoutId = setTimeout(() => {
-                killed = true;
                 proc.kill('SIGTERM');
-                reject(new TimeoutError({ timeoutMs: timeout, scriptName }));
+                resume(Effect.fail(new TimeoutError({ timeoutMs: timeout, scriptName })));
             }, timeout);
 
-            proc.stdout.on('data', (data) => {
+            // Kill on fiber interruption
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeoutId);
+                proc.kill('SIGTERM');
+            });
+
+            proc.stdout!.on('data', (data) => {
                 stdout += data.toString();
             });
 
-            proc.stderr.on('data', (data) => {
+            proc.stderr!.on('data', (data) => {
                 stderr += data.toString();
             });
 
             proc.on('close', () => {
                 clearTimeout(timeoutId);
-                if (killed) return;
-
-                // Check for startup error
-                if (stdout.includes(OUTPUT_MARKERS.STARTUP_ERROR)) {
-                    const errorMatch = stdout.match(new RegExp(`${OUTPUT_MARKERS.STARTUP_ERROR}: (.+)`));
-                    reject(new StartupError({ message: errorMatch?.[1] || 'Unknown error' }));
-                    return;
-                }
-
-                // Extract output between markers
-                const startIdx = stdout.indexOf(OUTPUT_MARKERS.START);
-                const endIdx = stdout.indexOf(OUTPUT_MARKERS.END);
-
-                if (startIdx === -1 || endIdx === -1) {
-                    reject(
-                        new OutputError({
-                            message: 'Output markers not found',
-                            stdout: stdout.substring(0, 500),
-                            stderr: stderr.substring(0, 500),
-                        }),
-                    );
-                    return;
-                }
-
-                const jsonOutput = stdout.substring(startIdx + OUTPUT_MARKERS.START.length, endIdx).trim();
+                if (signal.aborted) return;
 
                 try {
-                    resolve(JSON.parse(jsonOutput) as T);
-                } catch (e) {
-                    reject(
-                        new ParseError({
-                            message: e instanceof Error ? e.message : String(e),
-                            output: jsonOutput.substring(0, 500),
-                        }),
-                    );
+                    resume(Effect.succeed(parseOutput<T>(stdout, stderr)));
+                } catch (error) {
+                    resume(Effect.fail(error as ExecuteError));
                 }
             });
 
             proc.on('error', (err) => {
                 clearTimeout(timeoutId);
-                reject(new SpawnError({ command: project.phpCommand.join(' '), message: err.message }));
+                resume(Effect.fail(new SpawnError({ command: project.phpCommand.join(' '), message: err.message })));
             });
         });
     }
+
+    // ─── Public API ─────────────────────────────────────────────────────────
 
     /**
      * Run a PHP script in the context of a Laravel project.
      * Uses file-based execution for Docker compatibility.
      *
-     * @throws ScriptNotFoundError if scripts don't exist
-     * @throws VendorDirError if vendor dir can't be created
-     * @throws WriteError if script can't be written
-     * @throws TimeoutError if script times out
-     * @throws StartupError if Laravel fails to bootstrap
-     * @throws OutputError if output is invalid
-     * @throws ParseError if JSON parsing fails
-     * @throws SpawnError if process can't be spawned
+     * Internally constructs an Effect pipeline with retry
+     * (1 retry, 1s exponential backoff, only for transient errors),
+     * then runs it as a Promise at the boundary.
      */
     export async function runScript<T>(options: Options): Promise<T> {
-        const { project, scriptName, timeout = 30000, retry: retryOpts } = options;
+        const { project, scriptName } = options;
 
-        // Get the script paths (from the LSP's bundled scripts)
-        const scriptsDir = path.join(__dirname, '..', '..', 'scripts');
-        const bootstrapScript = path.join(scriptsDir, 'bootstrap-laravel.php');
-        const extractScript = path.join(scriptsDir, `${scriptName}.php`);
+        const effect = Effect.gen(function* () {
+            // Get the script paths (from the LSP's bundled scripts)
+            const scriptsDir = path.join(__dirname, '..', '..', 'scripts');
+            const bootstrapScript = path.join(scriptsDir, 'bootstrap-laravel.php');
+            const extractScript = path.join(scriptsDir, `${scriptName}.php`);
 
-        // Verify scripts exist
-        if (!fs.existsSync(bootstrapScript)) {
-            throw new ScriptNotFoundError({ script: 'bootstrap', path: bootstrapScript });
-        }
+            // Verify scripts exist
+            if (!fs.existsSync(bootstrapScript)) {
+                return yield* Effect.fail(new ScriptNotFoundError({ script: 'bootstrap', path: bootstrapScript }));
+            }
 
-        if (!fs.existsSync(extractScript)) {
-            throw new ScriptNotFoundError({ script: scriptName, path: extractScript });
-        }
+            if (!fs.existsSync(extractScript)) {
+                return yield* Effect.fail(new ScriptNotFoundError({ script: scriptName, path: extractScript }));
+            }
 
-        // Build the combined PHP code
-        const phpCode = buildPhpCode(bootstrapScript, extractScript);
+            // Build the combined PHP code
+            const phpCode = buildPhpCode(bootstrapScript, extractScript);
 
-        // Write to vendor/blade-lsp/<hash>.php
-        const relativeScriptPath = writePhpScript(project.root, phpCode, scriptName);
-
-        // Execute with optional retry
-        const execute = () => executePhp<T>(project, relativeScriptPath, scriptName, timeout);
-
-        if (retryOpts) {
-            return retry(execute, {
-                ...retryOpts,
-                retryIf: retryOpts.retryIf ?? isRetryableError,
+            // Write to vendor/blade-lsp/<hash>.php
+            const relativeScriptPath = yield* Effect.try({
+                try: () => writePhpScript(project.root, phpCode, scriptName),
+                catch: (error) => error as InstanceType<typeof VendorDirError | typeof WriteError>,
             });
-        }
 
-        return execute();
+            // Execute PHP
+            return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT);
+        });
+
+        // Retry once on transient errors with 1s backoff
+        const withRetry = effect.pipe(
+            Effect.retry({
+                times: 1,
+                while: isRetryableError,
+                schedule: Schedule.exponential('1 seconds'),
+            }),
+        );
+
+        return Effect.runPromise(withRetry);
     }
 }

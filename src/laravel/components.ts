@@ -37,8 +37,6 @@ export namespace Components {
             const raw = await PhpRunner.runScript<ComponentsRawResult>({
                 project: state.project,
                 scriptName: 'blade-components',
-                timeout: 30000,
-                retry: { attempts: 2, delay: 1000 },
             });
 
             // Normalize keyed object into flat array
