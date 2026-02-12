@@ -67,7 +67,6 @@ export namespace Log {
 
     const loggers = new Map<string, Logger>();
 
-    // Writer function - defaults to stderr, can be overridden
     let write = (msg: string) => {
         process.stderr.write(msg);
     };
@@ -80,7 +79,6 @@ export namespace Log {
     }
 
     function formatError(error: Error, depth = 0): string {
-        // Use toObject() for NamedErrors to get structured data
         if (error instanceof NamedError) {
             const obj = error.toObject();
             let result: string;
@@ -89,7 +87,6 @@ export namespace Log {
             } catch {
                 result = `${obj.name}: ${JSON.stringify(obj.data)}`;
             }
-            // Walk the cause chain for NamedErrors too
             if (error.cause instanceof Error && depth < 10) {
                 result += ' Caused by: ' + formatError(error.cause, depth + 1);
             }
@@ -103,7 +100,6 @@ export namespace Log {
     }
 
     function formatValue(value: unknown): string {
-        // All Errors (including NamedErrors) go through formatError for cause chain walking
         if (value instanceof Error) return formatError(value);
 
         if (typeof value === 'object' && value !== null) {

@@ -76,11 +76,9 @@ export namespace Watcher {
     function classifyChange(uri: string): Set<RefreshTarget> {
         const targets = new Set<RefreshTarget>();
 
-        // Normalise to forward-slash path for matching
         const filePath = uri.replace('file://', '');
 
         if (filePath.endsWith('.blade.php')) {
-            // Blade files can be views or anonymous components
             targets.add('views');
             targets.add('components');
         }
@@ -95,21 +93,18 @@ export namespace Watcher {
         }
 
         if (/\/app\/Providers\//i.test(filePath)) {
-            // Service providers may register components, directives, or view namespaces
             targets.add('views');
             targets.add('components');
             targets.add('directives');
         }
 
         if (/composer\.(json|lock)$/.test(filePath)) {
-            // Dependency changes can affect everything
             targets.add('views');
             targets.add('components');
             targets.add('directives');
         }
 
         if (/\/config\//i.test(filePath)) {
-            // Config changes (e.g., view.php paths) can affect view/component resolution
             targets.add('views');
             targets.add('components');
         }

@@ -16,11 +16,7 @@ export namespace Directives {
         }),
     );
 
-    // ─── Lock Key ──────────────────────────────────────────────────────────────
-
     const REFRESH_LOCK = 'directives-refresh';
-
-    // ─── Functions ─────────────────────────────────────────────────────────────
 
     /**
      * Refresh directives from Laravel.

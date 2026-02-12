@@ -94,27 +94,23 @@ export namespace PhpRunner {
     /** Default timeout for PHP script execution (ms) */
     const TIMEOUT = 30_000;
 
-    // Output markers used by bootstrap script
+    // Delimit JSON payload from any extra PHP output (warnings, notices, etc.).
     const OUTPUT_MARKERS = {
         START: '__VSCODE_LARAVEL_START_OUTPUT__',
         END: '__VSCODE_LARAVEL_END_OUTPUT__',
         STARTUP_ERROR: '__VSCODE_LARAVEL_STARTUP_ERROR__',
     };
 
-    // Directory inside vendor where we write PHP scripts
     const VENDOR_DIR = 'vendor/blade-lsp';
 
-    // Cache of written files to avoid rewriting identical scripts
     const fileCache = new Map<string, string>();
 
     /**
      * Check if an error is retryable (transient)
      */
     function isRetryableError(error: unknown): boolean {
-        // Timeout and spawn errors are potentially retryable
         if (TimeoutError.isInstance(error)) return true;
         if (SpawnError.isInstance(error)) return true;
-        // Startup errors might be transient (Laravel bootstrapping)
         if (StartupError.isInstance(error)) return true;
         return false;
     }
@@ -158,7 +154,6 @@ export namespace PhpRunner {
         const relativePath = `${VENDOR_DIR}/${fileName}`;
         const absolutePath = path.join(projectRoot, relativePath);
 
-        // Check cache first
         if (fileCache.has(hash) && fs.existsSync(absolutePath)) {
             return relativePath;
         }
@@ -186,6 +181,7 @@ export namespace PhpRunner {
             .replace(/^<\?php\s*/, '') // Remove opening PHP tag
             .trim();
 
+        // Inject script body into the bootstrap placeholder to produce one runnable file.
         return bootstrapContent.replace('__VSCODE_LARAVEL_OUTPUT__;', extractCode);
     }
 
@@ -196,13 +192,11 @@ export namespace PhpRunner {
      * Pure function — all error paths return NamedError instances.
      */
     function parseOutput<T>(stdout: string, stderr: string): T {
-        // Check for startup error
         if (stdout.includes(OUTPUT_MARKERS.STARTUP_ERROR)) {
             const errorMatch = stdout.match(new RegExp(`${OUTPUT_MARKERS.STARTUP_ERROR}: (.+)`));
             throw new StartupError({ message: errorMatch?.[1] || 'Unknown error' });
         }
 
-        // Extract output between markers
         const startIdx = stdout.indexOf(OUTPUT_MARKERS.START);
         const endIdx = stdout.indexOf(OUTPUT_MARKERS.END);
 
@@ -258,6 +252,7 @@ export namespace PhpRunner {
                     cwd: project.root,
                     env: {
                         ...process.env,
+                        // Xdebug can write extra output that breaks marker-based JSON parsing.
                         XDEBUG_MODE: 'off',
                     },
                 });
@@ -325,12 +320,10 @@ export namespace PhpRunner {
         const { project, scriptName } = options;
 
         const effect = Effect.gen(function* () {
-            // Get the script paths (from the LSP's bundled scripts)
             const scriptsDir = path.join(__dirname, '..', '..', 'scripts');
             const bootstrapScript = path.join(scriptsDir, 'bootstrap-laravel.php');
             const extractScript = path.join(scriptsDir, `${scriptName}.php`);
 
-            // Verify scripts exist
             if (!fs.existsSync(bootstrapScript)) {
                 return yield* Effect.fail(new ScriptNotFoundError({ script: 'bootstrap', path: bootstrapScript }));
             }
@@ -339,16 +332,13 @@ export namespace PhpRunner {
                 return yield* Effect.fail(new ScriptNotFoundError({ script: scriptName, path: extractScript }));
             }
 
-            // Build the combined PHP code
             const phpCode = buildPhpCode(bootstrapScript, extractScript);
 
-            // Write to vendor/blade-lsp/<hash>.php
             const relativeScriptPath = yield* Effect.try({
                 try: () => writePhpScript(project.root, phpCode, scriptName),
                 catch: (error) => error as InstanceType<typeof VendorDirError | typeof WriteError>,
             });
 
-            // Execute PHP
             return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT);
         });
 

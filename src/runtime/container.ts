@@ -39,24 +39,17 @@ import type { ParserApi, ProgressApi } from './services';
 
 export namespace Container {
     export interface Services {
-        // Process-scoped (immutable after creation)
         readonly connection: Connection;
         readonly documents: TextDocumentsType<TextDocument>;
         readonly parser: ParserApi;
         readonly logger: Log.Logger;
         readonly progress: ProgressApi;
-
-        // Workspace-scoped (mutable via MutableRef)
         readonly settings: MutableRef.MutableRef<Server.Settings>;
         readonly workspaceRoot: MutableRef.MutableRef<string | null>;
         readonly treeCache: Map<string, BladeParser.Tree>;
         readonly laravelState: MutableRef.MutableRef<LaravelContext.State | null>;
         readonly watchCapability: MutableRef.MutableRef<boolean>;
-
-        // Parser backend (mutable — set during initialize)
         readonly parserBackend: MutableRef.MutableRef<ParserTypes.Backend | null>;
-
-        // Laravel init state
         readonly laravelInitPromise: MutableRef.MutableRef<Promise<boolean> | null>;
         readonly laravelRefreshResult: MutableRef.MutableRef<Laravel.RefreshResult | null>;
     }
@@ -157,8 +150,6 @@ export namespace Container {
         const layer = Layer.merge(makeProcessLayer(externalConnection), makeWorkspaceLayer());
         runtime = ManagedRuntime.make(layer);
 
-        // Extract all services synchronously from the runtime.
-        // This works because all our layers use Layer.succeed (no async init).
         init({
             connection: runtime.runSync(ConnectionService),
             documents: runtime.runSync(DocumentsService),

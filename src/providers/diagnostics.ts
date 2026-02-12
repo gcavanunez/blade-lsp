@@ -185,8 +185,6 @@ export namespace Diagnostics {
 
         const diagnostics: Diagnostic[] = [];
 
-        // When a tree is available, use tree-sitter to find all component references
-        // instead of scanning line-by-line with regex.
         if (tree) {
             const refs = BladeParser.getAllComponentReferences(tree);
             for (const ref of refs) {
@@ -209,7 +207,6 @@ export namespace Diagnostics {
             return diagnostics;
         }
 
-        // Fallback: regex-based scanning when no tree is available
         const lines = source.split('\n');
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
@@ -311,12 +308,11 @@ export namespace Diagnostics {
      *   "@push('scripts', '<script>')"  -> true  (two args)
      */
     function hasTwoArgs(afterDirective: string): boolean {
-        // Must start with optional whitespace then (
         const parenMatch = afterDirective.match(/^\s*\(/);
         if (!parenMatch) return false;
 
         const startIndex = parenMatch[0].length;
-        let depth = 0; // extra paren/bracket nesting inside the outer ()
+        let depth = 0;
         let inSingleQuote = false;
         let inDoubleQuote = false;
 
@@ -390,10 +386,8 @@ export namespace Diagnostics {
             for (const { match } of collectRegexMatches(line, directivePattern)) {
                 const name = `@${match[1]}`;
 
-                // Only care about directives that are openers or closers
                 if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
 
-                // Skip directives that behave as inline at this call site
                 const afterDirective = line.slice(match.index + match[0].length);
                 if (isInlineDirective(name, afterDirective)) continue;
 
@@ -429,12 +423,10 @@ export namespace Diagnostics {
 
         const occurrences = scanDirectiveOccurrences(lines);
 
-        // Use a stack to match openers with closers.
         const stack: DirectiveOccurrence[] = [];
 
         for (const occ of occurrences) {
             if (BLOCK_DIRECTIVE_PAIRS.has(occ.name)) {
-                // Check if this directive is a clause separator inside its parent block.
                 const clauseParent = CLAUSE_DIRECTIVES.get(occ.name);
                 if (clauseParent && stack.length > 0 && stack[stack.length - 1].name === clauseParent) {
                     continue;
@@ -443,7 +435,6 @@ export namespace Diagnostics {
                 continue;
             }
 
-            // This is a closer
             const expectedOpener = CLOSING_TO_OPENING.get(occ.name)!;
             if (!findAndRemoveMatchingOpener(stack, expectedOpener)) {
                 diagnostics.push({
@@ -456,7 +447,6 @@ export namespace Diagnostics {
             }
         }
 
-        // Anything left on the stack is an unclosed opener
         for (const occ of stack) {
             const expectedCloser = BLOCK_DIRECTIVE_PAIRS.get(occ.name)!;
             diagnostics.push({

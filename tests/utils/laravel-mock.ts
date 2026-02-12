@@ -226,7 +226,6 @@ export function clearMockLaravel(): void {
     try {
         Laravel.dispose();
     } catch {
-        // Context may already be cleared — safe to ignore
         LaravelContext.set(null);
     }
 }

@@ -37,18 +37,12 @@ import { MutableRef } from 'effect';
 
 export namespace Server {
     export interface Settings {
-        // Command array to execute PHP (defaults to auto-detect if not provided)
-        // Examples:
-        //   - Local: ['php'] or ['/usr/bin/php']
-        //   - Docker: ['docker', 'compose', 'exec', 'app', 'php']
-        //   - Sail: ['./vendor/bin/sail', 'php']
+        /** Command array to execute PHP (defaults to auto-detect if not provided) */
         phpCommand?: string[];
-        // Preferred PHP environment (e.g., 'sail', 'herd', 'docker').
-        // If set, skips auto-detection and tries only this environment.
+        /** Preferred PHP environment — skips auto-detection and tries only this one. */
         phpEnvironment?: PhpEnvironment.Name;
         enableLaravelIntegration?: boolean;
-        // Parser backend: 'wasm' (web-tree-sitter) or 'native' (node-gyp).
-        // Defaults to 'wasm'. Use 'native' for local development with node-gyp bindings.
+        /** Parser backend: 'wasm' (web-tree-sitter) or 'native' (node-gyp). Defaults to 'wasm'. */
         parserBackend?: 'native' | 'wasm';
     }
 
@@ -75,7 +69,6 @@ export namespace Server {
         return items;
     }
 
-    // Parse document and cache the tree
     function parseDocument(document: TextDocument): BladeParser.Tree {
         const tree = BladeParser.parse(document.getText());
         Container.get().treeCache.set(document.uri, tree);
@@ -93,32 +86,26 @@ export namespace Server {
     }
 
     const build = (externalConn?: Connection) => {
-        // Build Effect runtime and extract all services into the container
         Container.build(externalConn);
         const { connection: conn, documents: docs, treeCache: cache } = Container.get();
 
         conn.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
             const c = Container.get();
 
-            // Store workspace root for Laravel detection
             MutableRef.set(c.workspaceRoot, params.workspaceFolders?.at(0)?.uri?.replace('file://', '') ?? null);
 
-            // Get initialization options (settings passed from client)
             const settings = (params.initializationOptions as Settings) ?? {};
             MutableRef.set(c.settings, settings);
             conn.console.log(`Settings received: ${JSON.stringify(settings)}`);
 
-            // Detect client capability for file watching
             MutableRef.set(
                 c.watchCapability,
                 !!params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration,
             );
 
-            // Detect client capability for progress reporting
             const supportsProgress = !!params.capabilities.window?.workDoneProgress;
             Progress.initialize(conn, supportsProgress);
 
-            // Initialize the tree-sitter parser
             const backend = settings.parserBackend ?? 'native';
             const { error } = await tryAsync(() => BladeParser.initialize(backend));
             if (error) {
@@ -148,7 +135,6 @@ export namespace Server {
 
             const settings = MutableRef.get(c.settings);
 
-            // Register file watchers if the client supports it
             if (MutableRef.get(c.watchCapability)) {
                 conn.client.register(DidChangeWatchedFilesNotification.type, {
                     watchers: Watcher.getWatchers(),
@@ -156,7 +142,6 @@ export namespace Server {
                 conn.console.log('File watchers registered');
             }
 
-            // Check if Laravel integration is disabled
             if (settings.enableLaravelIntegration === false) {
                 conn.console.log('Laravel integration disabled via settings');
                 progress.done('Ready (static mode)');
@@ -230,13 +215,6 @@ export namespace Server {
             progress.done(`Ready (${failedParts} failed)`);
         }
 
-        // ─── File Watching ─────────────────────────────────────────────────────
-        //
-        // When the client notifies us of file system changes we selectively
-        // refresh only the affected data (views, components, directives).
-        // Changes are debounced so rapid saves / git operations don't
-        // trigger dozens of PHP processes.
-
         const debouncedRefresh = Watcher.createDebouncedRefresh(async (targets) => {
             if (!Laravel.isAvailable()) return;
 
@@ -307,13 +285,11 @@ export namespace Server {
             }
         });
 
-        // Document change handler
         docs.onDidChangeContent((change) => {
             const document = change.document;
             const source = document.getText();
             const tree = parseDocument(document);
 
-            // 1. Tree-sitter syntax diagnostics
             const treeDiagnostics = BladeParser.getDiagnostics(tree);
             const syntaxDiagnostics: Diagnostic[] = treeDiagnostics.map((diag) => ({
                 severity: mapDiagnosticSeverity(diag.severity),
@@ -325,7 +301,6 @@ export namespace Server {
                 source: 'blade-lsp',
             }));
 
-            // 2. Semantic diagnostics (view refs, component refs, unclosed directives, @method)
             const semanticDiagnostics = Diagnostics.analyze(source, tree);
 
             conn.sendDiagnostics({
@@ -339,7 +314,6 @@ export namespace Server {
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
 
-        // Completion handler
         conn.onCompletion((params: TextDocumentPositionParams): CompletionItem[] => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return [];
@@ -352,36 +326,27 @@ export namespace Server {
             const items: CompletionItem[] = [];
 
             if (context.type === 'directive') {
-                // Add built-in directives
                 const matchingDirectives = BladeDirectives.getMatching(context.prefix);
                 for (const directive of matchingDirectives) {
                     items.push(Completions.createDirectiveItem(directive, context.prefix));
                 }
 
-                // Add custom directives from Laravel project
                 items.push(...getCustomDirectiveCompletions(context.prefix));
             } else if (context.type === 'html') {
                 const line = source.split('\n')[position.line];
                 const textBeforeCursor = line.slice(0, position.character);
 
                 if (textBeforeCursor.endsWith('@')) {
-                    // Add built-in directives
                     for (const directive of BladeDirectives.all) {
                         items.push(Completions.createDirectiveItem(directive, '@'));
                     }
 
-                    // Add custom directives from Laravel project
                     items.push(...getCustomDirectiveCompletions('@'));
                 }
 
-                // Check for livewire component tag start
                 if (textBeforeCursor.endsWith('<livewire:') || /<livewire:[\w.-]*$/.test(textBeforeCursor)) {
                     items.push(...Completions.getLivewireCompletions(textBeforeCursor, position));
-                }
-                // Check for component tag start:
-                //   - x- prefixed: <x-button, <x-turbo::frame
-                //   - namespace prefixed: <flux:button (but not <livewire:)
-                else if (
+                } else if (
                     textBeforeCursor.endsWith('<x-') ||
                     /<x-[\w.-]*(?:::[\w.-]*)?$/.test(textBeforeCursor) ||
                     /<[\w]+:[\w.-]*$/.test(textBeforeCursor)
@@ -389,7 +354,6 @@ export namespace Server {
                     items.push(...Completions.getComponentCompletions(textBeforeCursor, position));
                 }
 
-                // Check for component prop completion (inside component tag).
                 const componentPropContext = BladeParser.getComponentTagContext(
                     tree,
                     position.line,
@@ -404,7 +368,6 @@ export namespace Server {
                     );
                 }
 
-                // Check for slot completion (<x-slot: or <x-slot name=")
                 const isColonSyntax = /<x-slot:[\w-]*$/.test(textBeforeCursor);
                 const isNameSyntax = /<x-slot\s+name=["'][\w-]*$/.test(textBeforeCursor);
                 if (isColonSyntax || isNameSyntax) {
@@ -413,7 +376,6 @@ export namespace Server {
                     );
                 }
 
-                // Check for directive parameter completions via regex fallback.
                 const directiveParamMatch = textBeforeCursor.match(
                     /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
                 );
@@ -426,8 +388,6 @@ export namespace Server {
                 if (context.directiveName) {
                     items.push(...Completions.getParameterCompletions(context.directiveName));
                 } else {
-                    // Fallback: tree-sitter detected parameter context but couldn't
-                    // resolve the directive name (sibling node issue). Try regex.
                     const line = source.split('\n')[position.line];
                     const textBeforeCursor = line.slice(0, position.character);
                     const fallbackMatch = textBeforeCursor.match(
@@ -444,7 +404,6 @@ export namespace Server {
 
         conn.onCompletionResolve((item: CompletionItem): CompletionItem => item);
 
-        // Hover handler
         conn.onHover((params: TextDocumentPositionParams): Hover | null => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return null;
@@ -455,7 +414,6 @@ export namespace Server {
 
             const node = BladeParser.findNodeAtPosition(tree, position.line, position.character);
 
-            // Try directive hover (was 3-level nested if, now flattened with guard clauses)
             const directiveName = node ? BladeParser.extractDirectiveName(node) : null;
             const directive = directiveName ? BladeDirectives.map.get(directiveName) : undefined;
             if (directive) {
@@ -467,7 +425,6 @@ export namespace Server {
                 };
             }
 
-            // Check for special variables
             const lineText = source.split('\n')[position.line];
             const wordAtPosition = Hovers.getWordAtPosition(lineText, position.character);
 
@@ -483,25 +440,21 @@ export namespace Server {
                 return { contents: { kind: MarkupKind.Markdown, value: Hovers.formatAttributesVariable() } };
             }
 
-            // Check for component hover
             const componentHover = Hovers.getComponentHover(lineText, position.character);
             if (componentHover) {
                 return componentHover;
             }
 
-            // Check for component prop hover
             const propHover = Hovers.getPropHover(lineText, position.line, position.character, tree);
             if (propHover) {
                 return propHover;
             }
 
-            // Check for view hover in directives
             const viewHover = Hovers.getViewHover(lineText, position.character);
             if (viewHover) {
                 return viewHover;
             }
 
-            // Check for slot hover (<x-slot:name> or <x-slot name="name">)
             const slotHover = Hovers.getSlotHover(lineText, position.line, position.character, tree);
             if (slotHover) {
                 return slotHover;
@@ -510,7 +463,6 @@ export namespace Server {
             return null;
         });
 
-        // Definition handler (go to definition)
         conn.onDefinition((params: DefinitionParams): Location | null => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return null;
@@ -521,7 +473,6 @@ export namespace Server {
             const lines = source.split('\n');
             const currentLine = lines[position.line] || '';
 
-            // Check for view reference in directives
             const viewDefinition = Definitions.getViewDefinition(
                 currentLine,
                 position.character,
@@ -532,19 +483,16 @@ export namespace Server {
                 return viewDefinition;
             }
 
-            // Check for component reference
             const componentDefinition = Definitions.getComponentDefinition(currentLine, position.character);
             if (componentDefinition) {
                 return componentDefinition;
             }
 
-            // Check for component prop/attribute reference
             const propDefinition = Definitions.getPropDefinition(currentLine, position.line, position.character, tree);
             if (propDefinition) {
                 return propDefinition;
             }
 
-            // Check for slot reference (<x-slot:name> or <x-slot name="name">)
             const slotDefinition = Definitions.getSlotDefinition(currentLine, position.line, position.character, tree);
             if (slotDefinition) {
                 return slotDefinition;
@@ -573,7 +521,6 @@ export namespace Server {
     }
 }
 
-// Start the server (only when not in test mode)
 if (!process.env.TEST) {
     Server.start().listen();
 }

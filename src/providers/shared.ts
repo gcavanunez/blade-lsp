@@ -1,7 +1,7 @@
-// Shared utilities used across completion, hover, and definition providers.
-// All functions here are pure text analysis with no external dependencies,
-// which avoids circular imports with server.ts.
-
+/**
+ * Shared utilities used across completion, hover, and definition providers.
+ * Pure text analysis with no external dependencies (avoids circular imports with server.ts).
+ */
 export namespace Shared {
     export interface ComponentPropContext {
         componentName: string;
@@ -27,46 +27,35 @@ export namespace Shared {
         return !afterClose.includes('<');
     }
 
-    /**
-     * Detect if cursor is inside a component tag for prop completion
-     */
     export function getComponentPropContext(source: string, row: number, column: number): ComponentPropContext | null {
         const lines = source.split('\n');
         const currentLine = lines[row] || '';
         const textBeforeCursor = currentLine.slice(0, column);
 
-        // Look backwards to find the opening tag
         let lineIndex = row;
 
-        // Search backwards through lines to find the opening tag
+        // Multi-line component tags are common; scan a few lines upward for the opener.
         while (lineIndex >= 0 && lineIndex >= row - 10) {
             const lineText = lineIndex === row ? textBeforeCursor : lines[lineIndex];
 
-            // Check if we found a closing > that would mean we're not in a tag.
-            // Strip quoted strings first so that > inside attribute values
-            // (e.g. $user->id, arrow functions) is not mistaken for a tag boundary.
             if (lineIndex !== row && hasUnpairedClosingBracket(lineText)) {
                 break;
             }
 
-            // Look for component tag opening (including namespaced like x-turbo::frame)
             const componentMatch = lineText.match(/<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/);
             if (componentMatch) {
                 const tagStart = lineText.indexOf(componentMatch[0]);
                 const fullTagName = componentMatch[1];
 
-                // Skip x-slot - it's not a real component, it's used for named slots
                 if (fullTagName === 'x-slot') {
+                    // x-slot is a slot declaration, not the parent component we need for prop context.
                     lineIndex--;
                     continue;
                 }
 
-                // Check if tag is closed on this line before cursor.
-                // Strip quoted strings so > inside attribute values is ignored.
                 const afterTag = lineIndex === row ? currentLine.slice(tagStart, column) : lineText.slice(tagStart);
                 const afterTagStripped = stripQuotedStrings(afterTag);
 
-                // If the tag is closed before the cursor position, we're past it
                 const closePos = afterTagStripped.indexOf('>');
                 const isClosedBeforeCursor =
                     closePos >= 0 &&
@@ -77,8 +66,6 @@ export namespace Shared {
                     break;
                 }
 
-                // We're inside this component tag
-                // Extract existing props
                 const existingProps = extractExistingProps(source, lineIndex, tagStart, row, column);
 
                 return {
@@ -104,9 +91,6 @@ export namespace Shared {
         return text.replace(/(["'])(?:(?!\1).)*\1/g, (match) => match[0] + ' '.repeat(match.length - 2) + match[0]);
     }
 
-    /**
-     * Extract props that are already defined on a component tag
-     */
     export function extractExistingProps(
         source: string,
         startLine: number,
@@ -129,24 +113,18 @@ export namespace Shared {
             }
         }
 
-        // Match prop names (both regular and : prefixed for dynamic)
         const propMatches = text.matchAll(/(?::|)(\w[\w-]*)(?:=)/g);
         return Array.from(propMatches, (m) => m[1]);
     }
 
-    /**
-     * Parse a @props() string to extract prop definitions
-     */
     export function parsePropsString(propsString: string): ParsedProp[] {
         const props: ParsedProp[] = [];
 
-        // Match patterns like 'propName' or 'propName' => 'default'
         const arrayMatch = propsString.match(/@props\s*\(\s*\[([\s\S]*)\]\s*\)/);
         if (!arrayMatch) return props;
 
         const content = arrayMatch[1];
 
-        // Match 'key' => value pairs
         const pairMatches = content.matchAll(/'([\w-]+)'\s*=>\s*([^,\]]+)/g);
         for (const match of pairMatches) {
             props.push({
@@ -157,10 +135,9 @@ export namespace Shared {
             });
         }
 
-        // Match simple 'key' entries (required props)
+        // Match standalone prop names ('foo') but not key/value entries ('foo' => ...).
         const simpleMatches = content.matchAll(/(?<![=>])\s*'([\w-]+)'(?!\s*=>)/g);
         for (const match of simpleMatches) {
-            // Check if this key wasn't already matched as a pair
             if (!props.some((p) => p.name === match[1])) {
                 props.push({
                     name: match[1],
@@ -174,29 +151,21 @@ export namespace Shared {
         return props;
     }
 
-    /**
-     * Find the parent component tag for slot context
-     */
     export function findParentComponent(source: string, currentLine: number): string | null {
         const lines = source.split('\n');
         let depth = 0;
 
-        // Regex for self-closing component tags (excluding x-slot):
-        //   <x-button />, <x-button/>, <x-card prop="val" />, <flux:button />
+        // Self-closing component tags do not affect nesting depth for parent lookup.
         const selfClosingPattern = /<(x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)(?:\s[^>]*)?\s*\/>/g;
 
         for (let i = currentLine; i >= 0; i--) {
             const line = lines[i];
 
-            // Strip self-closing tags from the line before counting opens/closes.
-            // Self-closing tags are neither opening nor closing — they don't affect depth.
             const stripped = line.replace(selfClosingPattern, '');
 
-            // Count closing tags (excluding x-slot), including namespaced like </x-turbo::frame>
             const closingTags = stripped.match(/<\/x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?>/g);
             if (closingTags) depth += closingTags.length;
 
-            // Find opening tags (excluding x-slot), including namespaced like <x-turbo::frame
             const openingMatch = stripped.match(/<(x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)(?:\s|>)/);
             if (openingMatch) {
                 if (depth === 0) {
@@ -217,7 +186,6 @@ export namespace Shared {
      * 2. If no @props exists, any standalone echoed variable (minus excluded) is a potential slot
      */
     export function extractSlotsFromContent(content: string): { name: string }[] {
-        // Variables to exclude (never slots)
         const excludedVars = new Set([
             'slot', // Default slot
             'attributes', // Component attributes
@@ -229,12 +197,10 @@ export namespace Shared {
             'this', // Class reference
         ]);
 
-        // Step 1: Parse @props to get declared prop names
         const declaredProps = new Set<string>();
         const propsMatch = content.match(/@props\s*\(\s*\[([\s\S]*?)\]\s*\)/);
         if (propsMatch) {
             const propsContent = propsMatch[1];
-            // Match 'propName' or 'propName' => default patterns
             const propPattern = /['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g;
             let match;
             while ((match = propPattern.exec(propsContent)) !== null) {
@@ -242,8 +208,6 @@ export namespace Shared {
             }
         }
 
-        // Step 2: Find all variables echoed as standalone content (not inside HTML attributes)
-        // Standalone: {{ $var }} or {!! $var !!} NOT inside attribute="..."
         const echoedVars = new Set<string>();
         const echoPattern =
             /\{\{[\s]*\$([a-zA-Z_][a-zA-Z0-9_]*)[\s]*(?:\?\?[^}]*)?\}\}|\{!![\s]*\$([a-zA-Z_][a-zA-Z0-9_]*)[\s]*(?:\?\?[^}]*)?!!\}/g;
@@ -251,18 +215,14 @@ export namespace Shared {
         while ((match = echoPattern.exec(content)) !== null) {
             const varName = match[1] || match[2];
             if (varName && !excludedVars.has(varName)) {
-                // Check if this echo is inside an HTML attribute
                 if (!isInsideHtmlAttribute(content, match.index)) {
                     echoedVars.add(varName);
                 }
             }
         }
 
-        // Step 3: Determine slots based on whether @props exists
         const slots = new Set<string>();
 
-        // If @props exists, only props that are echoed standalone are slots.
-        // Otherwise, use all standalone echoed variables as potential slots.
         const candidates = declaredProps.size > 0 ? declaredProps : echoedVars;
         for (const name of candidates) {
             if (echoedVars.has(name)) {
@@ -278,34 +238,25 @@ export namespace Shared {
      * e.g., class="{{ $var }}" - the {{ $var }} is inside an attribute
      */
     function isInsideHtmlAttribute(content: string, position: number): boolean {
-        // Look backwards from position to find if we're inside attribute="..."
-        // We need to find if there's an unclosed =" or =' before this position
-
         let i = position - 1;
         let inDoubleQuote = false;
         let inSingleQuote = false;
 
-        // Scan backwards to find the context
         while (i >= 0) {
             const char = content[i];
             const prevChar = i > 0 ? content[i - 1] : '';
 
             if (char === '"' && prevChar === '=') {
-                // Found ="
                 inDoubleQuote = true;
                 break;
             } else if (char === "'" && prevChar === '=') {
-                // Found ='
                 inSingleQuote = true;
                 break;
             } else if (char === '"' && !inSingleQuote) {
-                // Found closing " - we're not in an attribute
                 break;
             } else if (char === "'" && !inDoubleQuote) {
-                // Found closing ' - we're not in an attribute
                 break;
             } else if (char === '>' || char === '<') {
-                // Found tag boundary - we're not in an attribute
                 break;
             }
 

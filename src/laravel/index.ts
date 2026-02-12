@@ -54,11 +54,8 @@ export namespace Laravel {
      * Options for Laravel initialization
      */
     export interface Options {
-        // Command array to execute PHP (defaults to auto-detect if not provided)
         phpCommand?: string[];
-        // Preferred PHP environment to try (e.g., 'sail', 'herd', 'lando').
         phpEnvironment?: PhpEnvironment.Name;
-        // Callback for reporting progress during initialization.
         onProgress?: (message: string, percentage?: number) => void;
     }
 
@@ -80,6 +77,7 @@ export namespace Laravel {
      * Returns true if initialization succeeded, false otherwise.
      */
     export async function initialize(workspaceRoot: string, options: Options = {}): Promise<boolean> {
+        // Reuse the in-flight initialization promise to avoid concurrent boots.
         const ref = Container.get().laravelInitPromise;
         const existing = MutableRef.get(ref);
         if (existing) {
@@ -89,13 +87,11 @@ export namespace Laravel {
         const promise = doInitialize(workspaceRoot, options);
         MutableRef.set(ref, promise);
         const result = await promise;
+        // Allow future calls to initialize again after this run completes.
         MutableRef.set(ref, null);
         return result;
     }
 
-    /**
-     * Check if Laravel integration is available.
-     */
     export function isAvailable(): boolean {
         return LaravelContext.isAvailable();
     }
@@ -108,9 +104,6 @@ export namespace Laravel {
         return MutableRef.get(Container.get().laravelRefreshResult);
     }
 
-    /**
-     * Get the current Laravel project.
-     */
     export function getProject(): Project.LaravelProject | null {
         const state = LaravelContext.get();
         return state?.project ?? null;
@@ -137,7 +130,6 @@ export namespace Laravel {
 
         report('Loading views, components, directives...');
 
-        // Track completion of parallel tasks for incremental progress
         let completed = 0;
         const total = 3;
         const trackProgress = (label: string) => {
@@ -160,7 +152,6 @@ export namespace Laravel {
 
         const [viewResult, componentResult, directiveResult] = results;
 
-        // Log individual failures and collect error messages
         if (viewResult.status === 'rejected') {
             log.error('Views refresh failed', { error: viewResult.reason });
             result.views = 'failed';
@@ -234,13 +225,11 @@ export namespace Laravel {
             return false;
         }
 
-        // Create and set the global context state
         const state = LaravelContext.createState(project);
         LaravelContext.set(state);
 
         log.info('Initialization complete');
 
-        // Trigger initial refresh with progress reporting
         const result = await refreshAll(report).catch((err) => {
             log.error('Initial refresh failed', { error: err });
             return {

@@ -74,7 +74,7 @@ describe('Livewire (Integration)', () => {
                 text: '<livewire:counter />',
             });
 
-            // Hover over 'livewire:counter' — tag starts at col 1 (after <)
+            // Position on 'livewire:counter' (col 1 after <)
             const hover = await doc.hover(0, 6);
             expect(hover).not.toBeNull();
 

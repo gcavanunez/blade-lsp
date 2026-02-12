@@ -99,27 +99,22 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
 
     const { clientConnection, dispose } = connect();
 
-    // Track diagnostics per document URI
     const diagnosticsMap = new Map<string, Diagnostic[]>();
     const diagnosticsWaiters = new Map<string, Array<(diags: Diagnostic[]) => void>>();
 
-    // Handle server → client requests
     (clientConnection as any).onRequest(ConfigurationRequest.type, () => {
         return [settings];
     });
 
-    // Handle dynamic capability registration (file watchers etc.)
     (clientConnection as any).onRequest(RegistrationRequest.type, () => {
         return;
     });
 
-    // Capture diagnostics notifications
     (clientConnection as any).onNotification(
         PublishDiagnosticsNotification.type,
         (params: PublishDiagnosticsParams) => {
             diagnosticsMap.set(params.uri, params.diagnostics);
 
-            // Resolve any waiters
             const waiters = diagnosticsWaiters.get(params.uri);
             if (waiters) {
                 for (const resolve of waiters) {
@@ -130,18 +125,14 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
         },
     );
 
-    // Suppress window/logMessage notifications
     (clientConnection as any).onNotification('window/logMessage', () => {});
 
-    // Suppress window/workDoneProgress/create requests
     (clientConnection as any).onRequest('window/workDoneProgress/create', () => {
         return;
     });
 
-    // Suppress $/progress notifications
     (clientConnection as any).onNotification('$/progress', () => {});
 
-    // Send initialize request
     const initParams: InitializeParams = {
         processId: process.pid,
         rootUri,
@@ -183,7 +174,6 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
 
     const initializeResult = await (clientConnection as any).sendRequest(InitializeRequest.type, initParams);
 
-    // Send initialized notification
     await (clientConnection as any).sendNotification(InitializedNotification.type, {});
 
     // Wait for server to fully initialize (parser WASM load + onInitialized handler)

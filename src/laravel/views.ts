@@ -16,11 +16,7 @@ export namespace Views {
         }),
     );
 
-    // ─── Lock Key ──────────────────────────────────────────────────────────────
-
     const REFRESH_LOCK = 'views-refresh';
-
-    // ─── Functions ─────────────────────────────────────────────────────────────
 
     /**
      * Refresh views from Laravel.

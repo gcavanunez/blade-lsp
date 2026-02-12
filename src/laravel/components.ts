@@ -16,11 +16,7 @@ export namespace Components {
         }),
     );
 
-    // ─── Lock Key ──────────────────────────────────────────────────────────────
-
     const REFRESH_LOCK = 'components-refresh';
-
-    // ─── Functions ─────────────────────────────────────────────────────────────
 
     /**
      * Refresh components from Laravel.
@@ -39,7 +35,6 @@ export namespace Components {
                 scriptName: 'blade-components',
             });
 
-            // Normalize keyed object into flat array
             const items: ComponentItem[] = Object.entries(raw.components).map(([key, data]) => ({
                 key,
                 path: data.paths[0] ?? '',
@@ -62,16 +57,10 @@ export namespace Components {
         }
     }
 
-    /**
-     * Get all component items.
-     */
     export function getItems(): ComponentItem[] {
         return LaravelContext.use().components.items;
     }
 
-    /**
-     * Find a component by key.
-     */
     export function find(key: string): ComponentItem | undefined {
         return getItems().find((c) => c.key === key);
     }
@@ -114,9 +103,6 @@ export namespace Components {
         return `x-${key}`;
     }
 
-    /**
-     * Clear cached data.
-     */
     export function clear(): void {
         const state = LaravelContext.use();
         state.components.items = [];
