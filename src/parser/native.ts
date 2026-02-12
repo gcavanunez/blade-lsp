@@ -9,14 +9,14 @@ import { ParserTypes } from './types';
 
 export namespace NativeBackend {
     export function create(): ParserTypes.Backend {
-        let parser: ReturnType<typeof loadParser> | null = null;
+        let parser: Awaited<ReturnType<typeof loadParser>> | null = null;
 
-        function loadParser() {
-            // Dynamic require so this module can be imported without tree-sitter installed.
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const Parser = require('tree-sitter') as typeof import('tree-sitter');
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const Blade = require('tree-sitter-blade');
+        async function loadParser() {
+            // Dynamic import so this module can be imported without tree-sitter installed.
+            const parserModule = await import('tree-sitter');
+            const Parser = (parserModule.default ?? parserModule) as typeof import('tree-sitter');
+            const bladeModule = await import('tree-sitter-blade');
+            const Blade = bladeModule.default ?? bladeModule;
 
             const instance = new Parser();
             // tree-sitter-blade >=0.12.0 exports { name, language, nodeTypeInfo }
@@ -27,7 +27,7 @@ export namespace NativeBackend {
 
         return {
             async initialize(): Promise<void> {
-                parser = loadParser();
+                parser = await loadParser();
             },
 
             parse(source: string): ParserTypes.Tree {
