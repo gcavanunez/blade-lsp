@@ -7,6 +7,24 @@
 
 import { ParserTypes } from './types';
 
+type NativePosition = {
+    row: number;
+    column: number;
+};
+
+type NativeSyntaxNode = {
+    text: string;
+    type: string;
+    startPosition: NativePosition;
+    endPosition: NativePosition;
+    childCount: number;
+    child(index: number): NativeSyntaxNode | null;
+    parent: NativeSyntaxNode | null;
+    hasError: boolean | (() => boolean);
+    isMissing: boolean | (() => boolean);
+    toString(): string;
+};
+
 export namespace NativeBackend {
     export function create(): ParserTypes.Backend {
         let parser: Awaited<ReturnType<typeof loadParser>> | null = null;
@@ -50,7 +68,7 @@ export namespace NativeBackend {
      * handling the version compat issue between tree-sitter 0.20.x (methods)
      * and newer versions (property getters).
      */
-    function wrapNode(native: any): ParserTypes.SyntaxNode {
+    function wrapNode(native: NativeSyntaxNode): ParserTypes.SyntaxNode {
         return {
             get text() {
                 return native.text;

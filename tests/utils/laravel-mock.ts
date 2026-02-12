@@ -189,14 +189,15 @@ export function ensureContainer(): void {
     const noopProgress = { begin: () => ({ report: () => {}, done: () => {} }) };
 
     Container.init({
-        connection: {} as any,
-        documents: {} as any,
+        connection: {} as unknown as Container.Services['connection'],
+        documents: {} as unknown as Container.Services['documents'],
         parser: {
             initialize: async () => {},
-            parse: () => ({ rootNode: { children: [] } }) as any,
+            parse: () =>
+                ({ rootNode: { children: [] } }) as unknown as ReturnType<Container.Services['parser']['parse']>,
         },
-        logger: noopLogger as any,
-        progress: noopProgress as any,
+        logger: noopLogger as unknown as Container.Services['logger'],
+        progress: noopProgress as unknown as Container.Services['progress'],
         settings: MutableRef.make({}),
         workspaceRoot: MutableRef.make<string | null>('/test/project'),
         treeCache: new Map(),
