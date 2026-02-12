@@ -16,11 +16,7 @@ export namespace Components {
         }),
     );
 
-    // ─── Lock Key ──────────────────────────────────────────────────────────────
-
     const REFRESH_LOCK = 'components-refresh';
-
-    // ─── Functions ─────────────────────────────────────────────────────────────
 
     /**
      * Refresh components from Laravel.

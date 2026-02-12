@@ -215,8 +215,6 @@ export namespace Server {
             progress.done(`Ready (${failedParts} failed)`);
         }
 
-        // ─── File Watching ─────────────────────────────────────────────────────
-
         const debouncedRefresh = Watcher.createDebouncedRefresh(async (targets) => {
             if (!Laravel.isAvailable()) return;
 

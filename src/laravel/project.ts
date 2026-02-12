@@ -4,8 +4,6 @@ import { Log } from '../utils/log';
 import { PhpEnvironment } from './php-environment';
 
 export namespace Project {
-    // ─── Types ────────────────────────────────────────────────────────────────
-
     export interface LaravelProject {
         root: string;
         artisanPath: string;
@@ -22,11 +20,7 @@ export namespace Project {
         phpEnvironment?: PhpEnvironment.Name;
     }
 
-    // ─── Private ──────────────────────────────────────────────────────────────
-
     const log = Log.create({ service: 'project' });
-
-    // ─── Public Functions ─────────────────────────────────────────────────────
 
     /**
      * Detect if the given directory is a Laravel project.
