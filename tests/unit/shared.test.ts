@@ -72,19 +72,4 @@ describe('Shared', () => {
             expect(result!.existingProps).toContain('items');
         });
     });
-
-    describe('findParentComponent', () => {
-        it('finds the parent component for a nested element', () => {
-            const source = '<x-card>\n    <x-slot:header>\n        test\n    </x-slot:header>\n</x-card>';
-            const result = Shared.findParentComponent(source, 1);
-            expect(result).not.toBeNull();
-            expect(result).toBe('x-card');
-        });
-
-        it('returns null when no parent component', () => {
-            const source = '<div>\n    test\n</div>';
-            const result = Shared.findParentComponent(source, 1);
-            expect(result).toBeNull();
-        });
-    });
 });

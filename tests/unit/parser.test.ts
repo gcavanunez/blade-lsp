@@ -109,7 +109,6 @@ describe('BladeParser', () => {
             // Unclosed PHP block or similar syntax issue
             const tree = BladeParser.parse('@php $x = @endphp');
             const diags = BladeParser.getDiagnostics(tree);
-            // Just verify the function doesn't throw
             expect(Array.isArray(diags)).toBe(true);
         });
     });

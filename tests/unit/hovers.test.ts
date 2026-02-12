@@ -290,15 +290,10 @@ describe('Hovers', () => {
                 expect(value).toContain('View not found in project');
             });
 
-            it('shows vendor tag for vendor views', () => {
+            it('shows vendor tag and namespace for namespaced vendor views', () => {
                 const hover = Hovers.getViewHoverContent('mail::message');
                 const value = getHoverValue(hover);
                 expect(value).toContain('Vendor package view');
-            });
-
-            it('shows namespace for namespaced views', () => {
-                const hover = Hovers.getViewHoverContent('mail::message');
-                const value = getHoverValue(hover);
                 expect(value).toContain('**Namespace:** `mail`');
             });
         });

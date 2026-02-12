@@ -79,8 +79,6 @@ export function FormatError(input: unknown): string | undefined {
         return `Failed to run PHP command '${input.data.command}': ${input.data.message}`;
     }
 
-    // ─── Views Errors ────────────────────────────────────────────────────────
-
     if (Views.RefreshError.isInstance(input)) {
         return formatRefreshError('views', input);
     }

@@ -3,7 +3,7 @@
  *
  * After the ManagedRuntime is built from layers, services are extracted
  * once into this container. All application code reads from here instead
- * of module-level `let` globals or AsyncLocalStorage.
+ * of scattered module-level globals.
  *
  * This is the single source of truth for all singleton state.
  */

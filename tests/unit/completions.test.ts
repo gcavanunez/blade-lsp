@@ -16,94 +16,70 @@ vi.mock('../../src/server', () => ({
 }));
 
 describe('Completions', () => {
-    // ─── getParameterCompletions (static directives) ────────────────────────
-
     describe('getParameterCompletions', () => {
-        describe('section / yield', () => {
-            it('returns section name suggestions for @section', () => {
-                const items = Completions.getParameterCompletions('section');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['content', 'title', 'scripts', 'styles']);
-            });
+        const staticDirectiveCases = [
+            {
+                directive: 'section',
+                expectedLabels: ['content', 'title', 'scripts', 'styles'],
+            },
+            {
+                directive: 'yield',
+                expectedLabels: ['content', 'title', 'scripts', 'styles'],
+            },
+            {
+                directive: 'can',
+                expectedLabels: ['view', 'create', 'update', 'delete'],
+            },
+            {
+                directive: 'cannot',
+                expectedLabels: ['view', 'create', 'update', 'delete'],
+            },
+            {
+                directive: 'canany',
+                expectedLabels: ['view', 'create', 'update', 'delete'],
+            },
+            {
+                directive: 'env',
+                expectedLabels: ['local', 'production', 'staging'],
+            },
+            {
+                directive: 'method',
+                expectedLabels: ['PUT', 'PATCH', 'DELETE'],
+            },
+            {
+                directive: 'push',
+                expectedLabels: ['scripts', 'styles'],
+            },
+            {
+                directive: 'stack',
+                expectedLabels: ['scripts', 'styles'],
+            },
+            {
+                directive: 'slot',
+                expectedLabels: ['header', 'footer', 'title', 'icon', 'actions', 'trigger', 'content'],
+            },
+        ] as const;
 
-            it('returns the same suggestions for @yield', () => {
-                const items = Completions.getParameterCompletions('yield');
+        it.each(staticDirectiveCases)(
+            'returns expected suggestions for @$directive',
+            ({ directive, expectedLabels }) => {
+                const items = Completions.getParameterCompletions(directive);
                 const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['content', 'title', 'scripts', 'styles']);
-            });
+                expect(labels).toEqual(expectedLabels);
+            },
+        );
+
+        it('returns slot items with detail metadata', () => {
+            const items = Completions.getParameterCompletions('slot');
+            expect(items.length).toBe(7);
+            for (const item of items) {
+                expect(item.detail).toBeDefined();
+            }
         });
 
-        describe('can / cannot / canany', () => {
-            it('returns permission suggestions for @can', () => {
-                const items = Completions.getParameterCompletions('can');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['view', 'create', 'update', 'delete']);
-            });
-
-            it('returns permission suggestions for @cannot', () => {
-                const items = Completions.getParameterCompletions('cannot');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['view', 'create', 'update', 'delete']);
-            });
-
-            it('returns permission suggestions for @canany', () => {
-                const items = Completions.getParameterCompletions('canany');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['view', 'create', 'update', 'delete']);
-            });
-        });
-
-        describe('env', () => {
-            it('returns environment name suggestions', () => {
-                const items = Completions.getParameterCompletions('env');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['local', 'production', 'staging']);
-            });
-        });
-
-        describe('method', () => {
-            it('returns HTTP method suggestions', () => {
-                const items = Completions.getParameterCompletions('method');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['PUT', 'PATCH', 'DELETE']);
-            });
-        });
-
-        describe('push / stack', () => {
-            it('returns stack name suggestions for @push', () => {
-                const items = Completions.getParameterCompletions('push');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['scripts', 'styles']);
-            });
-
-            it('returns stack name suggestions for @stack', () => {
-                const items = Completions.getParameterCompletions('stack');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['scripts', 'styles']);
-            });
-        });
-
-        describe('slot', () => {
-            it('returns common slot name suggestions', () => {
-                const items = Completions.getParameterCompletions('slot');
-                const labels = items.map((i) => i.label);
-                expect(labels).toEqual(['header', 'footer', 'title', 'icon', 'actions', 'trigger', 'content']);
-                expect(items.length).toBe(7);
-            });
-
-            it('returns items with Value kind', () => {
-                const items = Completions.getParameterCompletions('slot');
-                for (const item of items) {
-                    expect(item.detail).toBeDefined();
-                }
-            });
-        });
-
-        describe('unknown directive', () => {
-            it('returns empty for an unknown directive', () => {
-                const items = Completions.getParameterCompletions('unknownDirective');
-                expect(items).toEqual([]);
-            });
+        it('returns empty for an unknown directive', () => {
+            const items = Completions.getParameterCompletions('unknownDirective');
+            expect(items).toEqual([]);
         });
     });
 
@@ -289,7 +265,6 @@ describe('Completions', () => {
         });
 
         it('uses plain text insertTextFormat when directive has no snippet', () => {
-            // Construct a synthetic directive with no snippet
             const directive: BladeDirectives.Directive = {
                 name: '@custom',
                 description: 'A custom directive',
@@ -305,7 +280,6 @@ describe('Completions', () => {
             const directive = BladeDirectives.map.get('@foreach')!;
             const item = Completions.createDirectiveItem(directive, '@for');
 
-            // The snippet should be sliced by 4 characters (length of '@for')
             expect(item.insertText).toBe(directive.snippet!.slice(4));
         });
 
@@ -316,7 +290,6 @@ describe('Completions', () => {
             const ifItem = Completions.createDirectiveItem(ifDirective, '');
             const csrfItem = Completions.createDirectiveItem(csrfDirective, '');
 
-            // Block directives get '0' prefix, inline get '1'
             expect(ifItem.sortText).toBe('0@if');
             expect(csrfItem.sortText).toBe('1@csrf');
         });
@@ -593,42 +566,34 @@ describe('Completions', () => {
     // ─── createPropCompletionItem ────────────────────────────────────────────
 
     describe('createPropCompletionItem', () => {
-        it('adds : prefix for non-string, non-mixed types', () => {
-            const item = Completions.createPropCompletionItem('disabled', 'bool', false, false);
-            expect(item.label).toBe(':disabled');
+        it.each([
+            { name: 'disabled', type: 'bool', required: false, defaultValue: false, expectedLabel: ':disabled' },
+            { name: 'title', type: 'string', required: false, defaultValue: 'Default', expectedLabel: 'title' },
+            { name: 'data', type: 'mixed', required: false, defaultValue: null, expectedLabel: 'data' },
+        ])('uses expected label for $name ($type)', ({ name, type, required, defaultValue, expectedLabel }) => {
+            const item = Completions.createPropCompletionItem(name, type, required, defaultValue);
+            expect(item.label).toBe(expectedLabel);
         });
 
-        it('does not add : prefix for string type', () => {
-            const item = Completions.createPropCompletionItem('title', 'string', false, 'Default');
-            expect(item.label).toBe('title');
+        it.each([
+            { required: true, defaultValue: null, expectedDetail: 'string (required)' },
+            { required: false, defaultValue: 'default', expectedDetail: 'string' },
+        ])('sets detail correctly when required=$required', ({ required, defaultValue, expectedDetail }) => {
+            const item = Completions.createPropCompletionItem('name', 'string', required, defaultValue);
+            expect(item.detail).toBe(expectedDetail);
         });
 
-        it('does not add : prefix for mixed type', () => {
-            const item = Completions.createPropCompletionItem('data', 'mixed', false, null);
-            expect(item.label).toBe('data');
-        });
-
-        it('shows "(required)" in detail for required props', () => {
-            const item = Completions.createPropCompletionItem('name', 'string', true, null);
-            expect(item.detail).toBe('string (required)');
-        });
-
-        it('shows just the type for optional props', () => {
-            const item = Completions.createPropCompletionItem('name', 'string', false, 'default');
-            expect(item.detail).toBe('string');
-        });
-
-        it('includes default value in documentation', () => {
-            const item = Completions.createPropCompletionItem('size', 'string', false, 'md');
+        it.each([
+            { defaultValue: 'md', shouldIncludeDefault: true },
+            { defaultValue: null, shouldIncludeDefault: false },
+        ])('handles default value docs (default: $defaultValue)', ({ defaultValue, shouldIncludeDefault }) => {
+            const item = Completions.createPropCompletionItem('size', 'string', false, defaultValue);
             if (typeof item.documentation === 'object' && 'value' in item.documentation) {
-                expect(item.documentation.value).toContain('Default: `md`');
-            }
-        });
-
-        it('excludes default from docs when null', () => {
-            const item = Completions.createPropCompletionItem('name', 'string', true, null);
-            if (typeof item.documentation === 'object' && 'value' in item.documentation) {
-                expect(item.documentation.value).not.toContain('Default:');
+                if (shouldIncludeDefault) {
+                    expect(item.documentation.value).toContain('Default: `md`');
+                } else {
+                    expect(item.documentation.value).not.toContain('Default:');
+                }
             }
         });
 

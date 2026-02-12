@@ -6,8 +6,6 @@ import { LaravelContext } from './context';
 import { CustomDirective } from './types';
 
 export namespace Directives {
-    // ─── Errors ────────────────────────────────────────────────────────────────
-
     export const RefreshError = NamedError.create(
         'DirectivesRefreshError',
         z.object({

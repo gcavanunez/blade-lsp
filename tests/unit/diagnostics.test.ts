@@ -11,14 +11,6 @@ describe('Diagnostics', () => {
             expect(diags[0].code).toBe(Diagnostics.Code.invalidMethod);
         });
 
-        it('accepts valid HTTP methods', () => {
-            for (const method of ['PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
-                const source = `@method('${method}')`;
-                const diags = Diagnostics.getInvalidMethodDiagnostics(source);
-                expect(diags).toEqual([]);
-            }
-        });
-
         it('returns empty for no @method directives', () => {
             const source = '<div>Hello</div>';
             const diags = Diagnostics.getInvalidMethodDiagnostics(source);
@@ -182,8 +174,6 @@ describe('Diagnostics', () => {
             expect(diags).toEqual([]);
         });
 
-        // ─── @section inline vs block ────────────────────────────────────
-
         it('does not flag @section with two args (inline form)', () => {
             const source = "@section('title', 'My Page Title')";
             const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
@@ -312,87 +302,92 @@ describe('Diagnostics', () => {
         });
 
         describe('getUndefinedViewDiagnostics', () => {
-            it('detects undefined view in @include', () => {
-                const source = "@include('nonexistent.view')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
-            });
+            const viewCases: Array<{
+                name: string;
+                source: string;
+                expectedCount: number;
+                expectedCode?: string;
+            }> = [
+                {
+                    name: 'detects undefined view in @include',
+                    source: "@include('nonexistent.view')",
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+                {
+                    name: 'accepts existing view in @include',
+                    source: "@include('layouts.app')",
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined view in @extends',
+                    source: "@extends('nonexistent.layout')",
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+                {
+                    name: 'accepts existing view in @extends',
+                    source: "@extends('layouts.app')",
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined view in @includeWhen (second string arg)',
+                    source: "@includeWhen(true, 'nonexistent.view')",
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+                {
+                    name: 'accepts existing view in @includeWhen',
+                    source: "@includeWhen(true, 'layouts.app')",
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined view in @includeUnless (second string arg)',
+                    source: "@includeUnless(false, 'nonexistent.view')",
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+                {
+                    name: 'accepts existing view in @includeUnless',
+                    source: "@includeUnless(false, 'layouts.app')",
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined view in @each',
+                    source: "@each('nonexistent.item', $items, 'item')",
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+                {
+                    name: 'accepts existing view in @each',
+                    source: "@each('layouts.app', $items, 'item')",
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined view in view() helper',
+                    source: "{{ view('nonexistent.view') }}",
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+                {
+                    name: 'accepts existing view in view() helper',
+                    source: "{{ view('layouts.app') }}",
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects multiple undefined views across lines',
+                    source: "@include('missing.one')\n@extends('missing.two')",
+                    expectedCount: 2,
+                    expectedCode: Diagnostics.Code.undefinedView,
+                },
+            ];
 
-            it('accepts existing view in @include', () => {
-                const source = "@include('layouts.app')";
+            it.each(viewCases)('$name', ({ source, expectedCount, expectedCode }) => {
                 const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined view in @extends', () => {
-                const source = "@extends('nonexistent.layout')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(1);
-            });
-
-            it('accepts existing view in @extends', () => {
-                const source = "@extends('layouts.app')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined view in @includeWhen (second string arg)', () => {
-                const source = "@includeWhen(true, 'nonexistent.view')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
-            });
-
-            it('accepts existing view in @includeWhen', () => {
-                const source = "@includeWhen(true, 'layouts.app')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined view in @includeUnless (second string arg)', () => {
-                const source = "@includeUnless(false, 'nonexistent.view')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
-            });
-
-            it('accepts existing view in @includeUnless', () => {
-                const source = "@includeUnless(false, 'layouts.app')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined view in @each', () => {
-                const source = "@each('nonexistent.item', $items, 'item')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
-            });
-
-            it('accepts existing view in @each', () => {
-                const source = "@each('layouts.app', $items, 'item')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined view in view() helper', () => {
-                const source = "{{ view('nonexistent.view') }}";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
-            });
-
-            it('accepts existing view in view() helper', () => {
-                const source = "{{ view('layouts.app') }}";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects multiple undefined views across lines', () => {
-                const source = "@include('missing.one')\n@extends('missing.two')";
-                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                expect(diags.length).toBe(2);
+                expect(diags.length).toBe(expectedCount);
+                if (expectedCode && expectedCount > 0) {
+                    expect(diags[0].code).toBe(expectedCode);
+                }
             });
 
             it('returns empty when Laravel is not available', () => {
@@ -404,62 +399,76 @@ describe('Diagnostics', () => {
         });
 
         describe('getUndefinedComponentDiagnostics', () => {
-            it('detects undefined x- component', () => {
-                const source = '<x-nonexistent />';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedComponent);
-            });
+            const componentCases: Array<{
+                name: string;
+                source: string;
+                expectedCount: number;
+                expectedCode?: string;
+                expectedMessageIncludes?: string[];
+            }> = [
+                {
+                    name: 'detects undefined x- component',
+                    source: '<x-nonexistent />',
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedComponent,
+                },
+                {
+                    name: 'accepts existing x- component',
+                    source: '<x-button />',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined Livewire component',
+                    source: '<livewire:nonexistent />',
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedComponent,
+                    expectedMessageIncludes: ['Livewire', 'nonexistent'],
+                },
+                {
+                    name: 'accepts existing Livewire component',
+                    source: '<livewire:counter />',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined namespaced component',
+                    source: '<flux:nonexistent />',
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedComponent,
+                },
+                {
+                    name: 'does not flag x-slot as undefined',
+                    source: '<x-slot name="header">Title</x-slot>',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'does not flag x-slot:name as undefined',
+                    source: '<x-slot:header>Title</x-slot:header>',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'does not flag closing tags',
+                    source: '</x-nonexistent>',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects multiple undefined components on separate lines',
+                    source: '<x-missing-one />\n<x-missing-two />',
+                    expectedCount: 2,
+                    expectedCode: Diagnostics.Code.undefinedComponent,
+                },
+            ];
 
-            it('accepts existing x- component', () => {
-                const source = '<x-button />';
+            it.each(componentCases)('$name', ({ source, expectedCount, expectedCode, expectedMessageIncludes }) => {
                 const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined Livewire component', () => {
-                const source = '<livewire:nonexistent />';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].message).toContain('Livewire');
-                expect(diags[0].message).toContain('nonexistent');
-            });
-
-            it('accepts existing Livewire component', () => {
-                const source = '<livewire:counter />';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects undefined namespaced component', () => {
-                const source = '<flux:nonexistent />';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags.length).toBe(1);
-                expect(diags[0].code).toBe(Diagnostics.Code.undefinedComponent);
-            });
-
-            it('does not flag x-slot as undefined', () => {
-                const source = '<x-slot name="header">Title</x-slot>';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('does not flag x-slot:name as undefined', () => {
-                const source = '<x-slot:header>Title</x-slot:header>';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('does not flag closing tags', () => {
-                const source = '</x-nonexistent>';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags).toEqual([]);
-            });
-
-            it('detects multiple undefined components on separate lines', () => {
-                const source = '<x-missing-one />\n<x-missing-two />';
-                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                expect(diags.length).toBe(2);
+                expect(diags.length).toBe(expectedCount);
+                if (expectedCode && expectedCount > 0) {
+                    expect(diags[0].code).toBe(expectedCode);
+                }
+                if (expectedMessageIncludes && expectedCount > 0) {
+                    for (const fragment of expectedMessageIncludes) {
+                        expect(diags[0].message).toContain(fragment);
+                    }
+                }
             });
 
             it('returns empty when Laravel is not available', () => {

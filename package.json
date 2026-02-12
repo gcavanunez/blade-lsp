@@ -54,5 +54,10 @@
         "lsp",
         "language-server"
     ],
-    "license": "MIT"
+    "license": "MIT",
+    "files": [
+        "dist",
+        "tree-sitter-blade.wasm",
+        "scripts"
+    ]
 }

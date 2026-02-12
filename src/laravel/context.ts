@@ -1,13 +1,11 @@
 /**
  * Laravel context — delegates to the Effect service container.
  *
- * Previously used AsyncLocalStorage for scoped state. Now all state
- * lives in the container's `laravelState` MutableRef, managed by
+ * State lives in the container's `laravelState` MutableRef, managed by
  * Effect layers.
  *
- * This module preserves the public API surface (`set`, `get`,
- * `isAvailable`, `createState`) so existing code continues to work
- * during migration. The ALS-based `provide()` and `use()` are removed.
+ * Exposes a small API surface used across the codebase:
+ * `set`, `get`, `use`, `isAvailable`, and `createState`.
  */
 
 import { MutableRef } from 'effect';
