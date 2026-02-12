@@ -6,13 +6,13 @@ describe('Definition (Integration)', () => {
     let client: Client;
 
     beforeAll(async () => {
-        installMockLaravel();
         client = await createClient({
             settings: {
                 parserBackend: 'wasm',
                 enableLaravelIntegration: false,
             },
         });
+        installMockLaravel();
     });
 
     afterAll(async () => {

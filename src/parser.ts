@@ -6,29 +6,33 @@
  * at initialization time -- all analysis functions are backend-agnostic.
  */
 
+import { MutableRef } from 'effect';
 import { ParserTypes } from './parser/types';
 import { NativeBackend } from './parser/native';
 import { WasmBackend } from './parser/wasm';
+import { Container } from './runtime/container';
 
 export namespace BladeParser {
     export type SyntaxNode = ParserTypes.SyntaxNode;
     export type Tree = ParserTypes.Tree;
 
-    let backend: ParserTypes.Backend | null = null;
-
     /**
      * Initialize the parser with the chosen backend.
      * Defaults to 'wasm' for portable npm distribution.
+     *
+     * Stores the backend in the service container's `parserBackend` MutableRef.
      */
     export async function initialize(type: 'native' | 'wasm' = 'wasm'): Promise<void> {
-        backend = type === 'native' ? NativeBackend.create() : WasmBackend.create();
+        const backend = type === 'native' ? NativeBackend.create() : WasmBackend.create();
         await backend.initialize();
+        MutableRef.set(Container.get().parserBackend, backend);
     }
 
     /**
      * Parse a Blade template and return the syntax tree.
      */
     export function parse(source: string): Tree {
+        const backend = MutableRef.get(Container.get().parserBackend);
         if (!backend) {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
@@ -317,7 +321,7 @@ export namespace BladeParser {
      * skipping x-slot elements.
      */
     export function findParentComponentFromTree(tree: Tree, row: number, column: number): string | null {
-        let node = findNodeAtPosition(tree, row, column);
+        const node = findNodeAtPosition(tree, row, column);
         if (!node) return null;
 
         // Walk up the tree looking for an enclosing element with a component tag name

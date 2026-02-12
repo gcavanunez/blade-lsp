@@ -1,4 +1,17 @@
-import { Context } from '../utils/context';
+/**
+ * Laravel context — delegates to the Effect service container.
+ *
+ * Previously used AsyncLocalStorage for scoped state. Now all state
+ * lives in the container's `laravelState` MutableRef, managed by
+ * Effect layers.
+ *
+ * This module preserves the public API surface (`set`, `get`,
+ * `isAvailable`, `createState`) so existing code continues to work
+ * during migration. The ALS-based `provide()` and `use()` are removed.
+ */
+
+import { MutableRef } from 'effect';
+import { Container } from '../runtime/container';
 import { Project } from './project';
 import { ViewItem, ComponentItem, CustomDirective } from './types';
 
@@ -20,51 +33,46 @@ export namespace LaravelContext {
         };
     }
 
-    // AsyncLocalStorage context — the single source of truth
-    const ctx = Context.create<State>('Laravel');
-
-    // Internal reference to the current state (used by provide())
-    let current: State | null = null;
-
     /**
-     * Set the current state (called during initialization).
-     * This does NOT make the state available to `use()` — you must
-     * call `provide(fn)` to scope it for handler execution.
+     * Set the current state.
+     * Writes to the container's laravelState MutableRef.
      */
     export function set(state: State | null): void {
-        current = state;
+        if (Container.isReady()) {
+            MutableRef.set(Container.get().laravelState, state);
+        }
     }
 
     /**
-     * Get the stored state reference (for inspection/disposal).
-     * Prefer `use()` inside request handlers.
+     * Get the stored state reference.
      */
     export function get(): State | null {
-        return current;
+        if (!Container.isReady()) return null;
+        return MutableRef.get(Container.get().laravelState);
     }
 
     /**
-     * Run `fn` within the Laravel context scope.
-     * All calls to `use()` inside `fn` (and its async descendants)
-     * will resolve to the current state.
+     * Get the current state.
+     * @throws if no state is available.
      */
-    export function provide<R>(fn: () => R): R {
-        if (!current) {
-            throw new Context.NotFound('Laravel');
+    export function use(): State {
+        const state = get();
+        if (!state) {
+            throw new Error('Laravel context not available');
         }
-        return ctx.provide(current, fn);
+        return state;
     }
 
     /**
-     * Get the current Laravel context from AsyncLocalStorage.
-     * Must be called inside a `provide()` scope.
+     * Check if Laravel state is available.
      */
-    export const use = ctx.use;
-
     export function isAvailable(): boolean {
-        return current !== null;
+        return get() !== null;
     }
 
+    /**
+     * Create a fresh state object for a detected Laravel project.
+     */
     export function createState(project: Project.LaravelProject): State {
         return {
             project,

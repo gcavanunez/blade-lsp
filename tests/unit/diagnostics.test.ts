@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Diagnostics } from '../../src/providers/diagnostics';
-import { installMockLaravel, clearMockLaravel, withMockLaravel } from '../utils/laravel-mock';
+import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
 
 describe('Diagnostics', () => {
     describe('getInvalidMethodDiagnostics', () => {
@@ -23,6 +23,32 @@ describe('Diagnostics', () => {
             const source = '<div>Hello</div>';
             const diags = Diagnostics.getInvalidMethodDiagnostics(source);
             expect(diags).toEqual([]);
+        });
+
+        it('accepts lowercase method values (case-insensitive)', () => {
+            const source = "@method('put')";
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('accepts double-quoted method values', () => {
+            const source = '@method("DELETE")';
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects multiple @method directives on separate lines', () => {
+            const source = "@method('INVALID1')\n@method('INVALID2')";
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags.length).toBe(2);
+        });
+
+        it('validates all accepted HTTP methods', () => {
+            for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']) {
+                const source = `@method('${method}')`;
+                const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+                expect(diags).toEqual([]);
+            }
         });
     });
 
@@ -59,6 +85,221 @@ describe('Diagnostics', () => {
             const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
             expect(diags.length).toBe(2);
         });
+
+        it('detects unexpected closing directive without opener', () => {
+            const source = '@endif';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('Unexpected');
+            expect(diags[0].message).toContain('@endif');
+            expect(diags[0].message).toContain('@if');
+        });
+
+        it('detects stray @endforeach without @foreach', () => {
+            const source = '@endforeach';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@endforeach');
+        });
+
+        it('handles @forelse / @endforelse (without @empty clause)', () => {
+            const source = '@forelse($items as $item)\n  {{ $item }}\n@endforelse';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles @forelse with @empty clause correctly', () => {
+            // @empty inside @forelse is a clause separator, not a block opener
+            const source = '@forelse($items as $item)\n  {{ $item }}\n@empty\n  No items\n@endforelse';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('still detects standalone @empty without @endempty', () => {
+            // Outside of @forelse, @empty is a block directive needing @endempty
+            const source = '@empty($items)\n  No items';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@empty');
+            expect(diags[0].message).toContain('@endempty');
+        });
+
+        it('handles standalone @empty / @endempty correctly', () => {
+            const source = '@empty($items)\n  No items\n@endempty';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects unclosed @forelse', () => {
+            const source = '@forelse($items as $item)\n  {{ $item }}';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@forelse');
+        });
+
+        it('handles @while / @endwhile correctly', () => {
+            const source = '@while(true)\n  loop\n@endwhile';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects unclosed @while', () => {
+            const source = '@while(true)\n  loop';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@while');
+        });
+
+        it('does not flag @php(...) inline expression as unclosed', () => {
+            const source = "@php($x = 'hello')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not flag @php (...) with space before parens as unclosed', () => {
+            const source = "@php ($x = 'hello')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects unclosed @php block (no parens)', () => {
+            const source = '@php\n  $x = 1;';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@php');
+            expect(diags[0].message).toContain('@endphp');
+        });
+
+        it('handles @php block with @endphp correctly', () => {
+            const source = '@php\n  $x = 1;\n@endphp';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles @php(...) alongside @php block in same document', () => {
+            const source = '@php($y = 2)\n@php\n  $x = 1;\n@endphp';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        // ─── @section inline vs block ────────────────────────────────────
+
+        it('does not flag @section with two args (inline form)', () => {
+            const source = "@section('title', 'My Page Title')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects unclosed @section with one arg (block form)', () => {
+            const source = "@section('content')\n  <p>Hello</p>";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@section');
+            expect(diags[0].message).toContain('@endsection');
+        });
+
+        it('handles @section block closed with @endsection', () => {
+            const source = "@section('content')\n  <p>Hello</p>\n@endsection";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles @section block closed with @show', () => {
+            const source = "@section('sidebar')\n  <p>Default sidebar</p>\n@show";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles @section block closed with @stop', () => {
+            const source = "@section('content')\n  <p>Hello</p>\n@stop";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles @section block closed with @overwrite', () => {
+            const source = "@section('content')\n  <p>Overwritten</p>\n@overwrite";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles inline @section alongside block @section', () => {
+            const source = "@section('title', 'My Page')\n@section('content')\n  <p>Hello</p>\n@endsection";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        // ─── @push, @prepend, @slot inline vs block ─────────────────────
+
+        it('does not flag @push with two args (inline form)', () => {
+            const source = "@push('scripts', '<script src=\"app.js\"></script>')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects unclosed @push with one arg (block form)', () => {
+            const source = "@push('scripts')\n  <script>alert('hello')</script>";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@push');
+        });
+
+        it('handles @push block with @endpush', () => {
+            const source = "@push('scripts')\n  <script>alert('hello')</script>\n@endpush";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not flag @prepend with two args (inline form)', () => {
+            const source = '@prepend(\'styles\', \'<link rel="stylesheet" href="app.css">\')';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not flag @slot with two args (inline form)', () => {
+            const source = "@slot('title', 'My Title')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('detects unclosed @slot with one arg (block form)', () => {
+            const source = "@slot('header')\n  <h1>Title</h1>";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@slot');
+        });
+
+        it('does not flag @pushOnce with two args (inline form)', () => {
+            const source = "@pushOnce('scripts', '<script>init()</script>')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not flag @prependOnce with two args (inline form)', () => {
+            const source = "@prependOnce('styles', '<style>body{}</style>')";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        // ─── two-arg edge cases ──────────────────────────────────────────
+
+        it('handles two args where second arg contains nested parens', () => {
+            const source = "@section('title', ucfirst('hello'))";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('handles two args where second arg contains nested brackets', () => {
+            const source = "@section('data', ['key' => 'value'])";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not treat comma inside a string as two args', () => {
+            const source = "@section('content, more')\n  <p>Hello</p>";
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags.length).toBe(1);
+            expect(diags[0].message).toContain('@section');
+        });
     });
 
     describe('with mock Laravel context', () => {
@@ -72,74 +313,175 @@ describe('Diagnostics', () => {
 
         describe('getUndefinedViewDiagnostics', () => {
             it('detects undefined view in @include', () => {
-                withMockLaravel(() => {
-                    const source = "@include('nonexistent.view')";
-                    const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                    expect(diags.length).toBe(1);
-                    expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
-                });
+                const source = "@include('nonexistent.view')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
             });
 
             it('accepts existing view in @include', () => {
-                withMockLaravel(() => {
-                    const source = "@include('layouts.app')";
-                    const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                    expect(diags).toEqual([]);
-                });
+                const source = "@include('layouts.app')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
             });
 
             it('detects undefined view in @extends', () => {
-                withMockLaravel(() => {
-                    const source = "@extends('nonexistent.layout')";
-                    const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                    expect(diags.length).toBe(1);
-                });
+                const source = "@extends('nonexistent.layout')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(1);
             });
 
             it('accepts existing view in @extends', () => {
-                withMockLaravel(() => {
-                    const source = "@extends('layouts.app')";
-                    const diags = Diagnostics.getUndefinedViewDiagnostics(source);
-                    expect(diags).toEqual([]);
-                });
+                const source = "@extends('layouts.app')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects undefined view in @includeWhen (second string arg)', () => {
+                const source = "@includeWhen(true, 'nonexistent.view')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
+            });
+
+            it('accepts existing view in @includeWhen', () => {
+                const source = "@includeWhen(true, 'layouts.app')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects undefined view in @includeUnless (second string arg)', () => {
+                const source = "@includeUnless(false, 'nonexistent.view')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
+            });
+
+            it('accepts existing view in @includeUnless', () => {
+                const source = "@includeUnless(false, 'layouts.app')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects undefined view in @each', () => {
+                const source = "@each('nonexistent.item', $items, 'item')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
+            });
+
+            it('accepts existing view in @each', () => {
+                const source = "@each('layouts.app', $items, 'item')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects undefined view in view() helper', () => {
+                const source = "{{ view('nonexistent.view') }}";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedView);
+            });
+
+            it('accepts existing view in view() helper', () => {
+                const source = "{{ view('layouts.app') }}";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects multiple undefined views across lines', () => {
+                const source = "@include('missing.one')\n@extends('missing.two')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags.length).toBe(2);
+            });
+
+            it('returns empty when Laravel is not available', () => {
+                clearMockLaravel();
+                const source = "@include('nonexistent.view')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
             });
         });
 
         describe('getUndefinedComponentDiagnostics', () => {
             it('detects undefined x- component', () => {
-                withMockLaravel(() => {
-                    const source = '<x-nonexistent />';
-                    const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                    expect(diags.length).toBe(1);
-                    expect(diags[0].code).toBe(Diagnostics.Code.undefinedComponent);
-                });
+                const source = '<x-nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedComponent);
             });
 
             it('accepts existing x- component', () => {
-                withMockLaravel(() => {
-                    const source = '<x-button />';
-                    const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
-                    expect(diags).toEqual([]);
-                });
+                const source = '<x-button />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects undefined Livewire component', () => {
+                const source = '<livewire:nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].message).toContain('Livewire');
+                expect(diags[0].message).toContain('nonexistent');
+            });
+
+            it('accepts existing Livewire component', () => {
+                const source = '<livewire:counter />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects undefined namespaced component', () => {
+                const source = '<flux:nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags.length).toBe(1);
+                expect(diags[0].code).toBe(Diagnostics.Code.undefinedComponent);
+            });
+
+            it('does not flag x-slot as undefined', () => {
+                const source = '<x-slot name="header">Title</x-slot>';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('does not flag x-slot:name as undefined', () => {
+                const source = '<x-slot:header>Title</x-slot:header>';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('does not flag closing tags', () => {
+                const source = '</x-nonexistent>';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('detects multiple undefined components on separate lines', () => {
+                const source = '<x-missing-one />\n<x-missing-two />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags.length).toBe(2);
+            });
+
+            it('returns empty when Laravel is not available', () => {
+                clearMockLaravel();
+                const source = '<x-nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
             });
         });
 
         describe('analyze', () => {
             it('aggregates all diagnostic types', () => {
-                withMockLaravel(() => {
-                    const source = "@include('nonexistent')\n@method('INVALID')\n@if(true)";
-                    const diags = Diagnostics.analyze(source);
-                    // Should have at least undefined view + invalid method + unclosed if
-                    expect(diags.length).toBeGreaterThanOrEqual(3);
-                });
+                const source = "@include('nonexistent')\n@method('INVALID')\n@if(true)";
+                const diags = Diagnostics.analyze(source);
+                // Should have at least undefined view + invalid method + unclosed if
+                expect(diags.length).toBeGreaterThanOrEqual(3);
             });
 
             it('returns empty for a clean document', () => {
-                withMockLaravel(() => {
-                    const source = "@extends('layouts.app')\n@section('content')\n  <p>Hello</p>\n@endsection";
-                    const diags = Diagnostics.analyze(source);
-                    expect(diags).toEqual([]);
-                });
+                const source = "@extends('layouts.app')\n@section('content')\n  <p>Hello</p>\n@endsection";
+                const diags = Diagnostics.analyze(source);
+                expect(diags).toEqual([]);
             });
         });
     });

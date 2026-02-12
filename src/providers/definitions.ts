@@ -147,6 +147,42 @@ export namespace Definitions {
     }
 
     /**
+     * Collect the multi-line @props block starting at a given line.
+     * Returns the line range (startLine..endLine inclusive).
+     */
+    function collectPropsBlock(lines: string[], startLine: number): { endLine: number } {
+        if (lines[startLine].includes('])')) return { endLine: startLine };
+
+        for (let j = startLine + 1; j < lines.length && j < startLine + 20; j++) {
+            if (lines[j].includes('])')) return { endLine: j };
+        }
+        return { endLine: Math.min(startLine + 19, lines.length - 1) };
+    }
+
+    /**
+     * Find a specific prop name within a component file's @props directive.
+     * Returns the line and column of the prop, or null if not found.
+     */
+    function findPropInFile(content: string, propName: string): { line: number; col: number } | null {
+        const lines = content.split('\n');
+        const propNeedle = `'${propName}'`;
+
+        for (let i = 0; i < lines.length; i++) {
+            if (!lines[i].includes('@props')) continue;
+
+            const { endLine } = collectPropsBlock(lines, i);
+
+            // Search each line of the block for the prop name
+            for (let j = i; j <= endLine; j++) {
+                const col = lines[j].indexOf(propNeedle);
+                if (col >= 0) return { line: j, col };
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Get definition location for a component prop/attribute
      */
     export function getPropDefinition(
@@ -201,52 +237,18 @@ export namespace Definitions {
         // Read the component file and find the @props directive
         try {
             const content = fs.readFileSync(fullPath, 'utf-8');
-            const lines = content.split('\n');
+            const propLocation = findPropInFile(content, propName);
 
-            for (let i = 0; i < lines.length; i++) {
-                const fileLine = lines[i];
-
-                // Look for @props directive
-                if (fileLine.includes('@props')) {
-                    // Find the prop name in this line or subsequent lines
-                    // Handle multi-line @props
-                    let propsBlock = fileLine;
-                    let endLine = i;
-
-                    // If @props spans multiple lines, collect them
-                    if (!fileLine.includes('])')) {
-                        for (let j = i + 1; j < lines.length && j < i + 20; j++) {
-                            propsBlock += '\n' + lines[j];
-                            endLine = j;
-                            if (lines[j].includes('])')) break;
-                        }
-                    }
-
-                    // Find the prop name in the props block
-                    // Match 'propName' patterns
-                    const propPattern = new RegExp(`'(${propName})'`, 'g');
-                    let propMatch;
-                    let searchLine = i;
-                    let searchCol = 0;
-
-                    // Search through each line of the props block
-                    for (let j = i; j <= endLine; j++) {
-                        const searchInLine = lines[j];
-                        propMatch = searchInLine.match(propPattern);
-                        if (propMatch) {
-                            searchLine = j;
-                            searchCol = searchInLine.indexOf(`'${propName}'`);
-                            break;
-                        }
-                    }
-
-                    if (searchCol >= 0) {
-                        return {
-                            uri: `file://${fullPath}`,
-                            range: Range.create(searchLine, searchCol, searchLine, searchCol + propName.length + 2),
-                        };
-                    }
-                }
+            if (propLocation) {
+                return {
+                    uri: `file://${fullPath}`,
+                    range: Range.create(
+                        propLocation.line,
+                        propLocation.col,
+                        propLocation.line,
+                        propLocation.col + propName.length + 2,
+                    ),
+                };
             }
 
             // If no @props found, still go to the file
@@ -257,6 +259,37 @@ export namespace Definitions {
         } catch {
             return null;
         }
+    }
+
+    /**
+     * Find where a named slot variable is used in a component file.
+     * Searches for {{ $slotName }}, {!! $slotName !!}, @isset($slotName), etc.
+     */
+    function findSlotUsageInFile(
+        content: string,
+        slotName: string,
+    ): { line: number; col: number; length: number } | null {
+        const lines = content.split('\n');
+        const patterns = [
+            new RegExp(`\\{\\{[\\s]*\\$${slotName}[\\s]*(?:\\?\\?[^}]*)?\\}\\}`),
+            new RegExp(`\\{!![\\s]*\\$${slotName}[\\s]*(?:\\?\\?[^}]*)?!!\\}`),
+            new RegExp(`@isset\\s*\\(\\s*\\$${slotName}\\s*\\)`),
+            new RegExp(`@if\\s*\\(\\s*\\$${slotName}`),
+            new RegExp(`\\$${slotName}->(?:isNotEmpty|isEmpty)`),
+        ];
+
+        for (let i = 0; i < lines.length; i++) {
+            const fileLine = lines[i];
+            for (const pattern of patterns) {
+                const slotMatch = fileLine.match(pattern);
+                if (slotMatch) {
+                    const col = fileLine.indexOf(slotMatch[0]);
+                    return { line: i, col, length: slotMatch[0].length };
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -311,29 +344,18 @@ export namespace Definitions {
         // Try to find where the slot is used in the component
         try {
             const content = fs.readFileSync(fullPath, 'utf-8');
-            const lines = content.split('\n');
+            const slotLocation = findSlotUsageInFile(content, slotName);
 
-            // Look for {{ $slotName }} or {!! $slotName !!} or @isset($slotName)
-            const patterns = [
-                new RegExp(`\\{\\{[\\s]*\\$${slotName}[\\s]*(?:\\?\\?[^}]*)?\\}\\}`),
-                new RegExp(`\\{!![\\s]*\\$${slotName}[\\s]*(?:\\?\\?[^}]*)?!!\\}`),
-                new RegExp(`@isset\\s*\\(\\s*\\$${slotName}\\s*\\)`),
-                new RegExp(`@if\\s*\\(\\s*\\$${slotName}`),
-                new RegExp(`\\$${slotName}->(?:isNotEmpty|isEmpty)`),
-            ];
-
-            for (let i = 0; i < lines.length; i++) {
-                const fileLine = lines[i];
-                for (const pattern of patterns) {
-                    const slotMatch = fileLine.match(pattern);
-                    if (slotMatch) {
-                        const col = fileLine.indexOf(slotMatch[0]);
-                        return {
-                            uri: `file://${fullPath}`,
-                            range: Range.create(i, col, i, col + slotMatch[0].length),
-                        };
-                    }
-                }
+            if (slotLocation) {
+                return {
+                    uri: `file://${fullPath}`,
+                    range: Range.create(
+                        slotLocation.line,
+                        slotLocation.col,
+                        slotLocation.line,
+                        slotLocation.col + slotLocation.length,
+                    ),
+                };
             }
 
             // Slot not found in file, but still go to the component

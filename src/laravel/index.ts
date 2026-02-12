@@ -15,7 +15,9 @@ import { LaravelContext } from './context';
 import { Views } from './views';
 import { Components } from './components';
 import { Directives } from './directives';
+import { MutableRef } from 'effect';
 import { FormatErrorForLog } from '../utils/format-error';
+import { Container } from '../runtime/container';
 
 export namespace Laravel {
     // ─── Errors ────────────────────────────────────────────────────────────────
@@ -53,17 +55,10 @@ export namespace Laravel {
      */
     export interface Options {
         // Command array to execute PHP (defaults to auto-detect if not provided)
-        // Examples:
-        //   - Local: ['php'] or ['/usr/bin/php']
-        //   - Docker: ['docker', 'compose', 'exec', 'app', 'php']
-        //   - Sail: ['./vendor/bin/sail', 'php']
         phpCommand?: string[];
         // Preferred PHP environment to try (e.g., 'sail', 'herd', 'lando').
-        // If set, skips auto-detection order and tries only this environment.
-        // Ignored if phpCommand is explicitly provided.
         phpEnvironment?: PhpEnvironment.Name;
         // Callback for reporting progress during initialization.
-        // Called with a human-readable message and optional percentage (0-100).
         onProgress?: (message: string, percentage?: number) => void;
     }
 
@@ -78,11 +73,6 @@ export namespace Laravel {
         errors: string[];
     }
 
-    // ─── State ─────────────────────────────────────────────────────────────────
-
-    let initPromise: Promise<boolean> | null = null;
-    let lastRefreshResult: RefreshResult | null = null;
-
     // ─── Public Functions ──────────────────────────────────────────────────────
 
     /**
@@ -90,13 +80,16 @@ export namespace Laravel {
      * Returns true if initialization succeeded, false otherwise.
      */
     export async function initialize(workspaceRoot: string, options: Options = {}): Promise<boolean> {
-        if (initPromise) {
-            return initPromise;
+        const ref = Container.get().laravelInitPromise;
+        const existing = MutableRef.get(ref);
+        if (existing) {
+            return existing;
         }
 
-        initPromise = doInitialize(workspaceRoot, options);
-        const result = await initPromise;
-        initPromise = null;
+        const promise = doInitialize(workspaceRoot, options);
+        MutableRef.set(ref, promise);
+        const result = await promise;
+        MutableRef.set(ref, null);
         return result;
     }
 
@@ -112,7 +105,7 @@ export namespace Laravel {
      * Returns null if no refresh has been performed yet.
      */
     export function getLastRefreshResult(): RefreshResult | null {
-        return lastRefreshResult;
+        return MutableRef.get(Container.get().laravelRefreshResult);
     }
 
     /**
@@ -139,60 +132,58 @@ export namespace Laravel {
             return result;
         }
 
-        return LaravelContext.provide(async () => {
-            const report = onProgress ?? (() => {});
-            using _timer = log.time('Refreshing all');
+        const report = onProgress ?? (() => {});
+        using _timer = log.time('Refreshing all');
 
-            report('Loading views, components, directives...');
+        report('Loading views, components, directives...');
 
-            // Track completion of parallel tasks for incremental progress
-            let completed = 0;
-            const total = 3;
-            const trackProgress = (label: string) => {
-                completed++;
-                const pct = Math.round((completed / total) * 100);
-                report(`${label} (${completed}/${total})`, pct);
-            };
+        // Track completion of parallel tasks for incremental progress
+        let completed = 0;
+        const total = 3;
+        const trackProgress = (label: string) => {
+            completed++;
+            const pct = Math.round((completed / total) * 100);
+            report(`${label} (${completed}/${total})`, pct);
+        };
 
-            const results = await Promise.allSettled([
-                Views.refresh().then(() => {
-                    trackProgress('Views loaded');
-                }),
-                Components.refresh().then(() => {
-                    trackProgress('Components loaded');
-                }),
-                Directives.refresh().then(() => {
-                    trackProgress('Directives loaded');
-                }),
-            ]);
+        const results = await Promise.allSettled([
+            Views.refresh().then(() => {
+                trackProgress('Views loaded');
+            }),
+            Components.refresh().then(() => {
+                trackProgress('Components loaded');
+            }),
+            Directives.refresh().then(() => {
+                trackProgress('Directives loaded');
+            }),
+        ]);
 
-            const [viewResult, componentResult, directiveResult] = results;
+        const [viewResult, componentResult, directiveResult] = results;
 
-            // Log individual failures and collect error messages
-            if (viewResult.status === 'rejected') {
-                log.error('Views refresh failed', { error: viewResult.reason });
-                result.views = 'failed';
-                result.errors.push(FormatErrorForLog(viewResult.reason));
-            }
-            if (componentResult.status === 'rejected') {
-                log.error('Components refresh failed', { error: componentResult.reason });
-                result.components = 'failed';
-                result.errors.push(FormatErrorForLog(componentResult.reason));
-            }
-            if (directiveResult.status === 'rejected') {
-                log.error('Directives refresh failed', { error: directiveResult.reason });
-                result.directives = 'failed';
-                result.errors.push(FormatErrorForLog(directiveResult.reason));
-            }
+        // Log individual failures and collect error messages
+        if (viewResult.status === 'rejected') {
+            log.error('Views refresh failed', { error: viewResult.reason });
+            result.views = 'failed';
+            result.errors.push(FormatErrorForLog(viewResult.reason));
+        }
+        if (componentResult.status === 'rejected') {
+            log.error('Components refresh failed', { error: componentResult.reason });
+            result.components = 'failed';
+            result.errors.push(FormatErrorForLog(componentResult.reason));
+        }
+        if (directiveResult.status === 'rejected') {
+            log.error('Directives refresh failed', { error: directiveResult.reason });
+            result.directives = 'failed';
+            result.errors.push(FormatErrorForLog(directiveResult.reason));
+        }
 
-            log.info('Refresh complete', {
-                views: result.views,
-                components: result.components,
-                directives: result.directives,
-            });
-
-            return result;
+        log.info('Refresh complete', {
+            views: result.views,
+            components: result.components,
+            directives: result.directives,
         });
+
+        return result;
     }
 
     /**
@@ -200,14 +191,14 @@ export namespace Laravel {
      */
     export function dispose(): void {
         if (LaravelContext.isAvailable()) {
-            LaravelContext.provide(() => {
-                Views.clear();
-                Components.clear();
-                Directives.clear();
-            });
+            Views.clear();
+            Components.clear();
+            Directives.clear();
         }
         LaravelContext.set(null);
-        lastRefreshResult = null;
+        if (Container.isReady()) {
+            MutableRef.set(Container.get().laravelRefreshResult, null);
+        }
         log.info('Disposed');
     }
 
@@ -250,7 +241,7 @@ export namespace Laravel {
         log.info('Initialization complete');
 
         // Trigger initial refresh with progress reporting
-        lastRefreshResult = await refreshAll(report).catch((err) => {
+        const result = await refreshAll(report).catch((err) => {
             log.error('Initial refresh failed', { error: err });
             return {
                 views: 'failed',
@@ -259,6 +250,7 @@ export namespace Laravel {
                 errors: [String(err)],
             } as RefreshResult;
         });
+        MutableRef.set(Container.get().laravelRefreshResult, result);
 
         return true;
     }

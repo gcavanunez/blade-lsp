@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { BladeParser } from '../../src/parser';
+import { ensureContainer } from '../utils/laravel-mock';
 
 describe('BladeParser', () => {
     beforeAll(async () => {
+        ensureContainer();
         await BladeParser.initialize('wasm');
     });
 

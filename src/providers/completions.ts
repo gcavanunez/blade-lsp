@@ -172,15 +172,14 @@ export namespace Completions {
         let documentation = `**${fullTag}**\n\n`;
         documentation += `Path: \`${component.path}\`\n`;
 
-        if (component.props) {
-            if (typeof component.props === 'string') {
-                documentation += `\n**Props:**\n\`\`\`php\n${component.props}\n\`\`\``;
-            } else if (Array.isArray(component.props) && component.props.length > 0) {
+        if (component.props && typeof component.props === 'string') {
+            documentation += `\n**Props:**\n\`\`\`php\n${component.props}\n\`\`\``;
+        } else {
+            const resolved = resolveComponentProps(component.props);
+            if (resolved.length > 0) {
                 documentation += '\n**Props:**\n';
-                for (const prop of component.props) {
-                    const hasDefault = prop.default !== null && prop.default !== undefined;
-                    const required = !hasDefault ? '(required)' : '';
-                    documentation += `- \`${prop.name}\`: ${prop.type} ${required}\n`;
+                for (const prop of resolved) {
+                    documentation += `- \`${prop.name}\`: ${prop.type} ${prop.required ? '(required)' : ''}\n`;
                 }
             }
         }
@@ -382,43 +381,41 @@ export namespace Completions {
     }
 
     /**
+     * Normalize component props to a flat array of parsed props,
+     * regardless of whether they come as a string or array.
+     */
+    function resolveComponentProps(props: ComponentItem['props']): Shared.ParsedProp[] {
+        if (!props) return [];
+
+        if (typeof props === 'string') {
+            return Shared.parsePropsString(props);
+        }
+
+        if (Array.isArray(props)) {
+            return props.map((p) => ({
+                name: p.name,
+                type: p.type,
+                required: p.default === null || p.default === undefined,
+                default: p.default,
+            }));
+        }
+
+        return [];
+    }
+
+    /**
      * Get prop completions for a component
      */
     export function getComponentPropCompletions(componentName: string, existingProps: string[]): CompletionItem[] {
-        const items: CompletionItem[] = [];
+        if (!Laravel.isAvailable()) return [];
 
-        if (!Laravel.isAvailable()) {
-            return [];
-        }
-
-        // Find the component
         const component = Components.findByTag(componentName) || Components.find(componentName.replace(/^x-/, ''));
+        if (!component) return [];
 
-        if (!component) {
-            return [];
-        }
-
-        // Add props from the component
-        if (component.props) {
-            if (typeof component.props === 'string') {
-                // Parse @props() string
-                const propsFromString = Shared.parsePropsString(component.props);
-                for (const prop of propsFromString) {
-                    if (!existingProps.includes(prop.name)) {
-                        items.push(createPropCompletionItem(prop.name, prop.type, prop.required, prop.default));
-                    }
-                }
-            } else if (Array.isArray(component.props)) {
-                for (const prop of component.props) {
-                    if (!existingProps.includes(prop.name)) {
-                        const isRequired = prop.default === null || prop.default === undefined;
-                        items.push(createPropCompletionItem(prop.name, prop.type, isRequired, prop.default));
-                    }
-                }
-            }
-        }
-
-        return items;
+        const resolved = resolveComponentProps(component.props);
+        return resolved
+            .filter((prop) => !existingProps.includes(prop.name))
+            .map((prop) => createPropCompletionItem(prop.name, prop.type, prop.required, prop.default));
     }
 
     /**
@@ -451,51 +448,50 @@ export namespace Completions {
      * Get slot name completions
      * @param syntax - 'colon' for <x-slot:name> or 'name' for <x-slot name="name">
      */
+    function createSlotCompletion(
+        slot: { name: string },
+        component: ComponentItem,
+        syntax: 'colon' | 'name',
+    ): CompletionItem {
+        const insertText =
+            syntax === 'colon'
+                ? `${slot.name}>$0</x-slot>` // <x-slot:name>...</x-slot>
+                : `${slot.name}">$0</x-slot>`; // <x-slot name="name">...</x-slot>
+
+        return {
+            label: slot.name,
+            kind: CompletionItemKind.Value,
+            detail: `Named slot in ${component.key}`,
+            documentation: {
+                kind: MarkupKind.Markdown,
+                value: `Slot \`${slot.name}\` from component \`${ComponentsNs.keyToTag(component.key)}\``,
+            },
+            insertText,
+            insertTextFormat: InsertTextFormat.Snippet,
+        };
+    }
+
     export function getSlotCompletions(
         currentLine: number,
         syntax: 'colon' | 'name' = 'colon',
         tree: BladeParser.Tree,
     ): CompletionItem[] {
-        const items: CompletionItem[] = [];
+        if (!Laravel.isAvailable()) return [];
 
-        // Find the parent component via the tree-sitter AST
         const componentContext = BladeParser.findParentComponentFromTree(tree, currentLine, 0);
+        if (!componentContext) return [];
 
-        if (componentContext && Laravel.isAvailable()) {
-            const component =
-                Components.findByTag(componentContext) || Components.find(componentContext.replace(/^x-/, ''));
+        const component =
+            Components.findByTag(componentContext) || Components.find(componentContext.replace(/^x-/, ''));
+        if (!component) return [];
 
-            if (component) {
-                const slots = extractSlotsFromComponent(component);
-                for (const slot of slots) {
-                    // Different insert text based on syntax
-                    const insertText =
-                        syntax === 'colon'
-                            ? `${slot.name}>$0</x-slot>` // <x-slot:name>...</x-slot>
-                            : `${slot.name}">$0</x-slot>`; // <x-slot name="name">...</x-slot>
-
-                    items.push({
-                        label: slot.name,
-                        kind: CompletionItemKind.Value,
-                        detail: `Named slot in ${component.key}`,
-                        documentation: {
-                            kind: MarkupKind.Markdown,
-                            value: `Slot \`${slot.name}\` from component \`${ComponentsNs.keyToTag(component.key)}\``,
-                        },
-                        insertText,
-                        insertTextFormat: InsertTextFormat.Snippet,
-                    });
-                }
-            }
-        }
-
-        return items;
+        return extractSlotsFromComponent(component).map((slot) => createSlotCompletion(slot, component, syntax));
     }
 
     /**
      * Extract named slots from a component file
      */
-    export function extractSlotsFromComponent(component: ComponentItem): { name: string }[] {
+    function extractSlotsFromComponent(component: ComponentItem): { name: string }[] {
         const workspaceRoot = Server.getWorkspaceRoot();
         if (!workspaceRoot) {
             return [];

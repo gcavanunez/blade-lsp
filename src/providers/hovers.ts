@@ -8,6 +8,51 @@ import { Components } from '../laravel/components';
 import type { ComponentProp } from '../laravel/types';
 
 export namespace Hovers {
+    /**
+     * Look up a specific prop by name from either a raw @props string or a structured array.
+     */
+    function findPropInfo(
+        props: import('../laravel/types').ComponentItem['props'],
+        propName: string,
+    ): ComponentProp | null {
+        if (!props) return null;
+
+        if (typeof props === 'string') {
+            return Shared.parsePropsString(props).find((p) => p.name === propName) || null;
+        }
+
+        if (Array.isArray(props)) {
+            return props.find((p) => p.name === propName) || null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Format a component's props into a markdown section.
+     * Handles both string (@props raw) and array (structured) formats.
+     */
+    function formatComponentPropsSection(props: import('../laravel/types').ComponentItem['props']): string {
+        if (!props) return '';
+
+        if (typeof props === 'string') {
+            return `**Props:**\n\`\`\`php\n${props}\n\`\`\`\n`;
+        }
+
+        if (Array.isArray(props) && props.length > 0) {
+            let section = '**Props:**\n\n';
+            section += '| Name | Type | Required |\n';
+            section += '|------|------|----------|\n';
+            for (const prop of props) {
+                const hasDefault = prop.default !== null && prop.default !== undefined;
+                section += `| \`${prop.name}\` | ${prop.type} | ${hasDefault ? 'No' : 'Yes'} |\n`;
+            }
+            return section;
+        }
+
+        return '';
+    }
+
     export function formatDirective(directive: BladeDirectives.Directive): string {
         let content = `## ${directive.name}\n\n${directive.description}\n\n`;
         if (directive.parameters) content += `**Parameters:** \`${directive.parameters}\`\n\n`;
@@ -153,19 +198,7 @@ Contains all attributes passed to a component.
         let content = `## ${fullTag}\n\n`;
         content += `**Path:** \`${component.path}\`\n\n`;
 
-        if (component.props) {
-            if (typeof component.props === 'string') {
-                content += `**Props:**\n\`\`\`php\n${component.props}\n\`\`\`\n`;
-            } else if (Array.isArray(component.props) && component.props.length > 0) {
-                content += '**Props:**\n\n';
-                content += '| Name | Type | Required |\n';
-                content += '|------|------|----------|\n';
-                for (const prop of component.props) {
-                    const hasDefault = prop.default !== null && prop.default !== undefined;
-                    content += `| \`${prop.name}\` | ${prop.type} | ${hasDefault ? 'No' : 'Yes'} |\n`;
-                }
-            }
-        }
+        content += formatComponentPropsSection(component.props);
 
         return {
             contents: {
@@ -223,17 +256,7 @@ Contains all attributes passed to a component.
         }
 
         // Find prop info
-        let propInfo: ComponentProp | null = null;
-
-        if (component.props) {
-            if (typeof component.props === 'string') {
-                // Parse the @props string to find this specific prop
-                const parsed = Shared.parsePropsString(component.props);
-                propInfo = parsed.find((p) => p.name === propName) || null;
-            } else if (Array.isArray(component.props)) {
-                propInfo = component.props.find((p) => p.name === propName) || null;
-            }
-        }
+        const propInfo = findPropInfo(component.props, propName);
 
         // Build hover content
         let content = `## \`${propName}\`\n\n`;
