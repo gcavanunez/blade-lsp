@@ -12,7 +12,7 @@
 
 import { LaravelContext } from '../../src/laravel/context';
 import { Laravel } from '../../src/laravel/index';
-import type { ViewItem, ComponentItem, CustomDirective, ComponentProp, LivewireProp } from '../../src/laravel/types';
+import type { ViewItem, ComponentItem, CustomDirective, ComponentProp } from '../../src/laravel/types';
 import { Project } from '../../src/laravel/project';
 import { PhpEnvironment } from '../../src/laravel/php-environment';
 import { Container } from '../../src/runtime/container';

@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MarkupKind } from 'vscode-languageserver/node';
 import { Hovers } from '../../src/providers/hovers';
 import { BladeDirectives } from '../../src/directives';
 import { installMockLaravel, clearMockLaravel, getHoverValue } from '../utils/laravel-mock';

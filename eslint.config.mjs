@@ -11,7 +11,7 @@ export default [
         files: ['src/**/*.ts', 'tests/**/*.ts'],
     },
     {
-        ignores: ['dist/', 'node_modules/', 'vs-code-extension/', 'laravel.nvim/', 'tailwindcss-intellisense/'],
+        ignores: ['dist/', 'node_modules/', 'my-chaos/'],
     },
     {
         rules: {

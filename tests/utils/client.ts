@@ -27,11 +27,9 @@ import {
     type Location,
     type Diagnostic,
     type PublishDiagnosticsParams,
-    type TextDocumentSyncKind,
-    TextDocumentSyncKind as SyncKind,
 } from 'vscode-languageserver/node';
 import type { ProtocolConnection } from 'vscode-languageclient';
-import { connect, type ConnectResult } from './connection';
+import { connect } from './connection';
 import { Server } from '../../src/server';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
