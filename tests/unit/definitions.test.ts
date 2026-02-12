@@ -9,8 +9,6 @@ vi.mock('../../src/server', () => ({
 }));
 
 describe('Definitions', () => {
-    // ─── getViewDefinition ───────────────────────────────────────────────────
-
     describe('getViewDefinition', () => {
         beforeEach(() => {
             installMockLaravel();

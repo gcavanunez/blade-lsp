@@ -20,209 +20,102 @@ describe('Parameter Completions (Integration)', () => {
         clearMockLaravel();
     });
 
-    // ─── View-based parameter completions ───────────────────────────────────
-
-    describe('view reference directives', () => {
-        it('provides view names for @extends', async () => {
-            const doc = await client.open({
+    describe('parameter completions', () => {
+        const cases = [
+            {
+                name: 'provides view names for @extends',
                 text: "@extends('",
-            });
-
-            const items = await doc.completions(0, 10);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('layouts.app');
-            expect(labels).toContain('partials.header');
-
-            await doc.close();
-        });
-
-        it('provides view names for @includeIf', async () => {
-            const doc = await client.open({
+                character: 10,
+                expectedLabels: ['layouts.app', 'partials.header'],
+            },
+            {
+                name: 'provides view names for @includeIf',
                 text: "@includeIf('",
-            });
-
-            const items = await doc.completions(0, 12);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('layouts.app');
-
-            await doc.close();
-        });
-
-        it('provides view names for @includeFirst', async () => {
-            const doc = await client.open({
+                character: 12,
+                expectedLabels: ['layouts.app'],
+            },
+            {
+                name: 'provides view names for @includeFirst',
                 text: "@includeFirst('",
-            });
-
-            const items = await doc.completions(0, 15);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('layouts.app');
-
-            await doc.close();
-        });
-    });
-
-    // ─── Static parameter completions ───────────────────────────────────────
-
-    describe('@section parameter completions', () => {
-        it('provides section name suggestions', async () => {
-            const doc = await client.open({
+                character: 15,
+                expectedLabels: ['layouts.app'],
+            },
+            {
+                name: 'provides section name suggestions',
                 text: "@section('",
-            });
-
-            const items = await doc.completions(0, 10);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('content');
-            expect(labels).toContain('title');
-            expect(labels).toContain('scripts');
-            expect(labels).toContain('styles');
-
-            await doc.close();
-        });
-    });
-
-    describe('@yield parameter completions', () => {
-        it('provides yield name suggestions', async () => {
-            const doc = await client.open({
+                character: 10,
+                expectedLabels: ['content', 'title', 'scripts', 'styles'],
+            },
+            {
+                name: 'provides yield name suggestions',
                 text: "@yield('",
-            });
-
-            const items = await doc.completions(0, 8);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('content');
-            expect(labels).toContain('title');
-
-            await doc.close();
-        });
-    });
-
-    describe('@can parameter completions', () => {
-        it('provides permission suggestions for @can', async () => {
-            const doc = await client.open({
+                character: 8,
+                expectedLabels: ['content', 'title'],
+            },
+            {
+                name: 'provides permission suggestions for @can',
                 text: "@can('",
-            });
-
-            const items = await doc.completions(0, 6);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('view');
-            expect(labels).toContain('create');
-            expect(labels).toContain('update');
-            expect(labels).toContain('delete');
-
-            await doc.close();
-        });
-
-        it('provides permission suggestions for @cannot', async () => {
-            const doc = await client.open({
+                character: 6,
+                expectedLabels: ['view', 'create', 'update', 'delete'],
+            },
+            {
+                name: 'provides permission suggestions for @cannot',
                 text: "@cannot('",
-            });
-
-            const items = await doc.completions(0, 9);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('view');
-            expect(labels).toContain('delete');
-
-            await doc.close();
-        });
-
-        it('provides permission suggestions for @canany', async () => {
-            const doc = await client.open({
+                character: 9,
+                expectedLabels: ['view', 'delete'],
+            },
+            {
+                name: 'provides permission suggestions for @canany',
                 text: "@canany('",
-            });
-
-            const items = await doc.completions(0, 9);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('view');
-
-            await doc.close();
-        });
-    });
-
-    describe('@env parameter completions', () => {
-        it('provides environment name suggestions', async () => {
-            const doc = await client.open({
+                character: 9,
+                expectedLabels: ['view'],
+            },
+            {
+                name: 'provides environment name suggestions',
                 text: "@env('",
-            });
-
-            const items = await doc.completions(0, 6);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('local');
-            expect(labels).toContain('production');
-            expect(labels).toContain('staging');
-
-            await doc.close();
-        });
-    });
-
-    describe('@method parameter completions', () => {
-        it('provides HTTP method suggestions', async () => {
-            const doc = await client.open({
+                character: 6,
+                expectedLabels: ['local', 'production', 'staging'],
+            },
+            {
+                name: 'provides HTTP method suggestions',
                 text: "@method('",
-            });
-
-            const items = await doc.completions(0, 9);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('PUT');
-            expect(labels).toContain('PATCH');
-            expect(labels).toContain('DELETE');
-
-            await doc.close();
-        });
-    });
-
-    describe('@push / @stack parameter completions', () => {
-        it('provides stack name suggestions for @push', async () => {
-            const doc = await client.open({
+                character: 9,
+                expectedLabels: ['PUT', 'PATCH', 'DELETE'],
+            },
+            {
+                name: 'provides stack name suggestions for @push',
                 text: "@push('",
-            });
-
-            const items = await doc.completions(0, 7);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('scripts');
-            expect(labels).toContain('styles');
-
-            await doc.close();
-        });
-
-        it('provides stack name suggestions for @stack', async () => {
-            const doc = await client.open({
+                character: 7,
+                expectedLabels: ['scripts', 'styles'],
+            },
+            {
+                name: 'provides stack name suggestions for @stack',
                 text: "@stack('",
-            });
-
-            const items = await doc.completions(0, 8);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('scripts');
-            expect(labels).toContain('styles');
-
-            await doc.close();
-        });
-    });
-
-    describe('@slot parameter completions', () => {
-        it('provides common slot name suggestions', async () => {
-            const doc = await client.open({
+                character: 8,
+                expectedLabels: ['scripts', 'styles'],
+            },
+            {
+                name: 'provides common slot name suggestions',
                 text: "@slot('",
-            });
-
-            const items = await doc.completions(0, 7);
-            const labels = items.map((i) => i.label);
-            expect(labels).toContain('header');
-            expect(labels).toContain('footer');
-            expect(labels).toContain('title');
-
-            await doc.close();
-        });
-    });
-
-    describe('@livewire parameter completions', () => {
-        it('provides livewire component name suggestions', async () => {
-            const doc = await client.open({
+                character: 7,
+                expectedLabels: ['header', 'footer', 'title'],
+            },
+            {
+                name: 'provides livewire component name suggestions',
                 text: "@livewire('",
-            });
+                character: 11,
+                expectedLabels: ['counter', 'search-bar'],
+            },
+        ] as const;
 
-            const items = await doc.completions(0, 11);
+        it.each(cases)('$name', async ({ text, character, expectedLabels }) => {
+            const doc = await client.open({ text });
+            const items = await doc.completions(0, character);
             const labels = items.map((i) => i.label);
-            expect(labels).toContain('counter');
-            expect(labels).toContain('search-bar');
+
+            for (const expectedLabel of expectedLabels) {
+                expect(labels).toContain(expectedLabel);
+            }
 
             await doc.close();
         });

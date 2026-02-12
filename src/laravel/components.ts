@@ -6,8 +6,6 @@ import { LaravelContext } from './context';
 import { ComponentItem, ComponentsRawResult } from './types';
 
 export namespace Components {
-    // ─── Errors ────────────────────────────────────────────────────────────────
-
     export const RefreshError = NamedError.create(
         'ComponentsRefreshError',
         z.object({
@@ -84,7 +82,6 @@ export namespace Components {
         if (tag.startsWith('x-')) {
             return tag.slice(2);
         }
-        // flux:button -> flux::button
         const colonIndex = tag.indexOf(':');
         if (colonIndex !== -1 && tag[colonIndex + 1] !== ':') {
             return tag.slice(0, colonIndex) + '::' + tag.slice(colonIndex + 1);
@@ -99,7 +96,6 @@ export namespace Components {
      * Keys with '::' that have flux prefix also get 'flux:' form.
      */
     export function keyToTag(key: string): string {
-        // Keys with :: keep it: 'turbo::frame' -> 'x-turbo::frame'
         return `x-${key}`;
     }
 

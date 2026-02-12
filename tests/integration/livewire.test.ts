@@ -69,7 +69,7 @@ describe('Livewire (Integration)', () => {
     // ─── Hover ──────────────────────────────────────────────────────────────
 
     describe('hover', () => {
-        it('shows hover for <livewire:counter> with component details', async () => {
+        it('shows hover for <livewire:counter> with details, props, and files', async () => {
             const doc = await client.open({
                 text: '<livewire:counter />',
             });
@@ -87,43 +87,9 @@ describe('Livewire (Integration)', () => {
             expect(value).toContain('livewire:counter');
             expect(value).toContain('Livewire component');
             expect(value).toContain('counter.blade.php');
-
-            await doc.close();
-        });
-
-        it('shows props table for livewire component with props', async () => {
-            const doc = await client.open({
-                text: '<livewire:counter />',
-            });
-
-            const hover = await doc.hover(0, 6);
-            expect(hover).not.toBeNull();
-
-            const value =
-                typeof hover!.contents === 'string'
-                    ? hover!.contents
-                    : 'value' in hover!.contents
-                      ? hover!.contents.value
-                      : '';
             expect(value).toContain('Props');
             expect(value).toContain('count');
             expect(value).toContain('int');
-
-            await doc.close();
-        });
-
-        it('shows files list in hover for livewire component', async () => {
-            const doc = await client.open({
-                text: '<livewire:counter />',
-            });
-
-            const hover = await doc.hover(0, 6);
-            const value =
-                typeof hover!.contents === 'string'
-                    ? hover!.contents
-                    : 'value' in hover!.contents
-                      ? hover!.contents.value
-                      : '';
             expect(value).toContain('Files');
             expect(value).toContain('app/Livewire/Counter.php');
 

@@ -6,8 +6,6 @@ import { LaravelContext } from './context';
 import { ViewItem } from './types';
 
 export namespace Views {
-    // ─── Errors ────────────────────────────────────────────────────────────────
-
     export const RefreshError = NamedError.create(
         'ViewsRefreshError',
         z.object({

@@ -6,8 +6,8 @@
  * directives) without running PHP.
  *
  * State is stored in the service container's laravelState MutableRef.
- * No AsyncLocalStorage scoping required — `installMockLaravel()` writes
- * directly and all provider code reads from the same container.
+ * `installMockLaravel()` writes directly and all provider code reads from
+ * the same container.
  */
 
 import { LaravelContext } from '../../src/laravel/context';
@@ -229,8 +229,6 @@ export function clearMockLaravel(): void {
         LaravelContext.set(null);
     }
 }
-
-// ─── Test Helpers ───────────────────────────────────────────────────────────
 
 import type { Hover, MarkupContent } from 'vscode-languageserver/node';
 

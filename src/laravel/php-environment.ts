@@ -153,7 +153,6 @@ export namespace PhpEnvironment {
             const checks = Array.isArray(config.check) ? [...config.check] : [config.check];
             let binaryPath = '';
 
-            // Run each check command in sequence
             for (const check of checks) {
                 const cmd = check.replace('{binaryPath}', binaryPath);
                 log.info(`Checking ${name} environment: ${cmd}`);
@@ -210,7 +209,6 @@ export namespace PhpEnvironment {
             return tryEnvironment(preferredEnv, projectRoot);
         }
 
-        // Auto-detect by probing each environment in order
         for (const name of DETECTION_ORDER) {
             const result = tryEnvironment(name, projectRoot);
             if (result) {
