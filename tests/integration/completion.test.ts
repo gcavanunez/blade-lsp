@@ -61,8 +61,7 @@ describe('Completion (Integration)', () => {
             });
 
             const items = await doc.completions(0, 4);
-            // Should return Laravel helper completions
-            // (these are static and don't require Laravel context)
+            // These are static helpers that don't require Laravel context
             const labels = items.map((i) => i.label);
             expect(labels).toContain('route');
 
@@ -87,10 +86,7 @@ describe('Completion (Integration)', () => {
             const items = await doc.completions(1, 1);
             const labels = items.map((i) => i.label);
 
-            // Should have built-in directives
             expect(labels).toContain('@if');
-
-            // Should also have custom directives from mock
             expect(labels).toContain('@datetime');
             expect(labels).toContain('@money');
             expect(labels).toContain('@admin');

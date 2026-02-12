@@ -26,12 +26,11 @@ describe('Definition (Integration)', () => {
                 text: "@extends('layouts.app')",
             });
 
-            // Position on 'layouts.app' — starts after @extends('
+            // Position on 'layouts.app'
             const def = await doc.definition(0, 14);
-            // With mock data, the view file may not exist on disk,
+            // With mock data the view file may not exist on disk,
             // so definition may return null. The important thing is
             // the request doesn't error.
-            // If it returns a location, it should reference the view path.
             if (def && !Array.isArray(def)) {
                 expect(def.uri).toContain('layouts');
             }
@@ -98,11 +97,10 @@ describe('Definition (Integration)', () => {
                 text: '<x-button type="primary" />',
             });
 
-            // Position on 'type' prop — starts at column 10
+            // Position on 'type' prop
             const def = await doc.definition(0, 12);
             // The prop definition handler attempts to read the component file,
             // which won't exist with mock data, but it should not throw.
-            // If it returns a location, it should point to the component file.
             if (def && !Array.isArray(def)) {
                 expect(def.uri).toBeDefined();
             }

@@ -170,7 +170,6 @@ export namespace BladeParser {
         const currentLine = lines[row] || '';
         const textBeforeCursor = currentLine.slice(0, column);
 
-        // Check for @ directive trigger
         const directiveMatch = textBeforeCursor.match(/@(\w*)$/);
         if (directiveMatch) {
             return {
@@ -180,7 +179,6 @@ export namespace BladeParser {
             };
         }
 
-        // Check if inside echo
         if (node && isInsideEcho(tree, row, column)) {
             return {
                 type: 'echo',
@@ -189,7 +187,6 @@ export namespace BladeParser {
             };
         }
 
-        // Check if inside a directive parameter
         if (node && isInsideDirectiveParameter(tree, row, column)) {
             let directiveName: string | undefined;
             let current: SyntaxNode | null = node;
@@ -210,7 +207,6 @@ export namespace BladeParser {
             };
         }
 
-        // Check if inside a comment
         if (node?.type === 'comment') {
             return {
                 type: 'comment',
@@ -219,11 +215,7 @@ export namespace BladeParser {
             };
         }
 
-        // Check if inside PHP block (@php ... @endphp or <?php ... ?>)
-        // In tree-sitter-blade >=0.12, @php blocks are php_statement with
-        // directive_start as first child. php_only is the content node.
         if (node?.type === 'php_only') {
-            // Determine if we're in an echo or a PHP block
             const parent = node.parent;
             if (parent?.type === 'php_statement') {
                 const firstChild = parent.child(0);
@@ -324,7 +316,6 @@ export namespace BladeParser {
         const node = findNodeAtPosition(tree, row, column);
         if (!node) return null;
 
-        // Walk up the tree looking for an enclosing element with a component tag name
         let current: SyntaxNode | null = node;
         while (current) {
             if (current.type === 'element') {
@@ -362,7 +353,6 @@ export namespace BladeParser {
         const node = findNodeAtPosition(tree, row, column);
         if (!node) return null;
 
-        // Walk up to find the enclosing start_tag or self_closing_tag
         let current: SyntaxNode | null = node;
         while (current) {
             if (current.type === 'start_tag' || current.type === 'self_closing_tag') {

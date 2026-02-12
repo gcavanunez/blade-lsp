@@ -51,7 +51,7 @@ describe('Definitions', () => {
 
         it('returns null when cursor is outside view name', () => {
             const line = "@include('layouts.app')";
-            // Cursor at the very start of the line, not on the view name
+            // Cursor at column 0, not on the view name
             const result = Definitions.getViewDefinition(line, 0, '', 0);
             expect(result).toBeNull();
         });
@@ -113,7 +113,6 @@ describe('Definitions', () => {
 
         it('matches <x-button and resolves when cursor is on tag name', () => {
             const line = '<x-button type="primary">';
-            // Cursor on 'x-button' (after <)
             const tagStart = line.indexOf('x-button');
             const result = Definitions.getComponentDefinition(line, tagStart + 1);
 
@@ -132,7 +131,7 @@ describe('Definitions', () => {
 
         it('returns null when cursor is outside the tag name', () => {
             const line = '<x-button type="primary">';
-            // Cursor way past the tag name, on the attribute
+            // Cursor on the attribute, past the tag name
             const result = Definitions.getComponentDefinition(line, 20);
             expect(result).toBeNull();
         });

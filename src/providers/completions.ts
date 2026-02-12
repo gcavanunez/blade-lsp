@@ -20,7 +20,6 @@ import { Components as ComponentsNs } from '../laravel/components';
 import { Server } from '../server';
 
 export namespace Completions {
-    // Re-export shared utilities still used by providers
     export type ParsedProp = Shared.ParsedProp;
     export const parsePropsString = Shared.parsePropsString;
 
@@ -33,6 +32,7 @@ export namespace Completions {
                 kind: MarkupKind.Markdown,
                 value: directive.description,
             },
+            // Avoid duplicating the already-typed prefix in the inserted text.
             insertText: directive.snippet
                 ? directive.snippet.slice(prefix.length)
                 : directive.name.slice(prefix.length),
@@ -61,8 +61,6 @@ export namespace Completions {
     export function getComponentCompletions(textBeforeCursor: string, position: Position): CompletionItem[] {
         const items: CompletionItem[] = [];
 
-        // Calculate the start position of the component tag
-        // Matches: <x-button, <x-turbo::frame, <flux:button
         const match = textBeforeCursor.match(/<(x-[\w.-]*(?:::[\w.-]*)?|[\w]+:[\w.-]*)$/);
         const partialName = match ? match[1] : 'x-';
         const matchedText = match ? match[0] : '<x-';
@@ -71,7 +69,6 @@ export namespace Completions {
         const replaceRange = Range.create(Position.create(position.line, startCharacter), position);
 
         if (!Laravel.isAvailable()) {
-            // Return static component suggestions if no Laravel project
             const staticComponents = ['x-button', 'x-alert', 'x-input', 'x-card'];
             return staticComponents.map((tag) => ({
                 label: tag,
@@ -84,8 +81,6 @@ export namespace Completions {
         const components = Components.getItems();
 
         for (const component of components) {
-            // Derive tag from key: keys with "::" get "x-" prepended,
-            // e.g. "button" -> "x-button", "turbo::frame" -> "x-turbo::frame"
             const fullTag = ComponentsNs.keyToTag(component.key);
 
             if (fullTag.startsWith(partialName)) {
@@ -99,7 +94,6 @@ export namespace Completions {
     export function getLivewireCompletions(textBeforeCursor: string, position: Position): CompletionItem[] {
         const items: CompletionItem[] = [];
 
-        // Calculate the start position of the livewire tag (where '<livewire:' begins)
         const match = textBeforeCursor.match(/<(livewire:[\w.-]*)$/);
         const partialName = match ? match[1] : 'livewire:';
         const matchedText = match ? match[0] : '<livewire:';
@@ -111,16 +105,13 @@ export namespace Completions {
             return items;
         }
 
-        // Get Livewire components from views (views starting with 'livewire.')
         const views = Views.getItems();
         const livewireViews = views.filter((v) => v.key.startsWith('livewire.'));
 
         for (const view of livewireViews) {
-            // Convert view key 'livewire.counter' to tag 'livewire:counter'
             const componentName = view.key.replace('livewire.', '').replace(/\./g, '.');
             const fullTag = `livewire:${componentName}`;
 
-            // Check if it matches the partial name being typed
             if (fullTag.startsWith(partialName) || partialName === 'livewire:') {
                 items.push(createLivewireCompletionItem(view, componentName, replaceRange));
             }
@@ -139,7 +130,6 @@ export namespace Completions {
         documentation += `**Type:** Livewire component\n\n`;
         documentation += `**Path:** \`${view.path}\`\n`;
 
-        // Include Livewire-specific props if available
         if (view.livewire?.props && view.livewire.props.length > 0) {
             documentation += '\n**Props:**\n\n';
             documentation += '| Name | Type |\n';
@@ -184,7 +174,6 @@ export namespace Completions {
             }
         }
 
-        // Build snippet with common props - include the < prefix since we're replacing from there
         let snippet = `<${fullTag}`;
         if (component.props && Array.isArray(component.props)) {
             const requiredProps = component.props.filter((p) => p.default === null || p.default === undefined);
@@ -266,7 +255,6 @@ export namespace Completions {
             case 'includeWhen':
             case 'includeUnless':
             case 'includeFirst':
-                // Suggest all blade views from resources/views (and vendor)
                 if (Laravel.isAvailable()) {
                     const views = Views.getItems();
 
@@ -274,7 +262,6 @@ export namespace Completions {
                         items.push(createViewCompletionItem(view));
                     }
                 } else {
-                    // Fall back to static suggestions
                     items.push(
                         { label: 'layouts.app', kind: CompletionItemKind.File, detail: 'Main layout' },
                         { label: 'layouts.guest', kind: CompletionItemKind.File, detail: 'Guest layout' },
@@ -330,7 +317,6 @@ export namespace Completions {
                 break;
 
             case 'slot':
-                // Suggest common slot names
                 items.push(
                     { label: 'header', kind: CompletionItemKind.Value, detail: 'Header slot' },
                     { label: 'footer', kind: CompletionItemKind.Value, detail: 'Footer slot' },
@@ -345,7 +331,6 @@ export namespace Completions {
             case 'livewire':
             case 'livewireStyles':
             case 'livewireScripts':
-                // Add Livewire component suggestions if available
                 if (Laravel.isAvailable()) {
                     const views = Views.getItems();
                     const livewireViews = views.filter((v) => v.key.startsWith('livewire.'));
@@ -403,9 +388,6 @@ export namespace Completions {
         return [];
     }
 
-    /**
-     * Get prop completions for a component
-     */
     export function getComponentPropCompletions(componentName: string, existingProps: string[]): CompletionItem[] {
         if (!Laravel.isAvailable()) return [];
 
@@ -418,9 +400,6 @@ export namespace Completions {
             .map((prop) => createPropCompletionItem(prop.name, prop.type, prop.required, prop.default));
     }
 
-    /**
-     * Create a completion item for a component prop
-     */
     export function createPropCompletionItem(
         name: string,
         type: string,
@@ -428,6 +407,7 @@ export namespace Completions {
         defaultValue: unknown,
     ): CompletionItem {
         const isDynamic = type !== 'string' && type !== 'mixed';
+        // Non-string props are usually bound as PHP expressions (e.g. :count="$total").
         const prefix = isDynamic ? ':' : '';
 
         return {
@@ -444,10 +424,6 @@ export namespace Completions {
         };
     }
 
-    /**
-     * Get slot name completions
-     * @param syntax - 'colon' for <x-slot:name> or 'name' for <x-slot name="name">
-     */
     function createSlotCompletion(
         slot: { name: string },
         component: ComponentItem,
@@ -488,9 +464,6 @@ export namespace Completions {
         return extractSlotsFromComponent(component).map((slot) => createSlotCompletion(slot, component, syntax));
     }
 
-    /**
-     * Extract named slots from a component file
-     */
     function extractSlotsFromComponent(component: ComponentItem): { name: string }[] {
         const workspaceRoot = Server.getWorkspaceRoot();
         if (!workspaceRoot) {
@@ -499,7 +472,6 @@ export namespace Completions {
 
         const fullPath = path.join(workspaceRoot, component.path);
 
-        // Only extract from blade files
         if (!component.path.endsWith('.blade.php')) {
             return [];
         }

@@ -137,9 +137,9 @@ describe('Hover (Integration)', () => {
                 text: '<x-button type="primary" />',
             });
 
-            // Hover over 'x-button' — the tag name starts at column 1.
-            // This requires LaravelContext.use() to resolve inside the handler's
+            // LaravelContext.use() must resolve inside the handler's
             // provide() scope — Components.findByTag() is called internally.
+            // Position on 'x-button' (col 1 after <)
             const hover = await doc.hover(0, 4);
             expect(hover).not.toBeNull();
 
@@ -149,7 +149,6 @@ describe('Hover (Integration)', () => {
                     : 'value' in hover!.contents
                       ? hover!.contents.value
                       : '';
-            // Assert data that can only come from the mock LaravelContext state
             expect(value).toContain('button');
             expect(value).toContain('Props');
 
@@ -161,7 +160,7 @@ describe('Hover (Integration)', () => {
                 text: "@include('layouts.app')",
             });
 
-            // Hover over 'layouts.app'
+            // Position on 'layouts.app'
             const hover = await doc.hover(0, 14);
             expect(hover).not.toBeNull();
 
@@ -181,10 +180,10 @@ describe('Hover (Integration)', () => {
                 text: '<x-button type="primary" />',
             });
 
-            // Hover over 'type' prop — 'type' starts at column 10.
-            // This proves provide() is active: the handler calls
+            // provide() must be active: the handler calls
             // Components.findByTag() → LaravelContext.use() to look up
             // the component, then reads its props array from context state.
+            // Position on 'type' prop (col 10)
             const hover = await doc.hover(0, 12);
             expect(hover).not.toBeNull();
 
@@ -196,7 +195,6 @@ describe('Hover (Integration)', () => {
                       : '';
             expect(value).toContain('type');
             expect(value).toContain('x-button');
-            // This prop type/default comes from mock state — only reachable via provide()
             expect(value).toContain('string');
 
             await doc.close();

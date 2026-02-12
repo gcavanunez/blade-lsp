@@ -8,16 +8,12 @@ import { Components } from '../laravel/components';
 import { Server } from '../server';
 
 export namespace Definitions {
-    /**
-     * Get definition location for a view reference
-     */
     export function getViewDefinition(
         line: string,
         column: number,
         _source: string,
         _lineNum: number,
     ): Location | null {
-        // Match view references in directives like @extends('layouts.app'), @include('partials.header')
         const viewDirectives = [
             'extends',
             'include',
@@ -38,14 +34,12 @@ export namespace Definitions {
                 const viewStart = line.indexOf(viewName);
                 const viewEnd = viewStart + viewName.length;
 
-                // Check if cursor is on the view name
                 if (column >= viewStart && column <= viewEnd) {
                     return resolveViewLocation(viewName);
                 }
             }
         }
 
-        // Also check for view() helper in echo statements
         const viewHelperMatch = line.match(/view\s*\(\s*['"]([^'"]+)['"]/);
         if (viewHelperMatch) {
             const viewName = viewHelperMatch[1];
@@ -60,9 +54,6 @@ export namespace Definitions {
         return null;
     }
 
-    /**
-     * Resolve a view name to its file location
-     */
     export function resolveViewLocation(viewName: string): Location | null {
         const workspaceRoot = Server.getWorkspaceRoot();
         if (!Laravel.isAvailable() || !workspaceRoot) {
@@ -82,11 +73,7 @@ export namespace Definitions {
         };
     }
 
-    /**
-     * Get definition location for a component reference
-     */
     export function getComponentDefinition(line: string, column: number): Location | null {
-        // Match component tags like <x-button, <x-alert.danger, <x-turbo::frame, <flux:button
         const componentMatch = line.match(/<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/);
 
         if (!componentMatch) {
@@ -97,7 +84,6 @@ export namespace Definitions {
         const tagStart = line.indexOf(componentMatch[0]) + 1; // +1 to skip <
         const tagEnd = tagStart + componentTag.length;
 
-        // Check if cursor is on the component name
         if (column >= tagStart && column <= tagEnd) {
             return resolveComponentLocation(componentTag);
         }
@@ -105,19 +91,14 @@ export namespace Definitions {
         return null;
     }
 
-    /**
-     * Resolve a component name to its file location
-     */
     export function resolveComponentLocation(componentTag: string): Location | null {
         const workspaceRoot = Server.getWorkspaceRoot();
         if (!Laravel.isAvailable() || !workspaceRoot) {
             return null;
         }
 
-        // Handle Livewire components (livewire:component-name)
         if (componentTag.startsWith('livewire:')) {
             const componentName = componentTag.replace('livewire:', '');
-            // Convert to view key format: livewire:counter -> livewire.counter
             const viewKey = `livewire.${componentName}`;
             const view = Views.find(viewKey);
 
@@ -131,7 +112,6 @@ export namespace Definitions {
             return null;
         }
 
-        // Handle standard Blade components (x-component-name)
         const component = Components.findByTag(componentTag) || Components.find(componentTag.replace(/^x-/, ''));
 
         if (!component) {
@@ -172,7 +152,6 @@ export namespace Definitions {
 
             const { endLine } = collectPropsBlock(lines, i);
 
-            // Search each line of the block for the prop name
             for (let j = i; j <= endLine; j++) {
                 const col = lines[j].indexOf(propNeedle);
                 if (col >= 0) return { line: j, col };
@@ -182,23 +161,17 @@ export namespace Definitions {
         return null;
     }
 
-    /**
-     * Get definition location for a component prop/attribute
-     */
     export function getPropDefinition(
         line: string,
         lineNumber: number,
         column: number,
         tree: BladeParser.Tree,
     ): Location | null {
-        // Find which component tag we're inside via tree-sitter AST
         const context = BladeParser.getComponentTagContext(tree, lineNumber, column);
         if (!context) {
             return null;
         }
 
-        // Check if cursor is on an attribute name (not value)
-        // Match attribute patterns: propName, propName=, :propName, :propName=
         const attrPattern = /(?::|)([\w-]+)(?:\s*=)?/g;
         let match;
         let propName: string | null = null;
@@ -208,7 +181,6 @@ export namespace Definitions {
             const attrNameStart = match[0].startsWith(':') ? attrStart + 1 : attrStart;
             const attrNameEnd = attrNameStart + match[1].length;
 
-            // Check if cursor is on the attribute name
             if (column >= attrNameStart && column <= attrNameEnd) {
                 propName = match[1];
                 break;
@@ -219,7 +191,6 @@ export namespace Definitions {
             return null;
         }
 
-        // Find the component file
         const workspaceRoot = Server.getWorkspaceRoot();
         if (!Laravel.isAvailable() || !workspaceRoot) {
             return null;
@@ -234,7 +205,6 @@ export namespace Definitions {
 
         const fullPath = path.join(workspaceRoot, component.path);
 
-        // Read the component file and find the @props directive
         try {
             const content = fs.readFileSync(fullPath, 'utf-8');
             const propLocation = findPropInFile(content, propName);
@@ -246,12 +216,12 @@ export namespace Definitions {
                         propLocation.line,
                         propLocation.col,
                         propLocation.line,
+                        // Include the surrounding single quotes in @props(['name' => ...]).
                         propLocation.col + propName.length + 2,
                     ),
                 };
             }
 
-            // If no @props found, still go to the file
             return {
                 uri: `file://${fullPath}`,
                 range: Range.create(0, 0, 0, 0),
@@ -292,19 +262,13 @@ export namespace Definitions {
         return null;
     }
 
-    /**
-     * Get definition location for a slot reference
-     * Handles both <x-slot:name> and <x-slot name="name"> syntax
-     */
     export function getSlotDefinition(
         line: string,
         lineNumber: number,
         column: number,
         tree: BladeParser.Tree,
     ): Location | null {
-        // Match <x-slot:name> syntax
         const colonMatch = line.match(/<x-slot:([\w-]+)/);
-        // Match <x-slot name="name"> syntax
         const nameMatch = line.match(/<x-slot\s+name=["']([\w-]+)["']/);
 
         const match = colonMatch || nameMatch;
@@ -316,12 +280,10 @@ export namespace Definitions {
         const slotStart = line.indexOf(slotName, line.indexOf('x-slot'));
         const slotEnd = slotStart + slotName.length;
 
-        // Check if cursor is on the slot name
         if (column < slotStart || column > slotEnd) {
             return null;
         }
 
-        // Find the parent component via tree-sitter AST
         const componentContext = BladeParser.findParentComponentFromTree(tree, lineNumber, column);
         if (!componentContext || !Laravel.isAvailable()) {
             return null;
@@ -341,7 +303,6 @@ export namespace Definitions {
 
         const fullPath = path.join(workspaceRoot, component.path);
 
-        // Try to find where the slot is used in the component
         try {
             const content = fs.readFileSync(fullPath, 'utf-8');
             const slotLocation = findSlotUsageInFile(content, slotName);
@@ -358,7 +319,6 @@ export namespace Definitions {
                 };
             }
 
-            // Slot not found in file, but still go to the component
             return {
                 uri: `file://${fullPath}`,
                 range: Range.create(0, 0, 0, 0),

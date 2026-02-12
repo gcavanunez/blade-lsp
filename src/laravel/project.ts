@@ -10,23 +10,15 @@ export namespace Project {
         root: string;
         artisanPath: string;
         composerPath: string;
-        // Command array to execute PHP (e.g., ['php'], ['docker', 'compose', 'exec', 'app', 'php'])
         phpCommand: string[];
         vendorPath: string;
         viewsPath: string;
         componentsPath: string;
-        // Detected PHP environment info
         phpEnvironment: PhpEnvironment.Result;
     }
 
     interface Options {
-        // Command array to execute PHP (defaults to auto-detect if not provided)
-        // Examples:
-        //   - Local: ['php'] or ['/usr/bin/php']
-        //   - Docker: ['docker', 'compose', 'exec', 'app', 'php']
-        //   - Sail: ['./vendor/bin/sail', 'php']
         phpCommand?: string[];
-        // Preferred PHP environment to try (skips auto-detection order)
         phpEnvironment?: PhpEnvironment.Name;
     }
 
@@ -48,12 +40,10 @@ export namespace Project {
         const viewsPath = path.join(workspaceRoot, 'resources', 'views');
         const componentsPath = path.join(workspaceRoot, 'app', 'View', 'Components');
 
-        // Check if artisan exists
         if (!fs.existsSync(artisanPath)) {
             return null;
         }
 
-        // Check if composer.json exists and contains laravel/framework
         if (!fs.existsSync(composerPath)) {
             return null;
         }
@@ -74,16 +64,14 @@ export namespace Project {
             return null;
         }
 
-        // Check if vendor directory exists (dependencies installed)
         if (!fs.existsSync(vendorPath)) {
             return null;
         }
 
-        // Determine PHP command via environment detection
         let phpEnv: PhpEnvironment.Result;
 
         if (options.phpCommand && options.phpCommand.length > 0) {
-            // Explicit command provided — wrap it as a manual/docker environment
+            // Custom commands often run in containers; keep paths project-relative by default.
             phpEnv = {
                 name: 'docker',
                 label: 'Custom',
@@ -91,7 +79,6 @@ export namespace Project {
                 useRelativePaths: true,
             };
         } else {
-            // Auto-detect: probe Herd → Valet → Sail → Lando → DDEV → Local → Docker
             const detected = PhpEnvironment.detect(workspaceRoot, options.phpEnvironment);
             if (!detected) {
                 log.warn('No PHP environment detected');

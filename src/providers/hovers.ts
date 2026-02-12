@@ -59,6 +59,7 @@ export namespace Hovers {
         if (directive.hasEndTag && directive.endTag) content += `**End tag:** \`${directive.endTag}\`\n\n`;
         if (directive.snippet) {
             content += '**Example:**\n```blade\n';
+            // Strip snippet placeholders (${1:text}, $1) for readable docs output.
             content += directive.snippet.replace(/\$\{\d+:?([^}]*)\}/g, '$1').replace(/\$\d+/g, '');
             content += '\n```';
         }
@@ -111,9 +112,6 @@ Contains all attributes passed to a component.
 \`\`\``;
     }
 
-    /**
-     * Get hover info for a component tag
-     */
     export function getComponentHover(line: string, column: number): Hover | null {
         const componentMatch = line.match(/<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/);
 
@@ -138,7 +136,6 @@ Contains all attributes passed to a component.
             };
         }
 
-        // Handle Livewire components
         if (componentTag.startsWith('livewire:')) {
             const componentName = componentTag.replace('livewire:', '');
             const viewKey = `livewire.${componentName}`;
@@ -182,7 +179,6 @@ Contains all attributes passed to a component.
             };
         }
 
-        // Handle standard Blade components
         const component = Components.findByTag(componentTag) || Components.find(componentTag.replace(/^x-/, ''));
 
         if (!component) {
@@ -208,22 +204,17 @@ Contains all attributes passed to a component.
         };
     }
 
-    /**
-     * Get hover info for a component prop/attribute
-     */
     export function getPropHover(
         line: string,
         lineNumber: number,
         column: number,
         tree: BladeParser.Tree,
     ): Hover | null {
-        // Check if we're inside a component tag via tree-sitter AST
         const context = BladeParser.getComponentTagContext(tree, lineNumber, column);
         if (!context) {
             return null;
         }
 
-        // Check if cursor is on an attribute name
         const attrPattern = /(?::|)([\w-]+)(?:\s*=)?/g;
         let match;
         let propName: string | null = null;
@@ -243,7 +234,6 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        // Find the component
         if (!Laravel.isAvailable()) {
             return null;
         }
@@ -255,10 +245,8 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        // Find prop info
         const propInfo = findPropInfo(component.props, propName);
 
-        // Build hover content
         let content = `## \`${propName}\`\n\n`;
         content += `**Component:** \`${context.componentName}\`\n\n`;
 
@@ -285,9 +273,6 @@ Contains all attributes passed to a component.
         };
     }
 
-    /**
-     * Get hover info for a view reference
-     */
     export function getViewHover(line: string, column: number): Hover | null {
         const viewDirectives = [
             'extends',
@@ -315,7 +300,6 @@ Contains all attributes passed to a component.
             }
         }
 
-        // Check for view() helper
         const viewHelperMatch = line.match(/view\s*\(\s*['"]([^'"]+)['"]/);
         if (viewHelperMatch) {
             const viewName = viewHelperMatch[1];
@@ -330,9 +314,6 @@ Contains all attributes passed to a component.
         return null;
     }
 
-    /**
-     * Get hover content for a view
-     */
     export function getViewHoverContent(viewName: string): Hover {
         if (!Laravel.isAvailable()) {
             return {
@@ -356,7 +337,6 @@ Contains all attributes passed to a component.
 
         let content = `## ${view.key}\n\n`;
         content += `**Path:** \`${view.path}\`\n\n`;
-        // Derive namespace from key if it contains '::'
         const nsMatch = view.key.match(/^([^:]+)::/);
         if (nsMatch) {
             content += `**Namespace:** \`${nsMatch[1]}\`\n\n`;
@@ -373,18 +353,13 @@ Contains all attributes passed to a component.
         };
     }
 
-    /**
-     * Get hover info for a slot reference
-     */
     export function getSlotHover(
         line: string,
         lineNumber: number,
         column: number,
         tree: BladeParser.Tree,
     ): Hover | null {
-        // Match <x-slot:name> syntax
         const colonMatch = line.match(/<x-slot:([\w-]+)/);
-        // Match <x-slot name="name"> syntax
         const nameMatch = line.match(/<x-slot\s+name=["']([\w-]+)["']/);
 
         const match = colonMatch || nameMatch;
@@ -396,12 +371,10 @@ Contains all attributes passed to a component.
         const slotStart = line.indexOf(slotName, line.indexOf('x-slot'));
         const slotEnd = slotStart + slotName.length;
 
-        // Check if cursor is on the slot name
         if (column < slotStart || column > slotEnd) {
             return null;
         }
 
-        // Find the parent component via tree-sitter AST
         const componentContext = BladeParser.findParentComponentFromTree(tree, lineNumber, column);
         if (!componentContext) {
             return {

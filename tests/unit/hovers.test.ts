@@ -132,7 +132,6 @@ describe('Hovers', () => {
                 const value = getHoverValue(hover!);
                 expect(value).toContain('x-button');
                 expect(value).toContain('button.blade.php');
-                // Props table
                 expect(value).toContain('type');
                 expect(value).toContain('variant');
                 expect(value).toContain('disabled');
@@ -158,10 +157,8 @@ describe('Hovers', () => {
                 expect(value).toContain('livewire:counter');
                 expect(value).toContain('Livewire component');
                 expect(value).toContain('counter.blade.php');
-                // Props
                 expect(value).toContain('count');
                 expect(value).toContain('int');
-                // Files
                 expect(value).toContain('Counter.php');
             });
 
@@ -201,7 +198,7 @@ describe('Hovers', () => {
 
         it('returns null when cursor is outside the tag name', () => {
             const line = '<x-button type="primary">';
-            // Cursor way past the tag name
+            // Cursor on the attribute, past the tag name
             const hover = Hovers.getComponentHover(line, 20);
             expect(hover).toBeNull();
         });

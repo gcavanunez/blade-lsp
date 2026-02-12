@@ -12,7 +12,6 @@ import { Laravel } from '../laravel/index';
 function formatRefreshError(domain: string, input: Error & { data: { message: string; cause?: string } }): string {
     const header = `Failed to refresh ${domain}: ${input.data.message}`;
 
-    // Walk the cause chain to find the underlying error with useful details
     const cause = input.cause;
     if (cause) {
         const causeFormatted = FormatError(cause);
@@ -21,7 +20,6 @@ function formatRefreshError(domain: string, input: Error & { data: { message: st
         }
     }
 
-    // Fallback: include the cause string from data if available
     if (input.data.cause) {
         return `${header} (${input.data.cause})`;
     }
@@ -122,7 +120,6 @@ export function FormatError(input: unknown): string | undefined {
 
     // ─── Fallback ────────────────────────────────────────────────────────────
 
-    // Return undefined for unknown errors - caller decides how to handle
     return undefined;
 }
 

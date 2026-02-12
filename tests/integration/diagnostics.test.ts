@@ -135,12 +135,10 @@ describe('Diagnostics (Integration)', () => {
                 text: '@if($show)\n  <p>test</p>\n@endif',
             });
 
-            // Initially valid
             let diags = await doc.diagnostics();
             let unclosed = diags.filter((d) => d.code === 'blade/unclosed-directive');
             expect(unclosed).toEqual([]);
 
-            // Update to have unclosed directive
             await doc.update('@if($show)\n  <p>test</p>');
             diags = await doc.diagnostics();
             unclosed = diags.filter((d) => d.code === 'blade/unclosed-directive');
