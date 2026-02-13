@@ -284,28 +284,32 @@ export namespace BladeParser {
         return hasDirectiveStart && hasAttributeValue && hasEquals;
     }
 
-    function checkForErrors(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
-        if (node.hasError) {
-            if (node.isMissing) {
-                diagnostics.push({
-                    message: `Missing ${node.type}`,
-                    startPosition: node.startPosition,
-                    endPosition: node.endPosition,
-                    severity: 'error',
-                });
-            } else if (node.type === 'ERROR') {
-                if (isAtSignInQuotedAttributeError(node)) {
-                    // Ignore known parser false-positive for literal @ in attributes.
-                } else {
-                    diagnostics.push({
-                        message: 'Syntax error',
-                        startPosition: node.startPosition,
-                        endPosition: node.endPosition,
-                        severity: 'error',
-                    });
-                }
-            }
+    function collectNodeDiagnostic(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
+        if (!node.hasError) return;
+
+        if (node.isMissing) {
+            diagnostics.push({
+                message: `Missing ${node.type}`,
+                startPosition: node.startPosition,
+                endPosition: node.endPosition,
+                severity: 'error',
+            });
+            return;
         }
+
+        if (node.type !== 'ERROR') return;
+        if (isAtSignInQuotedAttributeError(node)) return;
+
+        diagnostics.push({
+            message: 'Syntax error',
+            startPosition: node.startPosition,
+            endPosition: node.endPosition,
+            severity: 'error',
+        });
+    }
+
+    function checkForErrors(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
+        collectNodeDiagnostic(node, diagnostics);
 
         for (let i = 0; i < node.childCount; i++) {
             const child = node.child(i);
