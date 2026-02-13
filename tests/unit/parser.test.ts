@@ -105,6 +105,12 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for email placeholders with @', () => {
+            const tree = BladeParser.parse('<input type="email" placeholder="name@example.com" />');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('returns diagnostics for syntax errors', () => {
             // Unclosed PHP block or similar syntax issue
             const tree = BladeParser.parse('@php $x = @endphp');

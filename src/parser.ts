@@ -255,6 +255,35 @@ export namespace BladeParser {
         return diagnostics;
     }
 
+    /**
+     * tree-sitter-blade currently treats `@` inside quoted HTML attribute values
+     * as a directive start, which produces a false-positive ERROR node for common
+     * strings like email placeholders (`name@example.com`).
+     */
+    function isAtSignInQuotedAttributeError(node: SyntaxNode): boolean {
+        if (node.type !== 'ERROR') return false;
+
+        const parent = node.parent;
+        if (!parent || (parent.type !== 'start_tag' && parent.type !== 'self_closing_tag')) {
+            return false;
+        }
+
+        let hasDirectiveStart = false;
+        let hasAttributeValue = false;
+        let hasEquals = false;
+
+        for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i);
+            if (!child) continue;
+
+            if (child.type === 'directive_start') hasDirectiveStart = true;
+            if (child.type === 'attribute_value') hasAttributeValue = true;
+            if (child.type === '=') hasEquals = true;
+        }
+
+        return hasDirectiveStart && hasAttributeValue && hasEquals;
+    }
+
     function checkForErrors(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
         if (node.hasError) {
             if (node.isMissing) {
@@ -265,12 +294,16 @@ export namespace BladeParser {
                     severity: 'error',
                 });
             } else if (node.type === 'ERROR') {
-                diagnostics.push({
-                    message: 'Syntax error',
-                    startPosition: node.startPosition,
-                    endPosition: node.endPosition,
-                    severity: 'error',
-                });
+                if (isAtSignInQuotedAttributeError(node)) {
+                    // Ignore known parser false-positive for literal @ in attributes.
+                } else {
+                    diagnostics.push({
+                        message: 'Syntax error',
+                        startPosition: node.startPosition,
+                        endPosition: node.endPosition,
+                        severity: 'error',
+                    });
+                }
             }
         }
 

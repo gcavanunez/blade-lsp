@@ -146,5 +146,17 @@ describe('Diagnostics (Integration)', () => {
 
             await doc.close();
         });
+
+        it('does not report syntax errors for @ in email placeholder text', async () => {
+            const doc = await client.open({
+                text: '<input type="email" placeholder="name@example.com" />',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
     });
 });
