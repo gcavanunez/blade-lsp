@@ -133,6 +133,14 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for inline @if attribute directives', () => {
+            const tree = BladeParser.parse(
+                "<html @if (session('theme')) data-theme=\"{{ session('theme') }}\" @endif>",
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('does not report syntax errors for plain email text in blade markup', () => {
             const tree = BladeParser.parse('<footer><p>Contact: support@example.com</p></footer>');
             const diags = BladeParser.getDiagnostics(tree);

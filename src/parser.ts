@@ -284,6 +284,60 @@ export namespace BladeParser {
         return false;
     }
 
+    function findAncestorTagNode(node: SyntaxNode): SyntaxNode | null {
+        let current: SyntaxNode | null = node.parent;
+        while (current) {
+            if (current.type === 'start_tag' || current.type === 'self_closing_tag') {
+                return current;
+            }
+            current = current.parent;
+        }
+        return null;
+    }
+
+    function collectTagAttributeNames(tagNode: SyntaxNode): string[] {
+        const names: string[] = [];
+
+        for (let i = 0; i < tagNode.childCount; i++) {
+            const child = tagNode.child(i);
+            if (!child) continue;
+
+            if (child.type === 'attribute_name') {
+                names.push(child.text);
+                continue;
+            }
+
+            if (child.type !== 'attribute') continue;
+
+            for (let j = 0; j < child.childCount; j++) {
+                const attrChild = child.child(j);
+                if (attrChild?.type === 'attribute_name') {
+                    names.push(attrChild.text);
+                    break;
+                }
+            }
+        }
+
+        return names;
+    }
+
+    function hasInlineBladeConditionalAttributes(tagNode: SyntaxNode): boolean {
+        const names = collectTagAttributeNames(tagNode);
+        const hasBladeOpener = names.some((name) => name.startsWith('@') && !name.startsWith('@end'));
+        const hasBladeCloser = names.some((name) => name.startsWith('@end'));
+        return hasBladeOpener && hasBladeCloser;
+    }
+
+    function isInlineBladeConditionalTagError(node: SyntaxNode): boolean {
+        if (node.type !== 'ERROR') return false;
+        if (!/^[\s'"()]+$/.test(node.text)) return false;
+
+        const tagNode = findAncestorTagNode(node);
+        if (!tagNode) return false;
+
+        return hasInlineBladeConditionalAttributes(tagNode);
+    }
+
     function isAtSignInQuotedAttributeError(node: SyntaxNode): boolean {
         if (node.type !== 'ERROR') return false;
 
@@ -335,6 +389,7 @@ export namespace BladeParser {
         if (node.type !== 'ERROR') return;
         if (isAtSignInQuotedAttributeError(node)) return;
         if (hasAtSignInQuotedAttributeErrorAncestor(node)) return;
+        if (isInlineBladeConditionalTagError(node)) return;
 
         diagnostics.push({
             message: 'Syntax error',
