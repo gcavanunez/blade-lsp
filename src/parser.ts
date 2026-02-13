@@ -260,28 +260,63 @@ export namespace BladeParser {
      * as a directive start, which produces a false-positive ERROR node for common
      * strings like email placeholders (`name@example.com`).
      */
-    function isAtSignInQuotedAttributeError(node: SyntaxNode): boolean {
-        if (node.type !== 'ERROR') return false;
-
-        const parent = node.parent;
-        if (!parent || (parent.type !== 'start_tag' && parent.type !== 'self_closing_tag')) {
-            return false;
-        }
-
-        let hasDirectiveStart = false;
-        let hasAttributeValue = false;
-        let hasEquals = false;
+    function subtreeContainsType(node: SyntaxNode, type: string): boolean {
+        if (node.type === type) return true;
 
         for (let i = 0; i < node.childCount; i++) {
             const child = node.child(i);
-            if (!child) continue;
-
-            if (child.type === 'directive_start') hasDirectiveStart = true;
-            if (child.type === 'attribute_value') hasAttributeValue = true;
-            if (child.type === '=') hasEquals = true;
+            if (child && subtreeContainsType(child, type)) {
+                return true;
+            }
         }
 
-        return hasDirectiveStart && hasAttributeValue && hasEquals;
+        return false;
+    }
+
+    function hasAncestorType(node: SyntaxNode, type: string): boolean {
+        let current = node.parent;
+        while (current) {
+            if (current.type === type) {
+                return true;
+            }
+            current = current.parent;
+        }
+        return false;
+    }
+
+    function isAtSignInQuotedAttributeError(node: SyntaxNode): boolean {
+        if (node.type !== 'ERROR') return false;
+
+        const hasDirectiveStart = subtreeContainsType(node, 'directive_start');
+        if (!hasDirectiveStart) return false;
+
+        if (hasAncestorType(node, 'quoted_attribute_value')) {
+            return true;
+        }
+
+        const hasAttributeValue = subtreeContainsType(node, 'attribute_value');
+        if (!hasAttributeValue) return false;
+
+        const parent = node.parent;
+        if (parent && (parent.type === 'start_tag' || parent.type === 'self_closing_tag')) {
+            return true;
+        }
+
+        const hasTagName = subtreeContainsType(node, 'tag_name');
+        const hasAttributeShape = subtreeContainsType(node, 'attribute') || subtreeContainsType(node, 'attribute_name');
+
+        return hasTagName && hasAttributeShape;
+    }
+
+    function hasAtSignInQuotedAttributeErrorAncestor(node: SyntaxNode): boolean {
+        let current = node.parent;
+        while (current) {
+            if (isAtSignInQuotedAttributeError(current)) {
+                return true;
+            }
+            current = current.parent;
+        }
+        return false;
     }
 
     function collectNodeDiagnostic(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
@@ -299,6 +334,7 @@ export namespace BladeParser {
 
         if (node.type !== 'ERROR') return;
         if (isAtSignInQuotedAttributeError(node)) return;
+        if (hasAtSignInQuotedAttributeErrorAncestor(node)) return;
 
         diagnostics.push({
             message: 'Syntax error',

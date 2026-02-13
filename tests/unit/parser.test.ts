@@ -111,6 +111,34 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for self-closing component email placeholders', () => {
+            const tree = BladeParser.parse('<flux:input name="email" placeholder="email@example.com" />');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors when placeholder with @ appears before :value', () => {
+            const tree = BladeParser.parse(
+                '<flux:input name="email" placeholder="you@example.com" :value="old(\'email\')" />',
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for @ in quoted data-action values', () => {
+            const tree = BladeParser.parse(
+                '<button data-action="password-reveal#toggle turbo:before-cache@document->password-reveal#reset"></button>',
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for plain email text in blade markup', () => {
+            const tree = BladeParser.parse('<footer><p>Contact: support@example.com</p></footer>');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('returns diagnostics for syntax errors', () => {
             // Unclosed PHP block or similar syntax issue
             const tree = BladeParser.parse('@php $x = @endphp');

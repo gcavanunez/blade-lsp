@@ -158,5 +158,41 @@ describe('Diagnostics (Integration)', () => {
 
             await doc.close();
         });
+
+        it('does not report syntax errors for component email placeholder before :value', async () => {
+            const doc = await client.open({
+                text: '<flux:input name="email" placeholder="you@example.com" :value="old(\'email\')" />',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for @ in quoted data-action values', async () => {
+            const doc = await client.open({
+                text: '<button data-action="password-reveal#toggle turbo:before-cache@document->password-reveal#reset"></button>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for plain email text in a footer', async () => {
+            const doc = await client.open({
+                text: '<footer><p>Contact: support@example.com</p></footer>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
     });
 });
