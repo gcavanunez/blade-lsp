@@ -11,6 +11,7 @@ import { ParserTypes } from './parser/types';
 import { NativeBackend } from './parser/native';
 import { WasmBackend } from './parser/wasm';
 import { Container } from './runtime/container';
+import { BladeDirectives } from './directives';
 
 export namespace BladeParser {
     export type SyntaxNode = ParserTypes.SyntaxNode;
@@ -373,6 +374,19 @@ export namespace BladeParser {
         return false;
     }
 
+    function isUnknownDirectiveTokenError(node: SyntaxNode): boolean {
+        if (node.type !== 'ERROR') return false;
+        if (node.childCount !== 1) return false;
+
+        const child = node.child(0);
+        if (child?.type !== 'directive_start') return false;
+
+        const name = child.text;
+        if (!/^@(?:end)?[A-Za-z_]\w*$/.test(name)) return false;
+
+        return !BladeDirectives.map.has(name);
+    }
+
     function collectNodeDiagnostic(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
         if (!node.hasError) return;
 
@@ -390,6 +404,7 @@ export namespace BladeParser {
         if (isAtSignInQuotedAttributeError(node)) return;
         if (hasAtSignInQuotedAttributeErrorAncestor(node)) return;
         if (isInlineBladeConditionalTagError(node)) return;
+        if (isUnknownDirectiveTokenError(node)) return;
 
         diagnostics.push({
             message: 'Syntax error',

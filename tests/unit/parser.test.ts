@@ -141,6 +141,12 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for custom Blade::if directives without parentheses', () => {
+            const tree = BladeParser.parse('@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('does not report syntax errors for plain email text in blade markup', () => {
             const tree = BladeParser.parse('<footer><p>Contact: support@example.com</p></footer>');
             const diags = BladeParser.getDiagnostics(tree);

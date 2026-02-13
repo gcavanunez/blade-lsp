@@ -195,6 +195,18 @@ describe('Diagnostics (Integration)', () => {
             await doc.close();
         });
 
+        it('does not report syntax errors for custom Blade::if directives without parentheses', async () => {
+            const doc = await client.open({
+                text: '@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
         it('does not report syntax errors for plain email text in a footer', async () => {
             const doc = await client.open({
                 text: '<footer><p>Contact: support@example.com</p></footer>',
