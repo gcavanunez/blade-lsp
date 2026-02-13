@@ -9,7 +9,14 @@
  * all methods become no-ops, so callers don't need to check.
  */
 
-import { Connection, WorkDoneProgressCreateRequest } from 'vscode-languageserver/node';
+import {
+    Connection,
+    WorkDoneProgress,
+    WorkDoneProgressBegin,
+    WorkDoneProgressCreateRequest,
+    WorkDoneProgressEnd,
+    WorkDoneProgressReport,
+} from 'vscode-languageserver/node';
 
 export namespace Progress {
     /** Whether the connected client supports `window/workDoneProgress`. */
@@ -66,28 +73,31 @@ export namespace Progress {
             return noopHandle;
         }
 
-        conn.sendProgress(WorkDoneProgressCreateRequest.type, token, {
+        const beginPayload: WorkDoneProgressBegin = {
             kind: 'begin',
             title,
             message,
             cancellable: false,
-        } as any);
+        };
+        conn.sendProgress(WorkDoneProgress.type, token, beginPayload);
 
         const handle: Handle = {
             report(msg: string, percentage?: number) {
                 if (!conn) return;
-                conn.sendProgress(WorkDoneProgressCreateRequest.type, token, {
+                const reportPayload: WorkDoneProgressReport = {
                     kind: 'report',
                     message: msg,
                     ...(percentage !== undefined ? { percentage } : {}),
-                } as any);
+                };
+                conn.sendProgress(WorkDoneProgress.type, token, reportPayload);
             },
             done(msg?: string) {
                 if (!conn) return;
-                conn.sendProgress(WorkDoneProgressCreateRequest.type, token, {
+                const endPayload: WorkDoneProgressEnd = {
                     kind: 'end',
                     message: msg,
-                } as any);
+                };
+                conn.sendProgress(WorkDoneProgress.type, token, endPayload);
             },
         };
 

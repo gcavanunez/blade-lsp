@@ -12,7 +12,7 @@
 
 import { LaravelContext } from '../../src/laravel/context';
 import { Laravel } from '../../src/laravel/index';
-import type { ViewItem, ComponentItem, CustomDirective, ComponentProp, LivewireProp } from '../../src/laravel/types';
+import type { ViewItem, ComponentItem, CustomDirective, ComponentProp } from '../../src/laravel/types';
 import { Project } from '../../src/laravel/project';
 import { PhpEnvironment } from '../../src/laravel/php-environment';
 import { Container } from '../../src/runtime/container';
@@ -189,14 +189,15 @@ export function ensureContainer(): void {
     const noopProgress = { begin: () => ({ report: () => {}, done: () => {} }) };
 
     Container.init({
-        connection: {} as any,
-        documents: {} as any,
+        connection: {} as unknown as Container.Services['connection'],
+        documents: {} as unknown as Container.Services['documents'],
         parser: {
             initialize: async () => {},
-            parse: () => ({ rootNode: { children: [] } }) as any,
+            parse: () =>
+                ({ rootNode: { children: [] } }) as unknown as ReturnType<Container.Services['parser']['parse']>,
         },
-        logger: noopLogger as any,
-        progress: noopProgress as any,
+        logger: noopLogger as unknown as Container.Services['logger'],
+        progress: noopProgress as unknown as Container.Services['progress'],
         settings: MutableRef.make({}),
         workspaceRoot: MutableRef.make<string | null>('/test/project'),
         treeCache: new Map(),

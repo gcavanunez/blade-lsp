@@ -7,16 +7,34 @@
 
 import { ParserTypes } from './types';
 
+type NativePosition = {
+    row: number;
+    column: number;
+};
+
+type NativeSyntaxNode = {
+    text: string;
+    type: string;
+    startPosition: NativePosition;
+    endPosition: NativePosition;
+    childCount: number;
+    child(index: number): NativeSyntaxNode | null;
+    parent: NativeSyntaxNode | null;
+    hasError: boolean | (() => boolean);
+    isMissing: boolean | (() => boolean);
+    toString(): string;
+};
+
 export namespace NativeBackend {
     export function create(): ParserTypes.Backend {
-        let parser: ReturnType<typeof loadParser> | null = null;
+        let parser: Awaited<ReturnType<typeof loadParser>> | null = null;
 
-        function loadParser() {
-            // Dynamic require so this module can be imported without tree-sitter installed.
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const Parser = require('tree-sitter') as typeof import('tree-sitter');
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const Blade = require('tree-sitter-blade');
+        async function loadParser() {
+            // Dynamic import so this module can be imported without tree-sitter installed.
+            const parserModule = await import('tree-sitter');
+            const Parser = (parserModule.default ?? parserModule) as typeof import('tree-sitter');
+            const bladeModule = await import('tree-sitter-blade');
+            const Blade = bladeModule.default ?? bladeModule;
 
             const instance = new Parser();
             // tree-sitter-blade >=0.12.0 exports { name, language, nodeTypeInfo }
@@ -27,7 +45,7 @@ export namespace NativeBackend {
 
         return {
             async initialize(): Promise<void> {
-                parser = loadParser();
+                parser = await loadParser();
             },
 
             parse(source: string): ParserTypes.Tree {
@@ -50,7 +68,7 @@ export namespace NativeBackend {
      * handling the version compat issue between tree-sitter 0.20.x (methods)
      * and newer versions (property getters).
      */
-    function wrapNode(native: any): ParserTypes.SyntaxNode {
+    function wrapNode(native: NativeSyntaxNode): ParserTypes.SyntaxNode {
         return {
             get text() {
                 return native.text;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createClient, type Client, type ClientDocument } from '../utils/client';
+import { createClient, type Client } from '../utils/client';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
 
 describe('Completion (Integration)', () => {

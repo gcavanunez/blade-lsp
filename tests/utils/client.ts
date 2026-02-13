@@ -27,11 +27,9 @@ import {
     type Location,
     type Diagnostic,
     type PublishDiagnosticsParams,
-    type TextDocumentSyncKind,
-    TextDocumentSyncKind as SyncKind,
 } from 'vscode-languageserver/node';
 import type { ProtocolConnection } from 'vscode-languageclient';
-import { connect, type ConnectResult } from './connection';
+import { connect } from './connection';
 import { Server } from '../../src/server';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -80,6 +78,21 @@ export interface Client {
     shutdown(): Promise<void>;
 }
 
+interface RpcConnection {
+    onRequest(methodOrType: unknown, handler: (params?: unknown) => unknown): void;
+    onNotification(methodOrType: unknown, handler: (params?: unknown) => void): void;
+    sendRequest(methodOrType: unknown, params?: unknown): Promise<unknown>;
+    sendNotification(methodOrType: unknown, params?: unknown): Promise<void> | void;
+}
+
+function isCompletionList(value: unknown): value is { items: CompletionItem[] } {
+    if (typeof value !== 'object' || value === null || !('items' in value)) {
+        return false;
+    }
+    const items = (value as { items?: unknown }).items;
+    return Array.isArray(items);
+}
+
 // ─── Implementation ─────────────────────────────────────────────────────────
 
 let docCounter = 0;
@@ -98,40 +111,38 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
     };
 
     const { clientConnection, dispose } = connect();
+    const rpc = clientConnection as unknown as RpcConnection;
 
     const diagnosticsMap = new Map<string, Diagnostic[]>();
     const diagnosticsWaiters = new Map<string, Array<(diags: Diagnostic[]) => void>>();
 
-    (clientConnection as any).onRequest(ConfigurationRequest.type, () => {
+    rpc.onRequest(ConfigurationRequest.type, () => {
         return [settings];
     });
 
-    (clientConnection as any).onRequest(RegistrationRequest.type, () => {
+    rpc.onRequest(RegistrationRequest.type, () => {
         return;
     });
 
-    (clientConnection as any).onNotification(
-        PublishDiagnosticsNotification.type,
-        (params: PublishDiagnosticsParams) => {
-            diagnosticsMap.set(params.uri, params.diagnostics);
+    rpc.onNotification(PublishDiagnosticsNotification.type, (params: PublishDiagnosticsParams) => {
+        diagnosticsMap.set(params.uri, params.diagnostics);
 
-            const waiters = diagnosticsWaiters.get(params.uri);
-            if (waiters) {
-                for (const resolve of waiters) {
-                    resolve(params.diagnostics);
-                }
-                diagnosticsWaiters.delete(params.uri);
+        const waiters = diagnosticsWaiters.get(params.uri);
+        if (waiters) {
+            for (const resolve of waiters) {
+                resolve(params.diagnostics);
             }
-        },
-    );
+            diagnosticsWaiters.delete(params.uri);
+        }
+    });
 
-    (clientConnection as any).onNotification('window/logMessage', () => {});
+    rpc.onNotification('window/logMessage', () => {});
 
-    (clientConnection as any).onRequest('window/workDoneProgress/create', () => {
+    rpc.onRequest('window/workDoneProgress/create', () => {
         return;
     });
 
-    (clientConnection as any).onNotification('$/progress', () => {});
+    rpc.onNotification('$/progress', () => {});
 
     const initParams: InitializeParams = {
         processId: process.pid,
@@ -172,9 +183,9 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
         ],
     };
 
-    const initializeResult = await (clientConnection as any).sendRequest(InitializeRequest.type, initParams);
+    const initializeResult = (await rpc.sendRequest(InitializeRequest.type, initParams)) as InitializeResult;
 
-    await (clientConnection as any).sendNotification(InitializedNotification.type, {});
+    await rpc.sendNotification(InitializedNotification.type, {});
 
     // Wait for server to fully initialize (parser WASM load + onInitialized handler)
     // The onInitialize handler is async (loads WASM parser), and onInitialized
@@ -190,29 +201,29 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
             uri,
 
             async hover(line: number, character: number): Promise<Hover | null> {
-                return (clientConnection as any).sendRequest(HoverRequest.type, {
+                return (await rpc.sendRequest(HoverRequest.type, {
                     textDocument: { uri },
                     position: { line, character },
-                });
+                })) as Hover | null;
             },
 
             async completions(line: number, character: number): Promise<CompletionItem[]> {
-                const result = await (clientConnection as any).sendRequest(CompletionRequest.type, {
+                const result = await rpc.sendRequest(CompletionRequest.type, {
                     textDocument: { uri },
                     position: { line, character },
                 });
 
                 // Completion can return CompletionItem[] or CompletionList
-                if (Array.isArray(result)) return result;
-                if (result && 'items' in result) return result.items;
+                if (Array.isArray(result)) return result as CompletionItem[];
+                if (isCompletionList(result)) return result.items;
                 return [];
             },
 
             async definition(line: number, character: number): Promise<Location | Location[] | null> {
-                return (clientConnection as any).sendRequest(DefinitionRequest.type, {
+                return (await rpc.sendRequest(DefinitionRequest.type, {
                     textDocument: { uri },
                     position: { line, character },
-                });
+                })) as Location | Location[] | null;
             },
 
             async diagnostics(): Promise<Diagnostic[]> {
@@ -222,15 +233,20 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
 
                 // Wait for next diagnostics notification
                 return new Promise((resolve) => {
+                    const resolveWithCleanup = (diags: Diagnostic[]) => {
+                        clearTimeout(timeoutId);
+                        resolve(diags);
+                    };
+
                     const waiters = diagnosticsWaiters.get(uri) ?? [];
-                    waiters.push(resolve);
+                    waiters.push(resolveWithCleanup);
                     diagnosticsWaiters.set(uri, waiters);
 
                     // Timeout after 5 seconds
-                    setTimeout(() => {
+                    const timeoutId = setTimeout(() => {
                         const currentWaiters = diagnosticsWaiters.get(uri);
                         if (currentWaiters) {
-                            const idx = currentWaiters.indexOf(resolve);
+                            const idx = currentWaiters.indexOf(resolveWithCleanup);
                             if (idx >= 0) {
                                 currentWaiters.splice(idx, 1);
                                 resolve([]);
@@ -245,7 +261,7 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                 // Clear cached diagnostics so the next call waits for fresh ones
                 diagnosticsMap.delete(uri);
 
-                await (clientConnection as any).sendNotification(DidChangeTextDocumentNotification.type, {
+                await rpc.sendNotification(DidChangeTextDocumentNotification.type, {
                     textDocument: { uri, version: currentVersion },
                     contentChanges: [{ text }],
                 });
@@ -258,7 +274,7 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                 diagnosticsMap.delete(uri);
                 diagnosticsWaiters.delete(uri);
 
-                await (clientConnection as any).sendNotification(DidCloseTextDocumentNotification.type, {
+                await rpc.sendNotification(DidCloseTextDocumentNotification.type, {
                     textDocument: { uri },
                 });
             },
@@ -277,7 +293,7 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
             const uri = `${rootUri}/${name}`;
             const version = 1;
 
-            await (clientConnection as any).sendNotification(DidOpenTextDocumentNotification.type, {
+            await rpc.sendNotification(DidOpenTextDocumentNotification.type, {
                 textDocument: {
                     uri,
                     languageId: lang,
@@ -294,8 +310,8 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
 
         async shutdown(): Promise<void> {
             try {
-                await (clientConnection as any).sendRequest(ShutdownRequest.type);
-                await (clientConnection as any).sendNotification(ExitNotification.type);
+                await rpc.sendRequest(ShutdownRequest.type);
+                await rpc.sendNotification(ExitNotification.type);
             } catch {
                 // Connection may already be closed
             }

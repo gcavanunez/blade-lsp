@@ -2,12 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CompletionItemKind, InsertTextFormat, Position, Range } from 'vscode-languageserver/node';
 import { Completions } from '../../src/providers/completions';
 import { BladeDirectives } from '../../src/directives';
-import {
-    installMockLaravel,
-    clearMockLaravel,
-    DEFAULT_COMPONENTS,
-    DEFAULT_COMPONENT_PROPS,
-} from '../utils/laravel-mock';
+import { installMockLaravel, clearMockLaravel, DEFAULT_COMPONENTS } from '../utils/laravel-mock';
 
 vi.mock('../../src/server', () => ({
     Server: {
