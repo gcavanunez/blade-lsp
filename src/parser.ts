@@ -345,6 +345,61 @@ export namespace BladeParser {
         return false;
     }
 
+    const TAILWIND_CONTAINER_QUERY_VARIANTS = new Set([
+        '@3xs',
+        '@2xs',
+        '@xs',
+        '@sm',
+        '@md',
+        '@lg',
+        '@xl',
+        '@2xl',
+        '@3xl',
+        '@4xl',
+        '@5xl',
+        '@6xl',
+        '@7xl',
+    ]);
+
+    function isTailwindContainerQueryAttributeName(name: string): boolean {
+        return /^@(3xs|2xs|xs|sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl):/.test(name);
+    }
+
+    function findFirstDescendant(node: SyntaxNode, type: string): SyntaxNode | null {
+        if (node.type === type) return node;
+
+        for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i);
+            if (!child) continue;
+
+            const found = findFirstDescendant(child, type);
+            if (found) return found;
+        }
+
+        return null;
+    }
+
+    function isTailwindContainerQueryAttributeError(node: SyntaxNode): boolean {
+        if (node.type !== 'ERROR') return false;
+
+        const tagNode = findAncestorTagNode(node);
+        if (!tagNode) return false;
+
+        const attributeNames = collectTagAttributeNames(tagNode);
+        const hasClassAttribute = attributeNames.includes('class');
+        const hasTailwindContainerQueryAttribute = attributeNames.some(isTailwindContainerQueryAttributeName);
+
+        if (node.text === '"' && hasTailwindContainerQueryAttribute) {
+            return true;
+        }
+
+        const directiveStart = findFirstDescendant(node, 'directive_start');
+        if (!directiveStart) return false;
+        if (!TAILWIND_CONTAINER_QUERY_VARIANTS.has(directiveStart.text)) return false;
+
+        return hasClassAttribute;
+    }
+
     function isInlineBladeConditionalTagError(node: SyntaxNode): boolean {
         if (node.type !== 'ERROR') return false;
         if (!/^[\s'"()]+$/.test(node.text)) return false;
@@ -419,6 +474,7 @@ export namespace BladeParser {
         if (node.type !== 'ERROR') return;
         if (isAtSignInQuotedAttributeError(node)) return;
         if (hasAtSignInQuotedAttributeErrorAncestor(node)) return;
+        if (isTailwindContainerQueryAttributeError(node)) return;
         if (isInlineBladeConditionalTagError(node)) return;
         if (isUnknownDirectiveTokenError(node)) return;
 

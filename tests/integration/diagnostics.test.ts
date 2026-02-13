@@ -207,6 +207,18 @@ describe('Diagnostics (Integration)', () => {
             await doc.close();
         });
 
+        it('does not report syntax errors for Tailwind container query class variants', async () => {
+            const doc = await client.open({
+                text: '<div class="@3xs:hidden @2xs:hidden @xs:hidden @sm:hidden @md:hidden @lg:hidden @xl:hidden @2xl:hidden @3xl:hidden @4xl:hidden @5xl:hidden @6xl:hidden @7xl:hidden"></div>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
         it('does not report syntax errors for custom Blade::if directives without parentheses', async () => {
             const doc = await client.open({
                 text: '@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative',

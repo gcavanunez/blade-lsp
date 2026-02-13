@@ -149,6 +149,30 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for Tailwind container query class variants', () => {
+            const variants = [
+                '@3xs',
+                '@2xs',
+                '@xs',
+                '@sm',
+                '@md',
+                '@lg',
+                '@xl',
+                '@2xl',
+                '@3xl',
+                '@4xl',
+                '@5xl',
+                '@6xl',
+                '@7xl',
+            ];
+
+            for (const variant of variants) {
+                const tree = BladeParser.parse(`<div class="${variant}:hidden flex"></div>`);
+                const diags = BladeParser.getDiagnostics(tree);
+                expect(diags).toEqual([]);
+            }
+        });
+
         it('does not report syntax errors for custom Blade::if directives without parentheses', () => {
             const tree = BladeParser.parse('@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative');
             const diags = BladeParser.getDiagnostics(tree);
