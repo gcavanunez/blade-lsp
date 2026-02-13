@@ -141,6 +141,14 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for svg text with inline @if attributes', () => {
+            const tree = BladeParser.parse(
+                '<text @if (strlen($initials ?? "") >= 3 ?? false) text-length="85%" length-adjust="spacingAndGlyphs" @endif>{{ $initials }}</text>',
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('does not report syntax errors for custom Blade::if directives without parentheses', () => {
             const tree = BladeParser.parse('@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative');
             const diags = BladeParser.getDiagnostics(tree);

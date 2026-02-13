@@ -325,8 +325,24 @@ export namespace BladeParser {
     function hasInlineBladeConditionalAttributes(tagNode: SyntaxNode): boolean {
         const names = collectTagAttributeNames(tagNode);
         const hasBladeOpener = names.some((name) => name.startsWith('@') && !name.startsWith('@end'));
+        if (!hasBladeOpener) return false;
+
         const hasBladeCloser = names.some((name) => name.startsWith('@end'));
-        return hasBladeOpener && hasBladeCloser;
+        if (hasBladeCloser) return true;
+
+        const element = tagNode.parent;
+        if (!element || element.type !== 'element') return false;
+
+        for (let i = 0; i < element.childCount; i++) {
+            const child = element.child(i);
+            if (!child || child === tagNode) continue;
+
+            if (/@end[A-Za-z_]\w*/.test(child.text)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     function isInlineBladeConditionalTagError(node: SyntaxNode): boolean {

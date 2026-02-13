@@ -195,6 +195,18 @@ describe('Diagnostics (Integration)', () => {
             await doc.close();
         });
 
+        it('does not report syntax errors for svg text with inline @if attributes', async () => {
+            const doc = await client.open({
+                text: '<text @if (strlen($initials ?? "") >= 3 ?? false) text-length="85%" length-adjust="spacingAndGlyphs" @endif>{{ $initials }}</text>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
         it('does not report syntax errors for custom Blade::if directives without parentheses', async () => {
             const doc = await client.open({
                 text: '@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative',
