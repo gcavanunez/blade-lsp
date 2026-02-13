@@ -105,6 +105,86 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for email placeholders with @', () => {
+            const tree = BladeParser.parse('<input type="email" placeholder="name@example.com" />');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for self-closing component email placeholders', () => {
+            const tree = BladeParser.parse('<flux:input name="email" placeholder="email@example.com" />');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors when placeholder with @ appears before :value', () => {
+            const tree = BladeParser.parse(
+                '<flux:input name="email" placeholder="you@example.com" :value="old(\'email\')" />',
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for @ in quoted data-action values', () => {
+            const tree = BladeParser.parse(
+                '<button data-action="password-reveal#toggle turbo:before-cache@document->password-reveal#reset"></button>',
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for inline @if attribute directives', () => {
+            const tree = BladeParser.parse(
+                "<html @if (session('theme')) data-theme=\"{{ session('theme') }}\" @endif>",
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for svg text with inline @if attributes', () => {
+            const tree = BladeParser.parse(
+                '<text @if (strlen($initials ?? "") >= 3 ?? false) text-length="85%" length-adjust="spacingAndGlyphs" @endif>{{ $initials }}</text>',
+            );
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for Tailwind container query class variants', () => {
+            const variants = [
+                '@3xs',
+                '@2xs',
+                '@xs',
+                '@sm',
+                '@md',
+                '@lg',
+                '@xl',
+                '@2xl',
+                '@3xl',
+                '@4xl',
+                '@5xl',
+                '@6xl',
+                '@7xl',
+            ];
+
+            for (const variant of variants) {
+                const tree = BladeParser.parse(`<div class="${variant}:hidden flex"></div>`);
+                const diags = BladeParser.getDiagnostics(tree);
+                expect(diags).toEqual([]);
+            }
+        });
+
+        it('does not report syntax errors for custom Blade::if directives without parentheses', () => {
+            const tree = BladeParser.parse('@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
+        it('does not report syntax errors for plain email text in blade markup', () => {
+            const tree = BladeParser.parse('<footer><p>Contact: support@example.com</p></footer>');
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('returns diagnostics for syntax errors', () => {
             // Unclosed PHP block or similar syntax issue
             const tree = BladeParser.parse('@php $x = @endphp');

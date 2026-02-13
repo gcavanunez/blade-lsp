@@ -146,5 +146,101 @@ describe('Diagnostics (Integration)', () => {
 
             await doc.close();
         });
+
+        it('does not report syntax errors for @ in email placeholder text', async () => {
+            const doc = await client.open({
+                text: '<input type="email" placeholder="name@example.com" />',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for component email placeholder before :value', async () => {
+            const doc = await client.open({
+                text: '<flux:input name="email" placeholder="you@example.com" :value="old(\'email\')" />',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for @ in quoted data-action values', async () => {
+            const doc = await client.open({
+                text: '<button data-action="password-reveal#toggle turbo:before-cache@document->password-reveal#reset"></button>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for inline @if attribute directives', async () => {
+            const doc = await client.open({
+                text: "<html @if (session('theme')) data-theme=\"{{ session('theme') }}\" @endif>",
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for svg text with inline @if attributes', async () => {
+            const doc = await client.open({
+                text: '<text @if (strlen($initials ?? "") >= 3 ?? false) text-length="85%" length-adjust="spacingAndGlyphs" @endif>{{ $initials }}</text>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for Tailwind container query class variants', async () => {
+            const doc = await client.open({
+                text: '<div class="@3xs:hidden @2xs:hidden @xs:hidden @sm:hidden @md:hidden @lg:hidden @xl:hidden @2xl:hidden @3xl:hidden @4xl:hidden @5xl:hidden @6xl:hidden @7xl:hidden"></div>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for custom Blade::if directives without parentheses', async () => {
+            const doc = await client.open({
+                text: '@unlesshotwirenative\n<div></div>\n@endunlesshotwirenative',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
+
+        it('does not report syntax errors for plain email text in a footer', async () => {
+            const doc = await client.open({
+                text: '<footer><p>Contact: support@example.com</p></footer>',
+            });
+
+            const diags = await doc.diagnostics();
+            const syntaxErrors = diags.filter((d) => d.message === 'Syntax error');
+            expect(syntaxErrors).toEqual([]);
+
+            await doc.close();
+        });
     });
 });
