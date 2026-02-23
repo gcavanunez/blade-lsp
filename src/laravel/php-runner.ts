@@ -320,8 +320,8 @@ export namespace PhpRunner {
         const { project, scriptName } = options;
 
         const effect = Effect.gen(function* () {
-            const scriptsDir = path.join(__dirname, '..', '..', 'scripts');
-            const bootstrapScript = path.join(scriptsDir, 'bootstrap-laravel.php');
+            const scriptsDir = path.join(__dirname, '..', '..', 'scripts', 'laravel');
+            const bootstrapScript = path.join(scriptsDir, 'bootstrap.php');
             const extractScript = path.join(scriptsDir, `${scriptName}.php`);
 
             if (!fs.existsSync(bootstrapScript)) {
