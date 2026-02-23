@@ -120,4 +120,42 @@ describe('Parameter Completions (Integration)', () => {
             await doc.close();
         });
     });
+
+    describe('parameter completions inside block directives', () => {
+        const nestedCases = [
+            {
+                name: '@include inside @section block',
+                text: "@extends('_layouts.main')\n\n@section('body')\n    @include('\n@endsection",
+                line: 3,
+                character: 14,
+                expectedLabels: ['layouts.app'],
+            },
+            {
+                name: '@include after @props',
+                text: "@props(['title'])\n\n@include('",
+                line: 2,
+                character: 10,
+                expectedLabels: ['layouts.app'],
+            },
+            {
+                name: '@include after @props inside section',
+                text: "@props(['title'])\n\n@section('body')\n    @include('\n@endsection",
+                line: 3,
+                character: 14,
+                expectedLabels: ['layouts.app'],
+            },
+        ] as const;
+
+        it.each(nestedCases)('$name', async ({ text, line, character, expectedLabels }) => {
+            const doc = await client.open({ text });
+            const items = await doc.completions(line, character);
+            const labels = items.map((i) => i.label);
+
+            for (const expectedLabel of expectedLabels) {
+                expect(labels, `Got labels: [${labels.join(', ')}]`).toContain(expectedLabel);
+            }
+
+            await doc.close();
+        });
+    });
 });

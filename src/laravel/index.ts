@@ -104,7 +104,7 @@ export namespace Laravel {
         return MutableRef.get(Container.get().laravelRefreshResult);
     }
 
-    export function getProject(): Project.LaravelProject | null {
+    export function getProject(): Project.AnyProject | null {
         const state = LaravelContext.get();
         return state?.project ?? null;
     }
@@ -200,28 +200,30 @@ export namespace Laravel {
 
         log.info('Initializing', { workspaceRoot });
 
-        report('Detecting Laravel project...');
+        report('Detecting project...');
 
-        const project = Project.detect(workspaceRoot, {
+        const projectOptions = {
             phpCommand: options.phpCommand,
             phpEnvironment: options.phpEnvironment,
-        });
+        };
+
+        const project = Project.detectAny(workspaceRoot, projectOptions);
 
         if (!project) {
-            log.info('No Laravel project detected');
+            log.info('No Laravel or Jigsaw project detected');
             return false;
         }
 
-        log.info('Laravel project detected', {
+        log.info(`${project.type} project detected`, {
             root: project.root,
             phpCommand: project.phpCommand.join(' '),
         });
 
-        report('Validating Laravel project...');
+        report(`Validating ${project.type} project...`);
 
-        const valid = await Project.validate(project);
+        const valid = await Project.validateAny(project);
         if (!valid) {
-            log.warn('Laravel project validation failed');
+            log.warn(`${project.type} project validation failed`);
             return false;
         }
 

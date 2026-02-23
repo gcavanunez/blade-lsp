@@ -1,10 +1,15 @@
 /**
- * Types for Laravel project data extracted via PHP scripts.
+ * Types for project data extracted via PHP scripts.
  *
- * These types match the output of the upstream laravel/vs-code-extension
- * php-templates exactly. Any derived fields (fullTag, namespace, etc.)
+ * These types are shared between Laravel and Jigsaw integrations.
+ * The Laravel-specific shapes match the upstream laravel/vs-code-extension
+ * php-templates. Any derived fields (fullTag, namespace, etc.)
  * are computed on the TS side, not in the PHP scripts.
  */
+
+// ─── Framework ──────────────────────────────────────────────────────────────
+
+export type FrameworkType = 'laravel' | 'jigsaw';
 
 // ─── Views (views.php output) ───────────────────────────────────────────────
 
@@ -12,7 +17,8 @@ export interface ViewItem {
     key: string; // 'layouts.app' or 'mail::message'
     path: string; // Relative path from project root
     isVendor: boolean; // From vendor package
-    livewire?: LivewireInfo; // Livewire component info if applicable
+    type?: string; // Jigsaw: 'page' | 'component' | 'layout' | 'partial'
+    livewire?: LivewireInfo; // Livewire component info if applicable (Laravel only)
 }
 
 // ─── Components (blade-components.php output) ───────────────────────────────
