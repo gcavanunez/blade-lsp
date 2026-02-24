@@ -16,10 +16,11 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "typecheck": "tsc --noEmit",
-        "lint": "eslint .",
-        "lint:fix": "eslint . --fix",
+        "lint": "eslint . --fix",
+        "lint:check": "eslint .",
         "test": "vitest run",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "prepublishOnly": "npm run build"
     },
     "dependencies": {
         "effect": "^3.19.16",
@@ -54,6 +55,11 @@
         "lsp",
         "language-server"
     ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/gcavanunez/blade-lsp.git"
+    },
+    "author": "gcavanunez",
     "license": "MIT",
     "files": [
         "dist",
