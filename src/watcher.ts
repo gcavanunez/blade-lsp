@@ -39,8 +39,17 @@ export namespace Watcher {
     /** Route files (not currently used for refresh, but useful for future features) */
     const ROUTES_GLOB = '**/routes/**/*.php';
 
-    /** Config files */
+    /** Config files (Laravel) */
     const CONFIG_GLOB = '**/config/**/*.php';
+
+    /** Jigsaw config file at project root */
+    const JIGSAW_CONFIG_GLOB = 'config.php';
+
+    /** Jigsaw bootstrap file (registers custom directives, component aliases) */
+    const JIGSAW_BOOTSTRAP_GLOB = 'bootstrap.php';
+
+    /** Jigsaw blade directives file */
+    const JIGSAW_BLADE_PHP_GLOB = 'blade.php';
 
     // ─── Refresh Targets ──────────────────────────────────────────────────────
 
@@ -57,13 +66,19 @@ export namespace Watcher {
         const watchAll = WatchKind.Create | WatchKind.Change | WatchKind.Delete;
 
         return [
+            // Shared
             { globPattern: BLADE_GLOB, kind: watchAll },
+            { globPattern: COMPOSER_GLOB, kind: watchAll },
+            // Laravel
             { globPattern: VIEW_COMPONENTS_GLOB, kind: watchAll },
             { globPattern: LIVEWIRE_GLOB, kind: watchAll },
             { globPattern: PROVIDERS_GLOB, kind: watchAll },
-            { globPattern: COMPOSER_GLOB, kind: watchAll },
             { globPattern: ROUTES_GLOB, kind: watchAll },
             { globPattern: CONFIG_GLOB, kind: watchAll },
+            // Jigsaw
+            { globPattern: JIGSAW_CONFIG_GLOB, kind: watchAll },
+            { globPattern: JIGSAW_BOOTSTRAP_GLOB, kind: watchAll },
+            { globPattern: JIGSAW_BLADE_PHP_GLOB, kind: watchAll },
         ];
     }
 
@@ -106,6 +121,17 @@ export namespace Watcher {
 
         if (/\/config\//i.test(filePath)) {
             targets.add('views');
+            targets.add('components');
+        }
+
+        // Jigsaw: config.php, bootstrap.php, blade.php at project root
+        if (/\/config\.php$/.test(filePath)) {
+            targets.add('views');
+            targets.add('components');
+        }
+
+        if (/\/bootstrap\.php$/.test(filePath) || /\/blade\.php$/.test(filePath)) {
+            targets.add('directives');
             targets.add('components');
         }
 

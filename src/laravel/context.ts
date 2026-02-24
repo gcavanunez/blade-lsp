@@ -15,7 +15,7 @@ import { ViewItem, ComponentItem, CustomDirective } from './types';
 
 export namespace LaravelContext {
     export interface State {
-        project: Project.LaravelProject;
+        project: Project.AnyProject;
         views: {
             items: ViewItem[];
             lastUpdated: number;
@@ -71,7 +71,7 @@ export namespace LaravelContext {
     /**
      * Create a fresh state object for a detected Laravel project.
      */
-    export function createState(project: Project.LaravelProject): State {
+    export function createState(project: Project.AnyProject): State {
         return {
             project,
             views: {

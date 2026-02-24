@@ -106,7 +106,7 @@ export namespace Server {
             const supportsProgress = !!params.capabilities.window?.workDoneProgress;
             Progress.initialize(conn, supportsProgress);
 
-            const backend = settings.parserBackend ?? 'native';
+            const backend = settings.parserBackend ?? 'wasm';
             const { error } = await tryAsync(() => BladeParser.initialize(backend));
             if (error) {
                 conn.console.error(`Failed to initialize parser: ${FormatErrorForLog(error)}`);
@@ -177,15 +177,16 @@ export namespace Server {
             });
 
             if (!success) {
-                conn.console.log('No Laravel project detected, using static completions');
-                progress.done('Ready (no Laravel project)');
+                conn.console.log('No Laravel or Jigsaw project detected, using static completions');
+                progress.done('Ready (no project detected)');
                 return;
             }
 
             const project = Laravel.getProject();
+            const framework = project?.type ?? 'unknown';
             const envLabel = project?.phpEnvironment?.label ?? 'unknown';
             const phpCmd = project?.phpCommand.join(' ') ?? settings.phpCommand?.join(' ') ?? 'php';
-            conn.console.log(`Laravel project integration enabled (${envLabel}: ${phpCmd})`);
+            conn.console.log(`${framework} project integration enabled (${envLabel}: ${phpCmd})`);
 
             reportRefreshFailures(conn, progress, phpCmd);
         }
@@ -384,18 +385,18 @@ export namespace Server {
                 }
             } else if (context.type === 'echo') {
                 items.push(...Completions.getLaravelHelperCompletions());
-            } else if (context.type === 'parameter') {
-                if (context.directiveName) {
-                    items.push(...Completions.getParameterCompletions(context.directiveName));
-                } else {
-                    const line = source.split('\n')[position.line];
-                    const textBeforeCursor = line.slice(0, position.character);
-                    const fallbackMatch = textBeforeCursor.match(
-                        /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
-                    );
-                    if (fallbackMatch) {
-                        items.push(...Completions.getParameterCompletions(fallbackMatch[1]));
-                    }
+            } else if (context.type === 'php' || context.type === 'parameter') {
+                // When inside a directive parameter or a php_only node (broken tree),
+                // always use regex on the current line to determine the directive name.
+                // The tree walk-up can incorrectly find a parent directive (e.g. @section)
+                // when the cursor is inside a nested incomplete @include('.
+                const line = source.split('\n')[position.line];
+                const textBeforeCursor = line.slice(0, position.character);
+                const directiveParamMatch = textBeforeCursor.match(
+                    /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
+                );
+                if (directiveParamMatch) {
+                    items.push(...Completions.getParameterCompletions(directiveParamMatch[1]));
                 }
             }
 

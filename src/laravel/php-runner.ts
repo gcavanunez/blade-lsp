@@ -6,6 +6,7 @@ import z from 'zod';
 import { Effect, Schedule } from 'effect';
 import { NamedError } from '../utils/error';
 import { Project } from './project';
+import type { FrameworkType } from './types';
 
 export namespace PhpRunner {
     // ─── Errors ────────────────────────────────────────────────────────────────
@@ -84,22 +85,51 @@ export namespace PhpRunner {
         | InstanceType<typeof ScriptNotFoundError | typeof VendorDirError | typeof WriteError>
         | ExecuteError;
 
+    // ─── Framework configuration ──────────────────────────────────────────────
+
+    interface FrameworkConfig {
+        /** Subdirectory under scripts/ (e.g. 'laravel', 'jigsaw') */
+        scriptsSubdir: string;
+        /** Markers used to delimit JSON output in the PHP bootstrap */
+        outputMarkers: {
+            START: string;
+            END: string;
+            STARTUP_ERROR: string;
+        };
+        /** Placeholder in bootstrap.php that gets replaced with the extract script body */
+        placeholder: string;
+    }
+
+    const FRAMEWORK_CONFIGS: Record<FrameworkType, FrameworkConfig> = {
+        laravel: {
+            scriptsSubdir: 'laravel',
+            outputMarkers: {
+                START: '__VSCODE_LARAVEL_START_OUTPUT__',
+                END: '__VSCODE_LARAVEL_END_OUTPUT__',
+                STARTUP_ERROR: '__VSCODE_LARAVEL_STARTUP_ERROR__',
+            },
+            placeholder: '__VSCODE_LARAVEL_OUTPUT__;',
+        },
+        jigsaw: {
+            scriptsSubdir: 'jigsaw',
+            outputMarkers: {
+                START: '__BLADE_LSP_JIGSAW_START_OUTPUT__',
+                END: '__BLADE_LSP_JIGSAW_END_OUTPUT__',
+                STARTUP_ERROR: '__BLADE_LSP_JIGSAW_STARTUP_ERROR__',
+            },
+            placeholder: '__JIGSAW_LSP_OUTPUT__;',
+        },
+    };
+
     // ─── Types ─────────────────────────────────────────────────────────────────
 
     interface Options {
-        project: Project.LaravelProject;
+        project: Project.AnyProject;
         scriptName: string;
     }
 
     /** Default timeout for PHP script execution (ms) */
     const TIMEOUT = 30_000;
-
-    // Delimit JSON payload from any extra PHP output (warnings, notices, etc.).
-    const OUTPUT_MARKERS = {
-        START: '__VSCODE_LARAVEL_START_OUTPUT__',
-        END: '__VSCODE_LARAVEL_END_OUTPUT__',
-        STARTUP_ERROR: '__VSCODE_LARAVEL_STARTUP_ERROR__',
-    };
 
     const VENDOR_DIR = 'vendor/blade-lsp';
 
@@ -171,9 +201,10 @@ export namespace PhpRunner {
     }
 
     /**
-     * Build the PHP code by combining bootstrap and extract scripts
+     * Build the PHP code by combining bootstrap and extract scripts.
+     * The placeholder in the bootstrap file is replaced with the extract script body.
      */
-    function buildPhpCode(bootstrapScript: string, extractScript: string): string {
+    function buildPhpCode(bootstrapScript: string, extractScript: string, placeholder: string): string {
         const bootstrapContent = fs.readFileSync(bootstrapScript, 'utf-8');
         const extractContent = fs.readFileSync(extractScript, 'utf-8');
 
@@ -182,7 +213,7 @@ export namespace PhpRunner {
             .trim();
 
         // Inject script body into the bootstrap placeholder to produce one runnable file.
-        return bootstrapContent.replace('__VSCODE_LARAVEL_OUTPUT__;', extractCode);
+        return bootstrapContent.replace(placeholder, extractCode);
     }
 
     // ─── Process output parsing ─────────────────────────────────────────────
@@ -191,14 +222,14 @@ export namespace PhpRunner {
      * Parse the raw stdout from a PHP process into a typed result.
      * Pure function — all error paths return NamedError instances.
      */
-    function parseOutput<T>(stdout: string, stderr: string): T {
-        if (stdout.includes(OUTPUT_MARKERS.STARTUP_ERROR)) {
-            const errorMatch = stdout.match(new RegExp(`${OUTPUT_MARKERS.STARTUP_ERROR}: (.+)`));
+    function parseOutput<T>(stdout: string, stderr: string, markers: FrameworkConfig['outputMarkers']): T {
+        if (stdout.includes(markers.STARTUP_ERROR)) {
+            const errorMatch = stdout.match(new RegExp(`${markers.STARTUP_ERROR}: (.+)`));
             throw new StartupError({ message: errorMatch?.[1] || 'Unknown error' });
         }
 
-        const startIdx = stdout.indexOf(OUTPUT_MARKERS.START);
-        const endIdx = stdout.indexOf(OUTPUT_MARKERS.END);
+        const startIdx = stdout.indexOf(markers.START);
+        const endIdx = stdout.indexOf(markers.END);
 
         if (startIdx === -1 || endIdx === -1) {
             throw new OutputError({
@@ -208,7 +239,7 @@ export namespace PhpRunner {
             });
         }
 
-        const jsonOutput = stdout.substring(startIdx + OUTPUT_MARKERS.START.length, endIdx).trim();
+        const jsonOutput = stdout.substring(startIdx + markers.START.length, endIdx).trim();
 
         try {
             return JSON.parse(jsonOutput) as T;
@@ -234,10 +265,11 @@ export namespace PhpRunner {
      * Error channel: `ExecuteError` (TimeoutError | StartupError | OutputError | ParseError | SpawnError)
      */
     function executePhp<T>(
-        project: Project.LaravelProject,
+        project: Project.AnyProject,
         scriptPath: string,
         scriptName: string,
         timeout: number,
+        markers: FrameworkConfig['outputMarkers'],
     ): Effect.Effect<T, ExecuteError> {
         return Effect.async<T, ExecuteError>((resume, signal) => {
             let stdout = '';
@@ -293,7 +325,7 @@ export namespace PhpRunner {
                 if (signal.aborted) return;
 
                 try {
-                    resume(Effect.succeed(parseOutput<T>(stdout, stderr)));
+                    resume(Effect.succeed(parseOutput<T>(stdout, stderr, markers)));
                 } catch (error) {
                     resume(Effect.fail(error as ExecuteError));
                 }
@@ -309,8 +341,11 @@ export namespace PhpRunner {
     // ─── Public API ─────────────────────────────────────────────────────────
 
     /**
-     * Run a PHP script in the context of a Laravel project.
+     * Run a PHP script in the context of a project (Laravel or Jigsaw).
      * Uses file-based execution for Docker compatibility.
+     *
+     * The framework type is derived from the project, which determines
+     * which bootstrap script, output markers, and scripts directory to use.
      *
      * Internally constructs an Effect pipeline with retry
      * (1 retry, 1s exponential backoff, only for transient errors),
@@ -318,10 +353,11 @@ export namespace PhpRunner {
      */
     export async function runScript<T>(options: Options): Promise<T> {
         const { project, scriptName } = options;
+        const config = FRAMEWORK_CONFIGS[project.type];
 
         const effect = Effect.gen(function* () {
-            const scriptsDir = path.join(__dirname, '..', '..', 'scripts');
-            const bootstrapScript = path.join(scriptsDir, 'bootstrap-laravel.php');
+            const scriptsDir = path.join(__dirname, '..', '..', 'scripts', config.scriptsSubdir);
+            const bootstrapScript = path.join(scriptsDir, 'bootstrap.php');
             const extractScript = path.join(scriptsDir, `${scriptName}.php`);
 
             if (!fs.existsSync(bootstrapScript)) {
@@ -332,14 +368,14 @@ export namespace PhpRunner {
                 return yield* Effect.fail(new ScriptNotFoundError({ script: scriptName, path: extractScript }));
             }
 
-            const phpCode = buildPhpCode(bootstrapScript, extractScript);
+            const phpCode = buildPhpCode(bootstrapScript, extractScript, config.placeholder);
 
             const relativeScriptPath = yield* Effect.try({
                 try: () => writePhpScript(project.root, phpCode, scriptName),
                 catch: (error) => error as InstanceType<typeof VendorDirError | typeof WriteError>,
             });
 
-            return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT);
+            return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT, config.outputMarkers);
         });
 
         // Retry once on transient errors with 1s backoff
