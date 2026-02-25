@@ -18,7 +18,34 @@ npm run build
 
 ## Neovim Configuration
 
-Using the built-in `vim.lsp.config` (Neovim 0.11+):
+### Mason (Recommended)
+
+Install via [Mason](https://github.com/williamboman/mason.nvim) using the [blade-lsp-mason](https://github.com/gcavanunez/blade-lsp-mason) registry:
+
+```lua
+require("mason").setup({
+  registries = {
+    "github:gcavanunez/blade-lsp-mason",
+    "github:mason-org/mason-registry",
+  },
+})
+```
+
+Run `:MasonUpdate` to refresh registries, then `:MasonInstall blade-lsp`.
+
+Once installed, configure the LSP using `vim.lsp.config` (Neovim 0.11+):
+
+```lua
+vim.lsp.config('blade_lsp', {
+  cmd = { 'blade-lsp', '--stdio' },
+  filetypes = { 'blade' },
+  root_markers = { 'composer.json', 'artisan', '.git' },
+})
+```
+
+### Manual
+
+If you prefer not to use Mason, clone and build the project, then point directly to the built server:
 
 ```lua
 vim.lsp.config('blade_lsp', {
