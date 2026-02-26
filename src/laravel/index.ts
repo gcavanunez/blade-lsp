@@ -20,7 +20,6 @@ import { FormatErrorForLog } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
 export namespace Laravel {
-    // ─── Errors ────────────────────────────────────────────────────────────────
 
     export const NotDetectedError = NamedError.create(
         'LaravelNotDetectedError',
@@ -44,11 +43,7 @@ export namespace Laravel {
         }),
     );
 
-    // ─── Logger ────────────────────────────────────────────────────────────────
-
     const log = Log.create({ service: 'laravel' });
-
-    // ─── Types ─────────────────────────────────────────────────────────────────
 
     /**
      * Options for Laravel initialization
@@ -69,8 +64,6 @@ export namespace Laravel {
         /** Formatted error messages for any failed refreshes */
         errors: string[];
     }
-
-    // ─── Public Functions ──────────────────────────────────────────────────────
 
     /**
      * Initialize the Laravel integration for a workspace.
@@ -192,8 +185,6 @@ export namespace Laravel {
         }
         log.info('Disposed');
     }
-
-    // ─── Private ──────────────────────────────────────────────────────────────
 
     async function doInitialize(workspaceRoot: string, options: Options): Promise<boolean> {
         const report = options.onProgress ?? (() => {});

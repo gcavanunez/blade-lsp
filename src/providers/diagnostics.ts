@@ -20,7 +20,6 @@ import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
 
 export namespace Diagnostics {
-    // ─── Diagnostic codes (stable string identifiers) ──────────────────────
 
     export const Code = {
         undefinedView: 'blade/undefined-view',
@@ -28,8 +27,6 @@ export namespace Diagnostics {
         unclosedDirective: 'blade/unclosed-directive',
         invalidMethod: 'blade/invalid-method',
     } as const;
-
-    // ─── Shared regex helpers ───────────────────────────────────────────────
 
     interface RegexMatch {
         match: RegExpExecArray;
@@ -87,8 +84,6 @@ export namespace Diagnostics {
         };
     }
 
-    // ─── Public API ────────────────────────────────────────────────────────
-
     /**
      * Run all semantic diagnostics on the given source text.
      * When a tree is provided, tree-sitter is used for component detection
@@ -104,8 +99,6 @@ export namespace Diagnostics {
 
         return diagnostics;
     }
-
-    // ─── 1. Undefined View References ──────────────────────────────────────
 
     /**
      * Directives whose first string argument is a view name.
@@ -156,8 +149,6 @@ export namespace Diagnostics {
 
         return diagnostics;
     }
-
-    // ─── 2. Undefined Component References ─────────────────────────────────
 
     /**
      * Tags that look like components but aren't -- they're built-in Blade syntax.
@@ -228,8 +219,6 @@ export namespace Diagnostics {
 
         return diagnostics;
     }
-
-    // ─── 3. Unclosed Block Directives ──────────────────────────────────────
 
     /**
      * Build a map of opening directive -> closing directive from the
@@ -460,8 +449,6 @@ export namespace Diagnostics {
 
         return diagnostics;
     }
-
-    // ─── 4. Invalid @method Values ─────────────────────────────────────────
 
     /**
      * Valid HTTP methods for Laravel's `@method()` directive.

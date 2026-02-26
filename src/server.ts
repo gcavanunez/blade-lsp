@@ -169,7 +169,7 @@ export namespace Server {
             const settings = MutableRef.get(c.settings);
             const workspaceRoot = MutableRef.get(c.workspaceRoot)!;
 
-            progress.report('Detecting Laravel project...');
+            progress.report('Detecting project...');
             const success = await Laravel.initialize(workspaceRoot, {
                 phpCommand: settings.phpCommand,
                 phpEnvironment: settings.phpEnvironment,
@@ -183,10 +183,9 @@ export namespace Server {
             }
 
             const project = Laravel.getProject();
-            const framework = project?.type ?? 'unknown';
-            const envLabel = project?.phpEnvironment?.label ?? 'unknown';
+            const envLabel = project?.phpEnvironment.label ?? 'unknown';
             const phpCmd = project?.phpCommand.join(' ') ?? settings.phpCommand?.join(' ') ?? 'php';
-            conn.console.log(`${framework} project integration enabled (${envLabel}: ${phpCmd})`);
+            conn.console.log(`${project?.type ?? 'unknown'} project integration enabled (${envLabel}: ${phpCmd})`);
 
             reportRefreshFailures(conn, progress, phpCmd);
         }
@@ -211,7 +210,7 @@ export namespace Server {
 
             conn.sendNotification('window/showMessage', {
                 type: MessageType.Warning,
-                message: `Blade LSP: Failed to load ${failedParts} from Laravel. PHP command: ${phpCmd}. Check :LspLog for details.`,
+                message: `Blade LSP: Failed to load ${failedParts} from project integration. PHP command: ${phpCmd}. Check :LspLog for details.`,
             });
             progress.done(`Ready (${failedParts} failed)`);
         }
@@ -386,10 +385,6 @@ export namespace Server {
             } else if (context.type === 'echo') {
                 items.push(...Completions.getLaravelHelperCompletions());
             } else if (context.type === 'php' || context.type === 'parameter') {
-                // When inside a directive parameter or a php_only node (broken tree),
-                // always use regex on the current line to determine the directive name.
-                // The tree walk-up can incorrectly find a parent directive (e.g. @section)
-                // when the cursor is inside a nested incomplete @include('.
                 const line = source.split('\n')[position.line];
                 const textBeforeCursor = line.slice(0, position.character);
                 const directiveParamMatch = textBeforeCursor.match(

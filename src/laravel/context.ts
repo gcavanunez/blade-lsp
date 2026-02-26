@@ -69,7 +69,7 @@ export namespace LaravelContext {
     }
 
     /**
-     * Create a fresh state object for a detected Laravel project.
+     * Create a fresh state object for a detected project.
      */
     export function createState(project: Project.AnyProject): State {
         return {

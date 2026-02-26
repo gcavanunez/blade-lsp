@@ -42,7 +42,6 @@ function formatRefreshError(domain: string, input: Error & { data: { message: st
  * ```
  */
 export function FormatError(input: unknown): string | undefined {
-    // ─── PhpRunner Errors ────────────────────────────────────────────────────
 
     if (PhpRunner.ScriptNotFoundError.isInstance(input)) {
         return `PHP script '${input.data.script}' not found at ${input.data.path}`;
@@ -83,19 +82,13 @@ export function FormatError(input: unknown): string | undefined {
         return formatRefreshError('views', input);
     }
 
-    // ─── Components Errors ───────────────────────────────────────────────────
-
     if (Components.RefreshError.isInstance(input)) {
         return formatRefreshError('components', input);
     }
 
-    // ─── Directives Errors ───────────────────────────────────────────────────
-
     if (Directives.RefreshError.isInstance(input)) {
         return formatRefreshError('directives', input);
     }
-
-    // ─── Laravel Errors ──────────────────────────────────────────────────────
 
     if (Laravel.NotDetectedError.isInstance(input)) {
         return `No Laravel project detected in ${input.data.workspaceRoot}`;
@@ -110,13 +103,9 @@ export function FormatError(input: unknown): string | undefined {
         return input.data.message || 'Laravel integration not available';
     }
 
-    // ─── Unknown NamedError ──────────────────────────────────────────────────
-
     if (NamedError.Unknown.isInstance(input)) {
         return input.data.message;
     }
-
-    // ─── Fallback ────────────────────────────────────────────────────────────
 
     return undefined;
 }

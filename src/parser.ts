@@ -497,8 +497,6 @@ export namespace BladeParser {
         }
     }
 
-    // ─── HTML / Component tag helpers (tree-sitter-blade >=0.12) ────────────
-
     /**
      * Extract the tag name from a start_tag, self_closing_tag, or end_tag node.
      */
@@ -640,8 +638,6 @@ export namespace BladeParser {
             }
         }
     }
-
-    // ─── Debug helpers ───────────────────────────────────────────────────────
 
     /**
      * Debug: Print the AST structure.

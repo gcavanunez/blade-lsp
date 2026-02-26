@@ -5,8 +5,6 @@ import { PhpEnvironment } from './php-environment';
 import type { FrameworkType } from './types';
 
 export namespace Project {
-    // ─── Shared base for all framework projects ─────────────────────────────
-
     export interface BaseProject {
         type: FrameworkType;
         root: string;
@@ -16,16 +14,12 @@ export namespace Project {
         phpEnvironment: PhpEnvironment.Result;
     }
 
-    // ─── Laravel ────────────────────────────────────────────────────────────
-
     export interface LaravelProject extends BaseProject {
         type: 'laravel';
         artisanPath: string;
         viewsPath: string;
         componentsPath: string;
     }
-
-    // ─── Jigsaw ─────────────────────────────────────────────────────────────
 
     export interface JigsawProject extends BaseProject {
         type: 'jigsaw';
@@ -35,11 +29,7 @@ export namespace Project {
         layoutsPath: string;
     }
 
-    // ─── Union ──────────────────────────────────────────────────────────────
-
     export type AnyProject = LaravelProject | JigsawProject;
-
-    // ─── Options ────────────────────────────────────────────────────────────
 
     export interface Options {
         phpCommand?: string[];
@@ -47,8 +37,6 @@ export namespace Project {
     }
 
     const log = Log.create({ service: 'project' });
-
-    // ─── PHP environment resolution (shared) ────────────────────────────────
 
     function resolvePhpEnvironment(workspaceRoot: string, options: Options): PhpEnvironment.Result | null {
         if (options.phpCommand && options.phpCommand.length > 0) {
@@ -67,8 +55,6 @@ export namespace Project {
         }
         return detected;
     }
-
-    // ─── Laravel detection ──────────────────────────────────────────────────
 
     /**
      * Detect if the given directory is a Laravel project.
@@ -134,11 +120,8 @@ export namespace Project {
         return fs.existsSync(bootstrapPath) && fs.existsSync(autoloadPath);
     }
 
-    // ─── Jigsaw detection ───────────────────────────────────────────────────
-
     /**
      * Detect if the given directory is a Jigsaw project.
-     * Jigsaw projects have: config.php + tightenco/jigsaw in composer + source/ directory.
      */
     export function detectJigsaw(workspaceRoot: string, options: Options = {}): JigsawProject | null {
         const configPath = path.join(workspaceRoot, 'config.php');
@@ -202,11 +185,8 @@ export namespace Project {
         return fs.existsSync(project.configPath) && fs.existsSync(autoloadPath);
     }
 
-    // ─── Universal detection ────────────────────────────────────────────────
-
     /**
-     * Try to detect any supported framework project.
-     * Tries Laravel first, then Jigsaw.
+     * Try to detect any supported framework project (Laravel first, then Jigsaw).
      */
     export function detectAny(workspaceRoot: string, options: Options = {}): AnyProject | null {
         return detect(workspaceRoot, options) ?? detectJigsaw(workspaceRoot, options);

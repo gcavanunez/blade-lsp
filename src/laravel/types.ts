@@ -1,27 +1,20 @@
 /**
  * Types for project data extracted via PHP scripts.
  *
- * These types are shared between Laravel and Jigsaw integrations.
- * The Laravel-specific shapes match the upstream laravel/vs-code-extension
- * php-templates. Any derived fields (fullTag, namespace, etc.)
- * are computed on the TS side, not in the PHP scripts.
+ * Laravel shapes match the output of the upstream laravel/vs-code-extension
+ * php-templates. Any derived fields (fullTag, namespace, etc.) are computed
+ * on the TS side, not in the PHP scripts.
  */
 
-// ─── Framework ──────────────────────────────────────────────────────────────
-
 export type FrameworkType = 'laravel' | 'jigsaw';
-
-// ─── Views (views.php output) ───────────────────────────────────────────────
 
 export interface ViewItem {
     key: string; // 'layouts.app' or 'mail::message'
     path: string; // Relative path from project root
     isVendor: boolean; // From vendor package
     type?: string; // Jigsaw: 'page' | 'component' | 'layout' | 'partial'
-    livewire?: LivewireInfo; // Livewire component info if applicable (Laravel only)
+    livewire?: LivewireInfo; // Livewire component info if applicable
 }
-
-// ─── Components (blade-components.php output) ───────────────────────────────
 
 /**
  * Raw output from blade-components.php.
@@ -61,21 +54,15 @@ export interface ComponentsResult {
     prefixes: string[];
 }
 
-// ─── Directives (blade-directives.php output) ───────────────────────────────
-
 export interface CustomDirective {
     name: string; // 'datetime', 'money'
     hasParams: boolean; // Whether it accepts parameters
 }
 
-// ─── Sections ───────────────────────────────────────────────────────────────
-
 export interface SectionInfo {
     yields: string[]; // @yield names in layout
     stacks: string[]; // @stack names in layout
 }
-
-// ─── Livewire ───────────────────────────────────────────────────────────────
 
 export interface LivewireInfo {
     props: LivewireProp[];

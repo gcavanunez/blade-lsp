@@ -54,14 +54,10 @@ export namespace Container {
         readonly laravelRefreshResult: MutableRef.MutableRef<Laravel.RefreshResult | null>;
     }
 
-    // ─── Module-level holders ───────────────────────────────────────────────
-
     let container: Services | null = null;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let runtime: ManagedRuntime.ManagedRuntime<any, any> | null = null;
-
-    // ─── Accessors ──────────────────────────────────────────────────────────
 
     /**
      * Get the active service container.
@@ -88,8 +84,6 @@ export namespace Container {
     export function isReady(): boolean {
         return container !== null;
     }
-
-    // ─── Layers ─────────────────────────────────────────────────────────────
 
     /**
      * Build the process-scoped layer.
@@ -135,8 +129,6 @@ export namespace Container {
             Layer.succeed(LaravelRefreshResultService, MutableRef.make<Laravel.RefreshResult | null>(null)),
         );
     }
-
-    // ─── Runtime lifecycle ──────────────────────────────────────────────────
 
     /**
      * Build the Effect runtime from layers, extract all services into the
