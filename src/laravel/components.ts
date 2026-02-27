@@ -73,6 +73,14 @@ export namespace Components {
     }
 
     /**
+     * Resolve a component from a tag-like identifier.
+     * Supports x- tags and namespaced tags.
+     */
+    export function resolve(tag: string): ComponentItem | undefined {
+        return findByTag(tag);
+    }
+
+    /**
      * Convert a tag name to a component key.
      * 'x-button' -> 'button'
      * 'x-turbo::frame' -> 'turbo::frame'

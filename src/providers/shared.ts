@@ -2,6 +2,16 @@
  * Shared utilities used across completion, hover, and definition providers.
  * Pure text analysis with no external dependencies (avoids circular imports with server.ts).
  */
+import {
+    VIEW_REFERENCE_DIRECTIVES,
+    VIEW_HELPER_PATTERN,
+    COMPONENT_TAG_AT_CURSOR_PATTERN,
+    SLOT_DECLARATION_COLON_PATTERN,
+    SLOT_DECLARATION_NAME_PATTERN,
+    createAttributePattern,
+    getViewReferencePattern,
+} from './patterns';
+
 export namespace Shared {
     export interface ComponentPropContext {
         componentName: string;
@@ -13,6 +23,82 @@ export namespace Shared {
         type: string;
         required: boolean;
         default: unknown;
+    }
+
+    type CapturedMatch = {
+        value: string;
+        start: number;
+        end: number;
+    };
+
+    function getCapturedMatchAtColumn(line: string, column: number, pattern: RegExp): CapturedMatch | null {
+        const match = line.match(pattern);
+        if (!match || !match[1]) return null;
+
+        const value = match[1];
+        const start = line.indexOf(value, match.index ?? 0);
+        const end = start + value.length;
+
+        if (column < start || column > end) return null;
+
+        return { value, start, end };
+    }
+
+    export function getViewReferenceAtColumn(line: string, column: number): string | null {
+        for (const directive of VIEW_REFERENCE_DIRECTIVES) {
+            const match = getCapturedMatchAtColumn(line, column, getViewReferencePattern(directive));
+            if (match) {
+                return match.value;
+            }
+        }
+
+        const helperMatch = getCapturedMatchAtColumn(line, column, VIEW_HELPER_PATTERN);
+        return helperMatch?.value ?? null;
+    }
+
+    export function getComponentTagAtColumn(line: string, column: number): string | null {
+        const match = line.match(COMPONENT_TAG_AT_CURSOR_PATTERN);
+        if (!match || !match[1]) return null;
+
+        const tagName = match[1];
+        const start = line.indexOf(match[0]) + 1; // +1 to skip '<'
+        const end = start + tagName.length;
+
+        if (column < start || column > end) return null;
+
+        return tagName;
+    }
+
+    export function getAttributeNameAtColumn(line: string, column: number): string | null {
+        const attrPattern = createAttributePattern();
+        let match;
+
+        while ((match = attrPattern.exec(line)) !== null) {
+            const attrStart = match.index;
+            const attrNameStart = match[0].startsWith(':') ? attrStart + 1 : attrStart;
+            const attrNameEnd = attrNameStart + match[1].length;
+
+            if (column >= attrNameStart && column <= attrNameEnd) {
+                return match[1];
+            }
+        }
+
+        return null;
+    }
+
+    export function getSlotNameAtColumn(line: string, column: number): string | null {
+        const colonMatch = line.match(SLOT_DECLARATION_COLON_PATTERN);
+        const nameMatch = line.match(SLOT_DECLARATION_NAME_PATTERN);
+        const match = colonMatch || nameMatch;
+        if (!match || !match[1]) return null;
+
+        const slotName = match[1];
+        const start = line.indexOf(slotName, line.indexOf('x-slot'));
+        const end = start + slotName.length;
+
+        if (column < start || column > end) return null;
+
+        return slotName;
     }
 
     /**

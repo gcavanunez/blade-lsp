@@ -7,9 +7,9 @@ import {
     Range,
     TextEdit,
 } from 'vscode-languageserver/node';
-import * as path from 'path';
-import * as fs from 'fs';
 import { Shared } from './shared';
+import { ProjectFile } from './project-file';
+import { COMPONENT_PARTIAL_MATCH_PATTERN, LIVEWIRE_PARTIAL_MATCH_PATTERN } from './patterns';
 import { BladeDirectives } from '../directives';
 import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
@@ -17,7 +17,6 @@ import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import type { ViewItem, ComponentItem, CustomDirective } from '../laravel/types';
 import { Components as ComponentsNs } from '../laravel/components';
-import { Server } from '../server';
 
 export namespace Completions {
     export type ParsedProp = Shared.ParsedProp;
@@ -61,7 +60,7 @@ export namespace Completions {
     export function getComponentCompletions(textBeforeCursor: string, position: Position): CompletionItem[] {
         const items: CompletionItem[] = [];
 
-        const match = textBeforeCursor.match(/<(x-[\w.-]*(?:::[\w.-]*)?|[\w]+:[\w.-]*)$/);
+        const match = textBeforeCursor.match(COMPONENT_PARTIAL_MATCH_PATTERN);
         const partialName = match ? match[1] : 'x-';
         const matchedText = match ? match[0] : '<x-';
         const startCharacter = position.character - matchedText.length;
@@ -94,7 +93,7 @@ export namespace Completions {
     export function getLivewireCompletions(textBeforeCursor: string, position: Position): CompletionItem[] {
         const items: CompletionItem[] = [];
 
-        const match = textBeforeCursor.match(/<(livewire:[\w.-]*)$/);
+        const match = textBeforeCursor.match(LIVEWIRE_PARTIAL_MATCH_PATTERN);
         const partialName = match ? match[1] : 'livewire:';
         const matchedText = match ? match[0] : '<livewire:';
         const startCharacter = position.character - matchedText.length;
@@ -391,7 +390,7 @@ export namespace Completions {
     export function getComponentPropCompletions(componentName: string, existingProps: string[]): CompletionItem[] {
         if (!Laravel.isAvailable()) return [];
 
-        const component = Components.findByTag(componentName) || Components.find(componentName.replace(/^x-/, ''));
+        const component = Components.resolve(componentName);
         if (!component) return [];
 
         const resolved = resolveComponentProps(component.props);
@@ -457,30 +456,22 @@ export namespace Completions {
         const componentContext = BladeParser.findParentComponentFromTree(tree, currentLine, 0);
         if (!componentContext) return [];
 
-        const component =
-            Components.findByTag(componentContext) || Components.find(componentContext.replace(/^x-/, ''));
+        const component = Components.resolve(componentContext);
         if (!component) return [];
 
         return extractSlotsFromComponent(component).map((slot) => createSlotCompletion(slot, component, syntax));
     }
 
     function extractSlotsFromComponent(component: ComponentItem): { name: string }[] {
-        const workspaceRoot = Server.getWorkspaceRoot();
-        if (!workspaceRoot) {
-            return [];
-        }
-
-        const fullPath = path.join(workspaceRoot, component.path);
-
         if (!component.path.endsWith('.blade.php')) {
             return [];
         }
 
-        try {
-            const content = fs.readFileSync(fullPath, 'utf-8');
-            return Shared.extractSlotsFromContent(content);
-        } catch {
+        const file = ProjectFile.read(component.path);
+        if (!file) {
             return [];
         }
+
+        return Shared.extractSlotsFromContent(file.content);
     }
 }

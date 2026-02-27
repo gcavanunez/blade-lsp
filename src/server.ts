@@ -31,6 +31,12 @@ import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
 import { Diagnostics } from './providers/diagnostics';
+import {
+    getDirectiveParameterName,
+    getSlotCompletionSyntax,
+    isComponentTagCompletionTrigger,
+    isLivewireTagCompletionTrigger,
+} from './providers/patterns';
 import { Watcher } from './watcher';
 import { Container } from './runtime/container';
 import { MutableRef } from 'effect';
@@ -344,13 +350,9 @@ export namespace Server {
                     items.push(...getCustomDirectiveCompletions('@'));
                 }
 
-                if (textBeforeCursor.endsWith('<livewire:') || /<livewire:[\w.-]*$/.test(textBeforeCursor)) {
+                if (isLivewireTagCompletionTrigger(textBeforeCursor)) {
                     items.push(...Completions.getLivewireCompletions(textBeforeCursor, position));
-                } else if (
-                    textBeforeCursor.endsWith('<x-') ||
-                    /<x-[\w.-]*(?:::[\w.-]*)?$/.test(textBeforeCursor) ||
-                    /<[\w]+:[\w.-]*$/.test(textBeforeCursor)
-                ) {
+                } else if (isComponentTagCompletionTrigger(textBeforeCursor)) {
                     items.push(...Completions.getComponentCompletions(textBeforeCursor, position));
                 }
 
@@ -368,30 +370,23 @@ export namespace Server {
                     );
                 }
 
-                const isColonSyntax = /<x-slot:[\w-]*$/.test(textBeforeCursor);
-                const isNameSyntax = /<x-slot\s+name=["'][\w-]*$/.test(textBeforeCursor);
-                if (isColonSyntax || isNameSyntax) {
-                    items.push(
-                        ...Completions.getSlotCompletions(position.line, isColonSyntax ? 'colon' : 'name', tree),
-                    );
+                const slotSyntax = getSlotCompletionSyntax(textBeforeCursor);
+                if (slotSyntax) {
+                    items.push(...Completions.getSlotCompletions(position.line, slotSyntax, tree));
                 }
 
-                const directiveParamMatch = textBeforeCursor.match(
-                    /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
-                );
-                if (directiveParamMatch) {
-                    items.push(...Completions.getParameterCompletions(directiveParamMatch[1]));
+                const directiveName = getDirectiveParameterName(textBeforeCursor);
+                if (directiveName) {
+                    items.push(...Completions.getParameterCompletions(directiveName));
                 }
             } else if (context.type === 'echo') {
                 items.push(...Completions.getLaravelHelperCompletions());
             } else if (context.type === 'php' || context.type === 'parameter') {
                 const line = source.split('\n')[position.line];
                 const textBeforeCursor = line.slice(0, position.character);
-                const directiveParamMatch = textBeforeCursor.match(
-                    /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
-                );
-                if (directiveParamMatch) {
-                    items.push(...Completions.getParameterCompletions(directiveParamMatch[1]));
+                const directiveName = getDirectiveParameterName(textBeforeCursor);
+                if (directiveName) {
+                    items.push(...Completions.getParameterCompletions(directiveName));
                 }
             }
 

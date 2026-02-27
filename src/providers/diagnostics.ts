@@ -20,7 +20,6 @@ import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
 
 export namespace Diagnostics {
-
     export const Code = {
         undefinedView: 'blade/undefined-view',
         undefinedComponent: 'blade/undefined-component',
@@ -168,7 +167,7 @@ export namespace Diagnostics {
             const viewKey = `livewire.${tag.replace('livewire:', '')}`;
             return !!Views.find(viewKey);
         }
-        return !!(Components.findByTag(tag) || Components.find(tag.replace(/^x-/, '')));
+        return !!Components.resolve(tag);
     }
 
     export function getUndefinedComponentDiagnostics(source: string, tree?: BladeParser.Tree): Diagnostic[] {

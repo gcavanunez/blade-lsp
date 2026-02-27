@@ -1,11 +1,10 @@
 import { Location, Range } from 'vscode-languageserver/node';
-import * as path from 'path';
-import * as fs from 'fs';
 import { BladeParser } from '../parser';
+import { Shared } from './shared';
+import { ProjectFile } from './project-file';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
-import { Server } from '../server';
 
 export namespace Definitions {
     export function getViewDefinition(
@@ -14,49 +13,12 @@ export namespace Definitions {
         _source: string,
         _lineNum: number,
     ): Location | null {
-        const viewDirectives = [
-            'extends',
-            'include',
-            'includeIf',
-            'includeWhen',
-            'includeUnless',
-            'includeFirst',
-            'each',
-            'component',
-        ];
-
-        for (const directive of viewDirectives) {
-            const regex = new RegExp(`@${directive}\\s*\\(\\s*['"]([^'"]+)['"]`);
-            const match = line.match(regex);
-
-            if (match) {
-                const viewName = match[1];
-                const viewStart = line.indexOf(viewName);
-                const viewEnd = viewStart + viewName.length;
-
-                if (column >= viewStart && column <= viewEnd) {
-                    return resolveViewLocation(viewName);
-                }
-            }
-        }
-
-        const viewHelperMatch = line.match(/view\s*\(\s*['"]([^'"]+)['"]/);
-        if (viewHelperMatch) {
-            const viewName = viewHelperMatch[1];
-            const viewStart = line.indexOf(viewName);
-            const viewEnd = viewStart + viewName.length;
-
-            if (column >= viewStart && column <= viewEnd) {
-                return resolveViewLocation(viewName);
-            }
-        }
-
-        return null;
+        const viewName = Shared.getViewReferenceAtColumn(line, column);
+        return viewName ? resolveViewLocation(viewName) : null;
     }
 
     export function resolveViewLocation(viewName: string): Location | null {
-        const workspaceRoot = Server.getWorkspaceRoot();
-        if (!Laravel.isAvailable() || !workspaceRoot) {
+        if (!Laravel.isAvailable()) {
             return null;
         }
 
@@ -65,35 +27,24 @@ export namespace Definitions {
             return null;
         }
 
-        const fullPath = path.join(workspaceRoot, view.path);
+        const file = ProjectFile.resolve(view.path);
+        if (!file) {
+            return null;
+        }
 
         return {
-            uri: `file://${fullPath}`,
+            uri: file.uri,
             range: Range.create(0, 0, 0, 0),
         };
     }
 
     export function getComponentDefinition(line: string, column: number): Location | null {
-        const componentMatch = line.match(/<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/);
-
-        if (!componentMatch) {
-            return null;
-        }
-
-        const componentTag = componentMatch[1];
-        const tagStart = line.indexOf(componentMatch[0]) + 1; // +1 to skip <
-        const tagEnd = tagStart + componentTag.length;
-
-        if (column >= tagStart && column <= tagEnd) {
-            return resolveComponentLocation(componentTag);
-        }
-
-        return null;
+        const componentTag = Shared.getComponentTagAtColumn(line, column);
+        return componentTag ? resolveComponentLocation(componentTag) : null;
     }
 
     export function resolveComponentLocation(componentTag: string): Location | null {
-        const workspaceRoot = Server.getWorkspaceRoot();
-        if (!Laravel.isAvailable() || !workspaceRoot) {
+        if (!Laravel.isAvailable()) {
             return null;
         }
 
@@ -103,25 +54,31 @@ export namespace Definitions {
             const view = Views.find(viewKey);
 
             if (view) {
-                const fullPath = path.join(workspaceRoot, view.path);
+                const file = ProjectFile.resolve(view.path);
+                if (!file) {
+                    return null;
+                }
                 return {
-                    uri: `file://${fullPath}`,
+                    uri: file.uri,
                     range: Range.create(0, 0, 0, 0),
                 };
             }
             return null;
         }
 
-        const component = Components.findByTag(componentTag) || Components.find(componentTag.replace(/^x-/, ''));
+        const component = Components.resolve(componentTag);
 
         if (!component) {
             return null;
         }
 
-        const fullPath = path.join(workspaceRoot, component.path);
+        const file = ProjectFile.resolve(component.path);
+        if (!file) {
+            return null;
+        }
 
         return {
-            uri: `file://${fullPath}`,
+            uri: file.uri,
             range: Range.create(0, 0, 0, 0),
         };
     }
@@ -172,46 +129,33 @@ export namespace Definitions {
             return null;
         }
 
-        const attrPattern = /(?::|)([\w-]+)(?:\s*=)?/g;
-        let match;
-        let propName: string | null = null;
-
-        while ((match = attrPattern.exec(line)) !== null) {
-            const attrStart = match.index;
-            const attrNameStart = match[0].startsWith(':') ? attrStart + 1 : attrStart;
-            const attrNameEnd = attrNameStart + match[1].length;
-
-            if (column >= attrNameStart && column <= attrNameEnd) {
-                propName = match[1];
-                break;
-            }
-        }
+        const propName = Shared.getAttributeNameAtColumn(line, column);
 
         if (!propName) {
             return null;
         }
 
-        const workspaceRoot = Server.getWorkspaceRoot();
-        if (!Laravel.isAvailable() || !workspaceRoot) {
+        if (!Laravel.isAvailable()) {
             return null;
         }
 
-        const component =
-            Components.findByTag(context.componentName) || Components.find(context.componentName.replace(/^x-/, ''));
+        const component = Components.resolve(context.componentName);
 
         if (!component) {
             return null;
         }
 
-        const fullPath = path.join(workspaceRoot, component.path);
+        const file = ProjectFile.read(component.path);
+        if (!file) {
+            return null;
+        }
 
         try {
-            const content = fs.readFileSync(fullPath, 'utf-8');
-            const propLocation = findPropInFile(content, propName);
+            const propLocation = findPropInFile(file.content, propName);
 
             if (propLocation) {
                 return {
-                    uri: `file://${fullPath}`,
+                    uri: file.uri,
                     range: Range.create(
                         propLocation.line,
                         propLocation.col,
@@ -223,7 +167,7 @@ export namespace Definitions {
             }
 
             return {
-                uri: `file://${fullPath}`,
+                uri: file.uri,
                 range: Range.create(0, 0, 0, 0),
             };
         } catch {
@@ -268,19 +212,8 @@ export namespace Definitions {
         column: number,
         tree: BladeParser.Tree,
     ): Location | null {
-        const colonMatch = line.match(/<x-slot:([\w-]+)/);
-        const nameMatch = line.match(/<x-slot\s+name=["']([\w-]+)["']/);
-
-        const match = colonMatch || nameMatch;
-        if (!match) {
-            return null;
-        }
-
-        const slotName = match[1];
-        const slotStart = line.indexOf(slotName, line.indexOf('x-slot'));
-        const slotEnd = slotStart + slotName.length;
-
-        if (column < slotStart || column > slotEnd) {
+        const slotName = Shared.getSlotNameAtColumn(line, column);
+        if (!slotName) {
             return null;
         }
 
@@ -289,27 +222,23 @@ export namespace Definitions {
             return null;
         }
 
-        const component =
-            Components.findByTag(componentContext) || Components.find(componentContext.replace(/^x-/, ''));
+        const component = Components.resolve(componentContext);
 
         if (!component) {
             return null;
         }
 
-        const workspaceRoot = Server.getWorkspaceRoot();
-        if (!workspaceRoot) {
+        const file = ProjectFile.read(component.path);
+        if (!file) {
             return null;
         }
 
-        const fullPath = path.join(workspaceRoot, component.path);
-
         try {
-            const content = fs.readFileSync(fullPath, 'utf-8');
-            const slotLocation = findSlotUsageInFile(content, slotName);
+            const slotLocation = findSlotUsageInFile(file.content, slotName);
 
             if (slotLocation) {
                 return {
-                    uri: `file://${fullPath}`,
+                    uri: file.uri,
                     range: Range.create(
                         slotLocation.line,
                         slotLocation.col,
@@ -320,7 +249,7 @@ export namespace Definitions {
             }
 
             return {
-                uri: `file://${fullPath}`,
+                uri: file.uri,
                 range: Range.create(0, 0, 0, 0),
             };
         } catch {
