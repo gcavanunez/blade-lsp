@@ -18,6 +18,7 @@ import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
+import { BladeAnalysis } from './analysis';
 
 export namespace Diagnostics {
     export const Code = {
@@ -90,11 +91,12 @@ export namespace Diagnostics {
      */
     export function analyze(source: string, tree?: BladeParser.Tree): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
+        const analysis = BladeAnalysis.build(source);
 
         diagnostics.push(...getUndefinedViewDiagnostics(source));
         diagnostics.push(...getUndefinedComponentDiagnostics(source, tree));
-        diagnostics.push(...getUnclosedDirectiveDiagnostics(source));
-        diagnostics.push(...getInvalidMethodDiagnostics(source));
+        diagnostics.push(...getUnclosedDirectiveDiagnosticsFromAnalysis(analysis));
+        diagnostics.push(...getInvalidMethodDiagnosticsFromAnalysis(analysis));
 
         return diagnostics;
     }
@@ -364,28 +366,23 @@ export namespace Diagnostics {
     /**
      * Scan source lines and collect all block/closing directive occurrences.
      */
-    function scanDirectiveOccurrences(lines: string[]): DirectiveOccurrence[] {
+    function scanDirectiveOccurrences(analysis: BladeAnalysis.SourceAnalysis): DirectiveOccurrence[] {
         const occurrences: DirectiveOccurrence[] = [];
 
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            const line = lines[lineNum];
-            const directivePattern = /@(\w+)/g;
+        for (const token of analysis.directiveTokens) {
+            const name = token.name;
+            if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
 
-            for (const { match } of collectRegexMatches(line, directivePattern)) {
-                const name = `@${match[1]}`;
+            const line = analysis.lines[token.line] ?? '';
+            const afterDirective = line.slice(token.colEnd);
+            if (isInlineDirective(name, afterDirective)) continue;
 
-                if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
-
-                const afterDirective = line.slice(match.index + match[0].length);
-                if (isInlineDirective(name, afterDirective)) continue;
-
-                occurrences.push({
-                    name,
-                    line: lineNum,
-                    colStart: match.index,
-                    colEnd: match.index + match[0].length,
-                });
-            }
+            occurrences.push({
+                name,
+                line: token.line,
+                colStart: token.colStart,
+                colEnd: token.colEnd,
+            });
         }
 
         return occurrences;
@@ -405,11 +402,9 @@ export namespace Diagnostics {
         return false;
     }
 
-    export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
+    function getUnclosedDirectiveDiagnosticsFromAnalysis(analysis: BladeAnalysis.SourceAnalysis): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
-        const lines = source.split('\n');
-
-        const occurrences = scanDirectiveOccurrences(lines);
+        const occurrences = scanDirectiveOccurrences(analysis);
 
         const stack: DirectiveOccurrence[] = [];
 
@@ -449,6 +444,10 @@ export namespace Diagnostics {
         return diagnostics;
     }
 
+    export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
+        return getUnclosedDirectiveDiagnosticsFromAnalysis(BladeAnalysis.build(source));
+    }
+
     /**
      * Valid HTTP methods for Laravel's `@method()` directive.
      * Only the methods that HTML forms cannot natively produce are
@@ -456,28 +455,53 @@ export namespace Diagnostics {
      */
     const VALID_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);
 
-    export function getInvalidMethodDiagnostics(source: string): Diagnostic[] {
+    const METHOD_INVOCATION_PATTERN = /^\s*\(\s*['"]([^'"]*)['"]\s*\)/;
+
+    function getMethodInvocationInfo(
+        line: string,
+        directiveColumnEnd: number,
+    ): { value: string; valueStart: number } | null {
+        const afterDirective = line.slice(directiveColumnEnd);
+        const match = METHOD_INVOCATION_PATTERN.exec(afterDirective);
+        if (!match) return null;
+
+        const value = match[1];
+        const invocationText = match[0];
+        const valueOffset = invocationText.indexOf(value);
+        if (valueOffset < 0) return null;
+
+        return {
+            value,
+            valueStart: directiveColumnEnd + valueOffset,
+        };
+    }
+
+    function getInvalidMethodDiagnosticsFromAnalysis(analysis: BladeAnalysis.SourceAnalysis): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
-        const lines = source.split('\n');
 
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            const line = lines[lineNum];
-            const methodPattern = /@method\s*\(\s*['"]([^'"]*)['"]\s*\)/g;
+        for (const token of analysis.directiveTokens) {
+            if (token.name !== '@method') continue;
 
-            for (const { match, captured: value } of collectRegexMatches(line, methodPattern)) {
-                if (!VALID_METHODS.has(value.toUpperCase())) {
-                    const valueStart = line.indexOf(value, match.index);
-                    diagnostics.push({
-                        severity: DiagnosticSeverity.Error,
-                        range: Range.create(lineNum, valueStart, lineNum, valueStart + value.length),
-                        message: `Invalid HTTP method '${value}'. Expected one of: ${[...VALID_METHODS].join(', ')}.`,
-                        source: 'blade-lsp',
-                        code: Code.invalidMethod,
-                    });
-                }
-            }
+            const line = analysis.lines[token.line] ?? '';
+            const invocation = getMethodInvocationInfo(line, token.colEnd);
+            if (!invocation) continue;
+
+            const { value, valueStart } = invocation;
+            if (VALID_METHODS.has(value.toUpperCase())) continue;
+
+            diagnostics.push({
+                severity: DiagnosticSeverity.Error,
+                range: Range.create(token.line, valueStart, token.line, valueStart + value.length),
+                message: `Invalid HTTP method '${value}'. Expected one of: ${[...VALID_METHODS].join(', ')}.`,
+                source: 'blade-lsp',
+                code: Code.invalidMethod,
+            });
         }
 
         return diagnostics;
+    }
+
+    export function getInvalidMethodDiagnostics(source: string): Diagnostic[] {
+        return getInvalidMethodDiagnosticsFromAnalysis(BladeAnalysis.build(source));
     }
 }

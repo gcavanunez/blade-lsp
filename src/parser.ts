@@ -19,6 +19,9 @@ import { Container } from './runtime/container';
 export namespace BladeParser {
     export type SyntaxNode = ParserTypes.SyntaxNode;
     export type Tree = ParserTypes.Tree;
+    export type QueryCapture = ParserTypes.QueryCapture;
+
+    const queryCache = new Map<string, ParserTypes.CompiledQuery>();
 
     /**
      * Initialize the parser with the chosen backend.
@@ -30,6 +33,7 @@ export namespace BladeParser {
         const backend = type === 'native' ? NativeBackend.create() : WasmBackend.create();
         await backend.initialize();
         MutableRef.set(Container.get().parserBackend, backend);
+        queryCache.clear();
     }
 
     /**
@@ -41,6 +45,18 @@ export namespace BladeParser {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
         return backend.parse(source);
+    }
+
+    function getQueryCaptures(tree: Tree, querySource: string, node: SyntaxNode = tree.rootNode): QueryCapture[] {
+        const backend = MutableRef.get(Container.get().parserBackend);
+        if (!backend) {
+            throw new Error('BladeParser not initialized. Call initialize() first.');
+        }
+
+        const compiled = queryCache.get(querySource) ?? backend.compileQuery(querySource);
+        queryCache.set(querySource, compiled);
+
+        return compiled.captures(node);
     }
 
     /**
@@ -61,21 +77,21 @@ export namespace BladeParser {
      * Get all directive nodes from the tree.
      */
     export function getAllDirectives(tree: Tree): SyntaxNode[] {
-        return ParserAst.getAllDirectives(tree);
+        return ParserAst.getAllDirectives(tree, getQueryCaptures);
     }
 
     /**
      * Check if a position is inside a directive parameter.
      */
     export function isInsideDirectiveParameter(tree: Tree, row: number, column: number): boolean {
-        return ParserContext.isInsideDirectiveParameter(tree, row, column, findNodeAtPosition);
+        return ParserContext.isInsideDirectiveParameter(tree, row, column, findNodeAtPosition, getQueryCaptures);
     }
 
     /**
      * Check if a position is inside an echo statement.
      */
     export function isInsideEcho(tree: Tree, row: number, column: number): boolean {
-        return ParserContext.isInsideEcho(tree, row, column, findNodeAtPosition);
+        return ParserContext.isInsideEcho(tree, row, column, findNodeAtPosition, getQueryCaptures);
     }
 
     /**
@@ -84,7 +100,7 @@ export namespace BladeParser {
     export type CompletionContext = ParserContext.CompletionContext;
 
     export function getCompletionContext(tree: Tree, source: string, row: number, column: number): CompletionContext {
-        return ParserContext.getCompletionContext(tree, source, row, column, findNodeAtPosition);
+        return ParserContext.getCompletionContext(tree, source, row, column, findNodeAtPosition, getQueryCaptures);
     }
 
     /**
@@ -93,7 +109,7 @@ export namespace BladeParser {
     export type DiagnosticInfo = ParserDiagnostics.DiagnosticInfo;
 
     export function getDiagnostics(tree: Tree): DiagnosticInfo[] {
-        return ParserDiagnostics.getDiagnostics(tree);
+        return ParserDiagnostics.getDiagnostics(tree, getQueryCaptures);
     }
 
     /**
@@ -115,7 +131,7 @@ export namespace BladeParser {
      * Find the parent component element that encloses a given position.
      */
     export function findParentComponentFromTree(tree: Tree, row: number, column: number): string | null {
-        return ParserComponents.findParentComponentFromTree(tree, row, column, findNodeAtPosition);
+        return ParserComponents.findParentComponentFromTree(tree, row, column, findNodeAtPosition, getQueryCaptures);
     }
 
     /**
@@ -125,7 +141,7 @@ export namespace BladeParser {
     export type ComponentTagContext = ParserComponents.ComponentTagContext;
 
     export function getComponentTagContext(tree: Tree, row: number, column: number): ComponentTagContext | null {
-        return ParserComponents.getComponentTagContext(tree, row, column, findNodeAtPosition);
+        return ParserComponents.getComponentTagContext(tree, row, column, findNodeAtPosition, getQueryCaptures);
     }
 
     /**
@@ -135,7 +151,7 @@ export namespace BladeParser {
     export type ComponentReference = ParserComponents.ComponentReference;
 
     export function getAllComponentReferences(tree: Tree): ComponentReference[] {
-        return ParserComponents.getAllComponentReferences(tree);
+        return ParserComponents.getAllComponentReferences(tree, getQueryCaptures);
     }
 
     /**

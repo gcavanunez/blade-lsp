@@ -2,8 +2,50 @@ import { ParserTypes } from './types';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
+type QueryCapture = ParserTypes.QueryCapture;
 
 type FindNodeAtPosition = (tree: Tree, row: number, column: number) => SyntaxNode | null;
+type QueryCaptures = (tree: Tree, querySource: string) => QueryCapture[];
+
+const COMPONENT_TAG_QUERY = `
+    (start_tag (tag_name) @tag_name)
+    (self_closing_tag (tag_name) @tag_name)
+`;
+
+function isPositionWithinNode(node: SyntaxNode, row: number, column: number): boolean {
+    const start = node.startPosition;
+    const end = node.endPosition;
+
+    if (row < start.row || row > end.row) return false;
+    if (row === start.row && column < start.column) return false;
+    if (row === end.row && column > end.column) return false;
+
+    return true;
+}
+
+function isStrictlyNarrowerRange(a: SyntaxNode, b: SyntaxNode): boolean {
+    if (a.startPosition.row !== b.startPosition.row) {
+        return a.startPosition.row > b.startPosition.row;
+    }
+
+    if (a.startPosition.column !== b.startPosition.column) {
+        return a.startPosition.column > b.startPosition.column;
+    }
+
+    if (a.endPosition.row !== b.endPosition.row) {
+        return a.endPosition.row < b.endPosition.row;
+    }
+
+    return a.endPosition.column < b.endPosition.column;
+}
+
+function isValidComponentName(tagName: string): boolean {
+    return (
+        (tagName.startsWith('x-') || /^[\w]+:[\w.-]+$/.test(tagName)) &&
+        tagName !== 'x-slot' &&
+        !tagName.startsWith('x-slot:')
+    );
+}
 
 export namespace ParserComponents {
     /**
@@ -35,7 +77,15 @@ export namespace ParserComponents {
         row: number,
         column: number,
         findNodeAtPosition: FindNodeAtPosition,
+        queryCaptures: QueryCaptures,
     ): string | null {
+        try {
+            const fromQuery = findParentComponentFromQuery(tree, row, column, queryCaptures);
+            if (fromQuery) return fromQuery;
+        } catch {
+            // Fall back to traversal.
+        }
+
         const node = findNodeAtPosition(tree, row, column);
         if (!node) return null;
 
@@ -45,12 +95,7 @@ export namespace ParserComponents {
                 const startTag = current.child(0);
                 if (startTag && (startTag.type === 'start_tag' || startTag.type === 'self_closing_tag')) {
                     const tagName = getTagName(startTag);
-                    if (
-                        tagName &&
-                        isComponentTagName(tagName) &&
-                        tagName !== 'x-slot' &&
-                        !tagName.startsWith('x-slot:')
-                    ) {
+                    if (tagName && isValidComponentName(tagName)) {
                         return tagName;
                     }
                 }
@@ -75,7 +120,15 @@ export namespace ParserComponents {
         row: number,
         column: number,
         findNodeAtPosition: FindNodeAtPosition,
+        queryCaptures: QueryCaptures,
     ): ComponentTagContext | null {
+        try {
+            const fromQuery = getComponentTagContextFromQuery(tree, row, column, queryCaptures);
+            if (fromQuery) return fromQuery;
+        } catch {
+            // Fall back to traversal.
+        }
+
         const node = findNodeAtPosition(tree, row, column);
         if (!node) return null;
 
@@ -83,7 +136,7 @@ export namespace ParserComponents {
         while (current) {
             if (current.type === 'start_tag' || current.type === 'self_closing_tag') {
                 const tagName = getTagName(current);
-                if (tagName && isComponentTagName(tagName) && tagName !== 'x-slot') {
+                if (tagName && isValidComponentName(tagName)) {
                     const existingProps = extractPropsFromTag(current);
                     return { componentName: tagName, existingProps };
                 }
@@ -104,10 +157,95 @@ export namespace ParserComponents {
         endPosition: { row: number; column: number };
     }
 
-    export function getAllComponentReferences(tree: Tree): ComponentReference[] {
+    export function getAllComponentReferences(tree: Tree, queryCaptures: QueryCaptures): ComponentReference[] {
+        try {
+            return getAllComponentReferencesFromQuery(tree, queryCaptures);
+        } catch {
+            // Fall back to traversal in case the backend does not support queries.
+            const refs: ComponentReference[] = [];
+            collectComponentRefs(tree.rootNode, refs);
+            return refs;
+        }
+    }
+
+    function getAllComponentReferencesFromQuery(tree: Tree, queryCaptures: QueryCaptures): ComponentReference[] {
         const refs: ComponentReference[] = [];
-        collectComponentRefs(tree.rootNode, refs);
+
+        for (const capture of queryCaptures(tree, COMPONENT_TAG_QUERY)) {
+            if (capture.name !== 'tag_name') continue;
+
+            const tagName = capture.node.text;
+            if (!isComponentTagName(tagName)) continue;
+
+            refs.push({
+                tagName,
+                startPosition: capture.node.startPosition,
+                endPosition: capture.node.endPosition,
+            });
+        }
+
         return refs;
+    }
+
+    function findParentComponentFromQuery(
+        tree: Tree,
+        row: number,
+        column: number,
+        queryCaptures: QueryCaptures,
+    ): string | null {
+        let best: { node: SyntaxNode; tagName: string } | null = null;
+
+        for (const capture of queryCaptures(tree, COMPONENT_TAG_QUERY)) {
+            if (capture.name !== 'tag_name') continue;
+
+            const tagName = capture.node.text;
+            if (!isValidComponentName(tagName)) continue;
+
+            const tagNode = capture.node.parent;
+            if (!tagNode) continue;
+
+            const scopeNode = tagNode.parent?.type === 'element' ? tagNode.parent : tagNode;
+            if (!isPositionWithinNode(scopeNode, row, column)) continue;
+
+            if (!best || isStrictlyNarrowerRange(scopeNode, best.node)) {
+                best = { node: scopeNode, tagName };
+            }
+        }
+
+        return best?.tagName ?? null;
+    }
+
+    function getComponentTagContextFromQuery(
+        tree: Tree,
+        row: number,
+        column: number,
+        queryCaptures: QueryCaptures,
+    ): ComponentTagContext | null {
+        let bestTagNode: SyntaxNode | null = null;
+        let bestTagName: string | null = null;
+
+        for (const capture of queryCaptures(tree, COMPONENT_TAG_QUERY)) {
+            if (capture.name !== 'tag_name') continue;
+
+            const tagName = capture.node.text;
+            if (!isValidComponentName(tagName)) continue;
+
+            const tagNode = capture.node.parent;
+            if (!tagNode) continue;
+            if (!isPositionWithinNode(tagNode, row, column)) continue;
+
+            if (!bestTagNode || isStrictlyNarrowerRange(tagNode, bestTagNode)) {
+                bestTagNode = tagNode;
+                bestTagName = tagName;
+            }
+        }
+
+        if (!bestTagNode || !bestTagName) return null;
+
+        return {
+            componentName: bestTagName,
+            existingProps: extractPropsFromTag(bestTagNode),
+        };
     }
 
     function extractPropsFromTag(tagNode: SyntaxNode): string[] {

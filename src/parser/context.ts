@@ -2,7 +2,55 @@ import { ParserTypes } from './types';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
+type QueryCapture = ParserTypes.QueryCapture;
+
 type FindNodeAtPosition = (tree: Tree, row: number, column: number) => SyntaxNode | null;
+type QueryCaptures = (tree: Tree, querySource: string, node?: SyntaxNode) => QueryCapture[];
+
+const PARAMETER_QUERY = '(parameter) @parameter';
+const PHP_ONLY_QUERY = '(php_only) @php_only';
+const PHP_STATEMENT_QUERY = '(php_statement) @php_statement';
+const COMMENT_QUERY = '(comment) @comment';
+const DIRECTIVE_QUERY = `(directive) @directive
+    (directive_start) @directive_start
+`;
+
+function isPositionWithinNode(node: SyntaxNode, row: number, column: number): boolean {
+    if (row < node.startPosition.row || row > node.endPosition.row) return false;
+    if (row === node.startPosition.row && column < node.startPosition.column) return false;
+    if (row === node.endPosition.row && column > node.endPosition.column) return false;
+    return true;
+}
+
+function isStrictlyNarrowerRange(a: SyntaxNode, b: SyntaxNode): boolean {
+    if (a.startPosition.row !== b.startPosition.row) return a.startPosition.row > b.startPosition.row;
+    if (a.startPosition.column !== b.startPosition.column) return a.startPosition.column > b.startPosition.column;
+    if (a.endPosition.row !== b.endPosition.row) return a.endPosition.row < b.endPosition.row;
+    return a.endPosition.column < b.endPosition.column;
+}
+
+function findNarrowestCaptureAtPosition(
+    tree: Tree,
+    row: number,
+    column: number,
+    querySource: string,
+    queryCaptures?: QueryCaptures,
+): SyntaxNode | null {
+    if (!queryCaptures) return null;
+
+    try {
+        let best: SyntaxNode | null = null;
+        for (const capture of queryCaptures(tree, querySource)) {
+            if (!isPositionWithinNode(capture.node, row, column)) continue;
+            if (!best || isStrictlyNarrowerRange(capture.node, best)) {
+                best = capture.node;
+            }
+        }
+        return best;
+    } catch {
+        return null;
+    }
+}
 
 export namespace ParserContext {
     /**
@@ -22,7 +70,13 @@ export namespace ParserContext {
         row: number,
         column: number,
         findNodeAtPosition: FindNodeAtPosition,
+        queryCaptures?: QueryCaptures,
     ): boolean {
+        const parameterNode = findNarrowestCaptureAtPosition(tree, row, column, PARAMETER_QUERY, queryCaptures);
+        if (parameterNode) {
+            return true;
+        }
+
         const node = findNodeAtPosition(tree, row, column);
         if (!node) return false;
 
@@ -44,7 +98,28 @@ export namespace ParserContext {
         row: number,
         column: number,
         findNodeAtPosition: FindNodeAtPosition,
+        queryCaptures?: QueryCaptures,
     ): boolean {
+        const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, PHP_ONLY_QUERY, queryCaptures);
+        if (phpOnlyNode) {
+            return true;
+        }
+
+        if (queryCaptures) {
+            try {
+                for (const capture of queryCaptures(tree, PHP_STATEMENT_QUERY)) {
+                    if (!isPositionWithinNode(capture.node, row, column)) continue;
+
+                    const firstChild = capture.node.child(0);
+                    if (firstChild && (firstChild.type === '{{' || firstChild.type === '{!!')) {
+                        return true;
+                    }
+                }
+            } catch {
+                // Fall back to ancestor traversal.
+            }
+        }
+
         const node = findNodeAtPosition(tree, row, column);
         if (!node) return false;
 
@@ -80,6 +155,7 @@ export namespace ParserContext {
         row: number,
         column: number,
         findNodeAtPosition: FindNodeAtPosition,
+        queryCaptures?: QueryCaptures,
     ): CompletionContext {
         const node = findNodeAtPosition(tree, row, column);
         const lines = source.split('\n');
@@ -95,7 +171,7 @@ export namespace ParserContext {
             };
         }
 
-        if (node && isInsideEcho(tree, row, column, findNodeAtPosition)) {
+        if (node && isInsideEcho(tree, row, column, findNodeAtPosition, queryCaptures)) {
             return {
                 type: 'echo',
                 prefix: '',
@@ -103,16 +179,40 @@ export namespace ParserContext {
             };
         }
 
-        if (node && isInsideDirectiveParameter(tree, row, column, findNodeAtPosition)) {
+        if (node && isInsideDirectiveParameter(tree, row, column, findNodeAtPosition, queryCaptures)) {
             let directiveName: string | undefined;
-            let current: SyntaxNode | null = node;
-            while (current) {
-                const name = extractDirectiveName(current);
-                if (name) {
-                    directiveName = name.slice(1);
-                    break;
+
+            if (queryCaptures) {
+                try {
+                    let best: SyntaxNode | null = null;
+                    for (const capture of queryCaptures(tree, DIRECTIVE_QUERY)) {
+                        if (!isPositionWithinNode(capture.node, row, column)) continue;
+                        if (!best || isStrictlyNarrowerRange(capture.node, best)) {
+                            best = capture.node;
+                        }
+                    }
+
+                    if (best) {
+                        const name = extractDirectiveName(best);
+                        if (name) {
+                            directiveName = name.slice(1);
+                        }
+                    }
+                } catch {
+                    // Fall through to ancestry walk.
                 }
-                current = current.parent;
+            }
+
+            if (!directiveName) {
+                let current: SyntaxNode | null = node;
+                while (current) {
+                    const name = extractDirectiveName(current);
+                    if (name) {
+                        directiveName = name.slice(1);
+                        break;
+                    }
+                    current = current.parent;
+                }
             }
 
             return {
@@ -123,12 +223,28 @@ export namespace ParserContext {
             };
         }
 
-        if (node?.type === 'comment') {
+        const commentNode = findNarrowestCaptureAtPosition(tree, row, column, COMMENT_QUERY, queryCaptures);
+        if (commentNode || node?.type === 'comment') {
             return {
                 type: 'comment',
                 prefix: '',
-                node,
+                node: commentNode ?? node,
             };
+        }
+
+        const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, PHP_ONLY_QUERY, queryCaptures);
+        if (phpOnlyNode) {
+            const parent = phpOnlyNode.parent;
+            if (parent?.type === 'php_statement') {
+                const firstChild = parent.child(0);
+                if (firstChild?.type === 'directive_start' || firstChild?.type === 'php_tag') {
+                    return {
+                        type: 'php',
+                        prefix: '',
+                        node: phpOnlyNode,
+                    };
+                }
+            }
         }
 
         if (node?.type === 'php_only') {

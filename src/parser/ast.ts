@@ -2,6 +2,15 @@ import { ParserTypes } from './types';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
+type QueryCapture = ParserTypes.QueryCapture;
+
+type QueryCaptures = (tree: Tree, querySource: string) => QueryCapture[];
+
+const DIRECTIVES_QUERY = `
+    (directive) @directive
+    (directive_start) @directive_start
+    (directive_end) @directive_end
+`;
 
 export namespace ParserAst {
     /**
@@ -14,10 +23,14 @@ export namespace ParserAst {
     /**
      * Collect all directive nodes from the tree.
      */
-    export function getAllDirectives(tree: Tree): SyntaxNode[] {
-        const directives: SyntaxNode[] = [];
-        collectDirectives(tree.rootNode, directives);
-        return directives;
+    export function getAllDirectives(tree: Tree, queryCaptures: QueryCaptures): SyntaxNode[] {
+        try {
+            return queryCaptures(tree, DIRECTIVES_QUERY).map((capture) => capture.node);
+        } catch {
+            const directives: SyntaxNode[] = [];
+            collectDirectives(tree.rootNode, directives);
+            return directives;
+        }
     }
 
     function findNodeAtPositionRecursive(node: SyntaxNode, row: number, column: number): SyntaxNode | null {

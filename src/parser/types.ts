@@ -31,8 +31,19 @@ export namespace ParserTypes {
         rootNode: SyntaxNode;
     }
 
+    export interface QueryCapture {
+        name: string;
+        node: SyntaxNode;
+        patternIndex: number;
+    }
+
+    export interface CompiledQuery {
+        captures(node: SyntaxNode): QueryCapture[];
+    }
+
     export interface Backend {
         initialize(): Promise<void>;
         parse(source: string): Tree;
+        compileQuery(source: string): CompiledQuery;
     }
 }

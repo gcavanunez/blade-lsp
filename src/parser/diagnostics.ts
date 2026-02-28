@@ -3,6 +3,29 @@ import { ParserTypes } from './types';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
+type QueryCapture = ParserTypes.QueryCapture;
+
+type QueryCaptures = (tree: Tree, querySource: string, node?: SyntaxNode) => QueryCapture[];
+
+const QUERY_BY_NODE_TYPE: Partial<Record<string, string>> = {
+    directive_start: '(directive_start) @node',
+    attribute_value: '(attribute_value) @node',
+    tag_name: '(tag_name) @node',
+    attribute: '(attribute) @node',
+    attribute_name: '(attribute_name) @node',
+};
+
+const ERROR_NODES_QUERY = '(ERROR) @error';
+const ATTRIBUTE_NAMES_QUERY = '(attribute_name) @attribute_name';
+const DIRECTIVE_END_QUERY = '(directive_end) @directive_end';
+const QUERY_ERROR_COLLECTION_THRESHOLD = 64;
+
+interface ErrorNodeContext {
+    ancestors: SyntaxNode[];
+    nearestTagNode: SyntaxNode | null;
+    nearestAttributeNode: SyntaxNode | null;
+    hasQuotedAttributeValueAncestor: boolean;
+}
 
 export namespace ParserDiagnostics {
     /**
@@ -18,9 +41,24 @@ export namespace ParserDiagnostics {
     /**
      * Get diagnostics from the parse tree.
      */
-    export function getDiagnostics(tree: Tree): DiagnosticInfo[] {
+    export function getDiagnostics(tree: Tree, queryCaptures?: QueryCaptures): DiagnosticInfo[] {
         const diagnostics: DiagnosticInfo[] = [];
-        checkForErrors(tree.rootNode, diagnostics);
+
+        if (!tree.rootNode.hasError) {
+            return diagnostics;
+        }
+
+        const fallbackErrorNodes: SyntaxNode[] = [];
+        collectMissingNodeDiagnostics(tree.rootNode, diagnostics, new Set<string>(), fallbackErrorNodes);
+
+        const errorNodes = shouldUseQueryErrorCollection(fallbackErrorNodes, queryCaptures)
+            ? (collectErrorNodesFromQuery(tree, queryCaptures) ?? fallbackErrorNodes)
+            : fallbackErrorNodes;
+
+        for (const node of errorNodes) {
+            collectErrorNodeDiagnostic(tree, node, diagnostics, queryCaptures);
+        }
+
         return diagnostics;
     }
 
@@ -42,29 +80,81 @@ export namespace ParserDiagnostics {
         return false;
     }
 
-    function hasAncestorType(node: SyntaxNode, type: string): boolean {
-        let current = node.parent;
-        while (current) {
-            if (current.type === type) {
-                return true;
+    function subtreeContainsTypeWithQuery(
+        tree: Tree,
+        node: SyntaxNode,
+        type: string,
+        queryCaptures?: QueryCaptures,
+    ): boolean {
+        const query = QUERY_BY_NODE_TYPE[type];
+
+        if (query && queryCaptures) {
+            try {
+                return queryCaptures(tree, query, node).length > 0;
+            } catch {
+                // Fall back to recursive traversal.
             }
-            current = current.parent;
         }
-        return false;
+
+        return subtreeContainsType(node, type);
     }
 
-    function findAncestorTagNode(node: SyntaxNode): SyntaxNode | null {
-        let current: SyntaxNode | null = node.parent;
+    function buildErrorNodeContext(node: SyntaxNode): ErrorNodeContext {
+        const ancestors: SyntaxNode[] = [];
+        let nearestTagNode: SyntaxNode | null = null;
+        let nearestAttributeNode: SyntaxNode | null = null;
+        let hasQuotedAttributeValueAncestor = false;
+
+        let current = node.parent;
         while (current) {
-            if (current.type === 'start_tag' || current.type === 'self_closing_tag') {
-                return current;
+            ancestors.push(current);
+
+            if (!hasQuotedAttributeValueAncestor && current.type === 'quoted_attribute_value') {
+                hasQuotedAttributeValueAncestor = true;
             }
+
+            if (!nearestTagNode && (current.type === 'start_tag' || current.type === 'self_closing_tag')) {
+                nearestTagNode = current;
+            }
+
+            if (!nearestAttributeNode && current.type === 'attribute') {
+                nearestAttributeNode = current;
+            }
+
             current = current.parent;
         }
+
+        return {
+            ancestors,
+            nearestTagNode,
+            nearestAttributeNode,
+            hasQuotedAttributeValueAncestor,
+        };
+    }
+
+    function getAttributeNameFromNode(attributeNode: SyntaxNode): string | null {
+        for (let i = 0; i < attributeNode.childCount; i++) {
+            const child = attributeNode.child(i);
+            if (child?.type === 'attribute_name') {
+                return child.text;
+            }
+        }
+
         return null;
     }
 
-    function collectTagAttributeNames(tagNode: SyntaxNode): string[] {
+    function collectTagAttributeNames(tree: Tree, tagNode: SyntaxNode, queryCaptures?: QueryCaptures): string[] {
+        if (queryCaptures) {
+            try {
+                const names = queryCaptures(tree, ATTRIBUTE_NAMES_QUERY, tagNode).map((capture) => capture.node.text);
+                if (names.length > 0) {
+                    return names;
+                }
+            } catch {
+                // Fall back to structural traversal.
+            }
+        }
+
         const names: string[] = [];
 
         for (let i = 0; i < tagNode.childCount; i++) {
@@ -90,8 +180,12 @@ export namespace ParserDiagnostics {
         return names;
     }
 
-    function hasInlineBladeConditionalAttributes(tagNode: SyntaxNode): boolean {
-        const names = collectTagAttributeNames(tagNode);
+    function hasInlineBladeConditionalAttributes(
+        tree: Tree,
+        tagNode: SyntaxNode,
+        queryCaptures?: QueryCaptures,
+    ): boolean {
+        const names = collectTagAttributeNames(tree, tagNode, queryCaptures);
         const hasBladeOpener = names.some((name) => name.startsWith('@') && !name.startsWith('@end'));
         if (!hasBladeOpener) return false;
 
@@ -100,6 +194,19 @@ export namespace ParserDiagnostics {
 
         const element = tagNode.parent;
         if (!element || element.type !== 'element') return false;
+
+        if (queryCaptures) {
+            try {
+                const hasDirectiveEnd = queryCaptures(tree, DIRECTIVE_END_QUERY, element).some((capture) =>
+                    capture.node.text.startsWith('@end'),
+                );
+                if (hasDirectiveEnd) {
+                    return true;
+                }
+            } catch {
+                // Fall back to text scan.
+            }
+        }
 
         for (let i = 0; i < element.childCount; i++) {
             const child = element.child(i);
@@ -147,13 +254,38 @@ export namespace ParserDiagnostics {
         return null;
     }
 
-    function isTailwindContainerQueryAttributeError(node: SyntaxNode): boolean {
+    function findFirstDescendantWithQuery(
+        tree: Tree,
+        node: SyntaxNode,
+        type: string,
+        queryCaptures?: QueryCaptures,
+    ): SyntaxNode | null {
+        const query = QUERY_BY_NODE_TYPE[type];
+
+        if (query && queryCaptures) {
+            try {
+                const capture = queryCaptures(tree, query, node)[0];
+                if (capture) return capture.node;
+            } catch {
+                // Fall back to recursive traversal.
+            }
+        }
+
+        return findFirstDescendant(node, type);
+    }
+
+    function isTailwindContainerQueryAttributeError(
+        tree: Tree,
+        node: SyntaxNode,
+        context: ErrorNodeContext,
+        queryCaptures?: QueryCaptures,
+    ): boolean {
         if (node.type !== 'ERROR') return false;
 
-        const tagNode = findAncestorTagNode(node);
+        const tagNode = context.nearestTagNode;
         if (!tagNode) return false;
 
-        const attributeNames = collectTagAttributeNames(tagNode);
+        const attributeNames = collectTagAttributeNames(tree, tagNode, queryCaptures);
         const hasClassAttribute = attributeNames.includes('class');
         const hasTailwindContainerQueryAttribute = attributeNames.some(isTailwindContainerQueryAttributeName);
 
@@ -161,34 +293,52 @@ export namespace ParserDiagnostics {
             return true;
         }
 
-        const directiveStart = findFirstDescendant(node, 'directive_start');
+        const directiveStart = findFirstDescendantWithQuery(tree, node, 'directive_start', queryCaptures);
         if (!directiveStart) return false;
         if (!TAILWIND_CONTAINER_QUERY_VARIANTS.has(directiveStart.text)) return false;
 
         return hasClassAttribute;
     }
 
-    function isInlineBladeConditionalTagError(node: SyntaxNode): boolean {
+    function isInlineBladeConditionalTagError(
+        tree: Tree,
+        node: SyntaxNode,
+        context: ErrorNodeContext,
+        queryCaptures?: QueryCaptures,
+    ): boolean {
         if (node.type !== 'ERROR') return false;
-        if (!/^[\s'"()]+$/.test(node.text)) return false;
 
-        const tagNode = findAncestorTagNode(node);
+        const tagNode = context.nearestTagNode;
         if (!tagNode) return false;
+        if (!hasInlineBladeConditionalAttributes(tree, tagNode, queryCaptures)) return false;
 
-        return hasInlineBladeConditionalAttributes(tagNode);
+        const attributeNode = context.nearestAttributeNode;
+        if (attributeNode) {
+            const attributeName = getAttributeNameFromNode(attributeNode);
+            if (attributeName?.startsWith('@') && !attributeName.startsWith('@end')) {
+                return true;
+            }
+        }
+
+        return /^[\s'"()=<>!&|?:+\-]+$/.test(node.text);
     }
 
-    function isAtSignInQuotedAttributeError(node: SyntaxNode): boolean {
+    function isAtSignInQuotedAttributeError(
+        tree: Tree,
+        node: SyntaxNode,
+        context: ErrorNodeContext,
+        queryCaptures?: QueryCaptures,
+    ): boolean {
         if (node.type !== 'ERROR') return false;
 
-        const hasDirectiveStart = subtreeContainsType(node, 'directive_start');
+        const hasDirectiveStart = subtreeContainsTypeWithQuery(tree, node, 'directive_start', queryCaptures);
         if (!hasDirectiveStart) return false;
 
-        if (hasAncestorType(node, 'quoted_attribute_value')) {
+        if (context.hasQuotedAttributeValueAncestor) {
             return true;
         }
 
-        const hasAttributeValue = subtreeContainsType(node, 'attribute_value');
+        const hasAttributeValue = subtreeContainsTypeWithQuery(tree, node, 'attribute_value', queryCaptures);
         if (!hasAttributeValue) return false;
 
         const parent = node.parent;
@@ -196,20 +346,27 @@ export namespace ParserDiagnostics {
             return true;
         }
 
-        const hasTagName = subtreeContainsType(node, 'tag_name');
-        const hasAttributeShape = subtreeContainsType(node, 'attribute') || subtreeContainsType(node, 'attribute_name');
+        const hasTagName = subtreeContainsTypeWithQuery(tree, node, 'tag_name', queryCaptures);
+        const hasAttributeShape =
+            subtreeContainsTypeWithQuery(tree, node, 'attribute', queryCaptures) ||
+            subtreeContainsTypeWithQuery(tree, node, 'attribute_name', queryCaptures);
 
         return hasTagName && hasAttributeShape;
     }
 
-    function hasAtSignInQuotedAttributeErrorAncestor(node: SyntaxNode): boolean {
-        let current = node.parent;
-        while (current) {
-            if (isAtSignInQuotedAttributeError(current)) {
+    function hasAtSignInQuotedAttributeErrorAncestor(
+        tree: Tree,
+        context: ErrorNodeContext,
+        queryCaptures?: QueryCaptures,
+    ): boolean {
+        for (const ancestor of context.ancestors) {
+            if (ancestor.type !== 'ERROR') continue;
+
+            if (isAtSignInQuotedAttributeError(tree, ancestor, buildErrorNodeContext(ancestor), queryCaptures)) {
                 return true;
             }
-            current = current.parent;
         }
+
         return false;
     }
 
@@ -226,24 +383,20 @@ export namespace ParserDiagnostics {
         return !BladeDirectives.map.has(name);
     }
 
-    function collectNodeDiagnostic(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
-        if (!node.hasError) return;
+    function collectErrorNodeDiagnostic(
+        tree: Tree,
+        node: SyntaxNode,
+        diagnostics: DiagnosticInfo[],
+        queryCaptures?: QueryCaptures,
+    ): void {
+        const context = buildErrorNodeContext(node);
 
-        if (node.isMissing) {
-            diagnostics.push({
-                message: `Missing ${node.type}`,
-                startPosition: node.startPosition,
-                endPosition: node.endPosition,
-                severity: 'error',
-            });
-            return;
-        }
-
+        if (!node.hasError || node.isMissing) return;
         if (node.type !== 'ERROR') return;
-        if (isAtSignInQuotedAttributeError(node)) return;
-        if (hasAtSignInQuotedAttributeErrorAncestor(node)) return;
-        if (isTailwindContainerQueryAttributeError(node)) return;
-        if (isInlineBladeConditionalTagError(node)) return;
+        if (isAtSignInQuotedAttributeError(tree, node, context, queryCaptures)) return;
+        if (hasAtSignInQuotedAttributeErrorAncestor(tree, context, queryCaptures)) return;
+        if (isTailwindContainerQueryAttributeError(tree, node, context, queryCaptures)) return;
+        if (isInlineBladeConditionalTagError(tree, node, context, queryCaptures)) return;
         if (isUnknownDirectiveTokenError(node)) return;
 
         diagnostics.push({
@@ -254,14 +407,53 @@ export namespace ParserDiagnostics {
         });
     }
 
-    function checkForErrors(node: SyntaxNode, diagnostics: DiagnosticInfo[]): void {
-        collectNodeDiagnostic(node, diagnostics);
+    function collectMissingNodeDiagnostics(
+        node: SyntaxNode,
+        diagnostics: DiagnosticInfo[],
+        seen: Set<string>,
+        errorNodes: SyntaxNode[],
+    ): void {
+        if (!node.hasError) return;
+
+        if (node.type === 'ERROR' && !node.isMissing) {
+            errorNodes.push(node);
+        }
+
+        if (node.isMissing) {
+            const key = `${node.type}:${node.startPosition.row}:${node.startPosition.column}:${node.endPosition.row}:${node.endPosition.column}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                diagnostics.push({
+                    message: `Missing ${node.type}`,
+                    startPosition: node.startPosition,
+                    endPosition: node.endPosition,
+                    severity: 'error',
+                });
+            }
+        }
 
         for (let i = 0; i < node.childCount; i++) {
             const child = node.child(i);
-            if (child) {
-                checkForErrors(child, diagnostics);
+            if (child?.hasError) {
+                collectMissingNodeDiagnostics(child, diagnostics, seen, errorNodes);
             }
+        }
+    }
+
+    function shouldUseQueryErrorCollection(errorNodes: SyntaxNode[], queryCaptures?: QueryCaptures): boolean {
+        if (!queryCaptures) return false;
+        return errorNodes.length >= QUERY_ERROR_COLLECTION_THRESHOLD;
+    }
+
+    function collectErrorNodesFromQuery(tree: Tree, queryCaptures?: QueryCaptures): SyntaxNode[] | null {
+        if (!queryCaptures) return null;
+
+        try {
+            return queryCaptures(tree, ERROR_NODES_QUERY)
+                .map((capture) => capture.node)
+                .filter((node) => node.type === 'ERROR');
+        } catch {
+            return null;
         }
     }
 }

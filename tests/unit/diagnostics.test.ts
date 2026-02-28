@@ -35,6 +35,18 @@ describe('Diagnostics', () => {
             expect(diags.length).toBe(2);
         });
 
+        it('ignores @method directives inside Blade comments', () => {
+            const source = "{{-- @method('INVALID') --}}";
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('ignores @method directives inside HTML comments', () => {
+            const source = "<!-- @method('INVALID') -->";
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
         it('validates all accepted HTTP methods', () => {
             for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']) {
                 const source = `@method('${method}')`;
@@ -92,6 +104,18 @@ describe('Diagnostics', () => {
             const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
             expect(diags.length).toBe(1);
             expect(diags[0].message).toContain('@endforeach');
+        });
+
+        it('ignores directives inside blade comments', () => {
+            const source = '{{-- @if($show) --}}\n<p>test</p>';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('ignores directives inside html comments', () => {
+            const source = '<!-- @if($show) -->\n<p>test</p>';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
         });
 
         it('handles @forelse / @endforelse (without @empty clause)', () => {
