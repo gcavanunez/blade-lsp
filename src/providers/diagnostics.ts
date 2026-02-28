@@ -184,11 +184,10 @@ export namespace Diagnostics {
                 if (isBuiltInComponentTag(tag)) continue;
 
                 if (!isComponentDefined(tag)) {
-                    const tagNameStart = ref.startPosition.column + 1;
                     diagnostics.push(
                         createUndefinedComponentDiagnostic(
                             ref.startPosition.row,
-                            tagNameStart,
+                            ref.startPosition.column,
                             tag,
                             tag.startsWith('livewire:'),
                         ),

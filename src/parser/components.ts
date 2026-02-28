@@ -262,14 +262,24 @@ export namespace ParserComponents {
         return props;
     }
 
+    function getTagNameNode(tagNode: SyntaxNode): SyntaxNode | null {
+        for (let i = 0; i < tagNode.childCount; i++) {
+            const child = tagNode.child(i);
+            if (child?.type === 'tag_name') return child;
+        }
+
+        return null;
+    }
+
     function collectComponentRefs(node: SyntaxNode, refs: ComponentReference[]): void {
         if (node.type === 'start_tag' || node.type === 'self_closing_tag') {
             const tagName = getTagName(node);
+            const tagNameNode = getTagNameNode(node);
             if (tagName && isComponentTagName(tagName)) {
                 refs.push({
                     tagName,
-                    startPosition: node.startPosition,
-                    endPosition: node.endPosition,
+                    startPosition: tagNameNode?.startPosition ?? node.startPosition,
+                    endPosition: tagNameNode?.endPosition ?? node.endPosition,
                 });
             }
         }
