@@ -7,6 +7,7 @@ export default defineConfig({
         testTimeout: 15_000,
         hookTimeout: 15_000,
         globals: true,
+        pool: 'threads',
     },
     define: {
         'process.env.TEST': '"1"',
