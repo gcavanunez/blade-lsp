@@ -17,6 +17,25 @@ type WasmParserInstance = {
     setLanguage(language: unknown): void;
 };
 
+type WasmQueryCapture = {
+    name: string;
+    node: unknown;
+    patternIndex?: number;
+    pattern?: number;
+};
+
+type WasmQuery = {
+    captures(node: unknown): WasmQueryCapture[];
+};
+
+type WasmLanguageWithQuery = {
+    query?: (source: string) => WasmQuery;
+};
+
+type WasmQueryCtor = {
+    new (language: unknown, source: string): WasmQuery;
+};
+
 type WasmParserCtor = {
     new (): WasmParserInstance;
     init(): Promise<void>;
@@ -27,12 +46,15 @@ type WasmModule = {
     default?: WasmParserCtor;
     Parser?: WasmParserCtor;
     Language?: WasmLanguage;
+    Query?: WasmQueryCtor;
     init?: () => Promise<void>;
 };
 
 export namespace WasmBackend {
     export function create(): ParserTypes.Backend {
         let parser: WasmParserInstance | null = null;
+        let language: unknown = null;
+        let Query: WasmQueryCtor | null = null;
 
         return {
             async initialize(): Promise<void> {
@@ -50,6 +72,7 @@ export namespace WasmBackend {
                 if (!Language) {
                     throw new Error('web-tree-sitter Language export not found.');
                 }
+                Query = mod.Query ?? null;
                 await Parser.init();
 
                 parser = new Parser();
@@ -66,7 +89,7 @@ export namespace WasmBackend {
                 if (!wasmPath) {
                     throw new Error(`tree-sitter-blade.wasm not found. Searched: ${candidates.join(', ')}`);
                 }
-                const language = await Language.load(wasmPath);
+                language = await Language.load(wasmPath);
                 parser.setLanguage(language);
             },
 
@@ -81,6 +104,35 @@ export namespace WasmBackend {
                 // hasError and isMissing are getter properties in web-tree-sitter,
                 // which matches our readonly property interface.
                 return tree as ParserTypes.Tree;
+            },
+
+            compileQuery(source: string): ParserTypes.CompiledQuery {
+                if (!parser || !language) {
+                    throw new Error('WasmBackend not initialized. Call initialize() first.');
+                }
+
+                let query: WasmQuery | null = null;
+                const languageWithQuery = language as WasmLanguageWithQuery;
+
+                if (typeof languageWithQuery.query === 'function') {
+                    query = languageWithQuery.query(source);
+                } else if (Query) {
+                    query = new Query(language, source);
+                }
+
+                if (!query) {
+                    throw new Error('web-tree-sitter query support not available in current runtime.');
+                }
+
+                return {
+                    captures(node: ParserTypes.SyntaxNode): ParserTypes.QueryCapture[] {
+                        return query.captures(node as unknown).map((capture) => ({
+                            name: capture.name,
+                            node: capture.node as ParserTypes.SyntaxNode,
+                            patternIndex: capture.patternIndex ?? capture.pattern ?? 0,
+                        }));
+                    },
+                };
             },
         };
     }

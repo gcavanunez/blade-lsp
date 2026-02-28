@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Diagnostics } from '../../src/providers/diagnostics';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
+import { LaravelContext } from '../../src/laravel/context';
 
 describe('Diagnostics', () => {
     describe('getInvalidMethodDiagnostics', () => {
@@ -33,6 +34,18 @@ describe('Diagnostics', () => {
             const source = "@method('INVALID1')\n@method('INVALID2')";
             const diags = Diagnostics.getInvalidMethodDiagnostics(source);
             expect(diags.length).toBe(2);
+        });
+
+        it('ignores @method directives inside Blade comments', () => {
+            const source = "{{-- @method('INVALID') --}}";
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('ignores @method directives inside HTML comments', () => {
+            const source = "<!-- @method('INVALID') -->";
+            const diags = Diagnostics.getInvalidMethodDiagnostics(source);
+            expect(diags).toEqual([]);
         });
 
         it('validates all accepted HTTP methods', () => {
@@ -92,6 +105,18 @@ describe('Diagnostics', () => {
             const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
             expect(diags.length).toBe(1);
             expect(diags[0].message).toContain('@endforeach');
+        });
+
+        it('ignores directives inside blade comments', () => {
+            const source = '{{-- @if($show) --}}\n<p>test</p>';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('ignores directives inside html comments', () => {
+            const source = '<!-- @if($show) -->\n<p>test</p>';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
         });
 
         it('handles @forelse / @endforelse (without @empty clause)', () => {
@@ -396,6 +421,15 @@ describe('Diagnostics', () => {
                 const diags = Diagnostics.getUndefinedViewDiagnostics(source);
                 expect(diags).toEqual([]);
             });
+
+            it('returns empty while Laravel views are not loaded yet', () => {
+                const state = LaravelContext.use();
+                state.views.lastUpdated = 0;
+
+                const source = "@include('nonexistent.view')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
         });
 
         describe('getUndefinedComponentDiagnostics', () => {
@@ -473,6 +507,15 @@ describe('Diagnostics', () => {
 
             it('returns empty when Laravel is not available', () => {
                 clearMockLaravel();
+                const source = '<x-nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('returns empty while Laravel components are not loaded yet', () => {
+                const state = LaravelContext.use();
+                state.components.lastUpdated = 0;
+
                 const source = '<x-nonexistent />';
                 const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
                 expect(diags).toEqual([]);

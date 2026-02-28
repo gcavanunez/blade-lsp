@@ -17,8 +17,6 @@ import * as path from 'path';
 import { Log } from '../utils/log';
 
 export namespace PhpEnvironment {
-    // ─── Types ────────────────────────────────────────────────────────────────
-
     export type Name = 'herd' | 'valet' | 'sail' | 'lando' | 'ddev' | 'local' | 'docker';
 
     export interface Result {
@@ -31,8 +29,6 @@ export namespace PhpEnvironment {
         /** Whether file paths passed to PHP must be relative to the project root */
         useRelativePaths: boolean;
     }
-
-    // ─── Private ──────────────────────────────────────────────────────────────
 
     interface Config {
         label: string;
@@ -66,8 +62,6 @@ export namespace PhpEnvironment {
     }
 
     const log = Log.create({ service: 'php-environment' });
-
-    // ─── Environment Registry ─────────────────────────────────────────────────
 
     const environments: Record<Name, Config> = {
         herd: {
@@ -132,8 +126,6 @@ export namespace PhpEnvironment {
      */
     const DETECTION_ORDER: Name[] = ['herd', 'valet', 'sail', 'lando', 'ddev', 'local', 'docker'];
 
-    // ─── Private Functions ────────────────────────────────────────────────────
-
     /**
      * Try to detect a specific PHP environment.
      */
@@ -190,8 +182,6 @@ export namespace PhpEnvironment {
             return null;
         }
     }
-
-    // ─── Public Functions ─────────────────────────────────────────────────────
 
     /**
      * Auto-detect the PHP environment for a Laravel project.

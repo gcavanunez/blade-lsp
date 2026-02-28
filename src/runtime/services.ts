@@ -25,8 +25,6 @@ import type { Log } from '../utils/log';
 
 export { MutableRef } from 'effect';
 
-// ─── Process-scoped services ────────────────────────────────────────────────
-
 /**
  * The LSP connection singleton.
  */
@@ -69,8 +67,6 @@ export interface ProgressHandle {
 
 export class ProgressService extends Context.Tag('ProgressService')<ProgressService, ProgressApi>() {}
 
-// ─── Workspace-scoped services ──────────────────────────────────────────────
-
 /**
  * Mutable reference to the server settings.
  */
@@ -112,8 +108,6 @@ export class WatchCapabilityService extends Context.Tag('WatchCapabilityService'
     MutableRef.MutableRef<boolean>
 >() {}
 
-// ─── Parser backend ─────────────────────────────────────────────────────────
-
 /**
  * Mutable reference to the active tree-sitter parser backend.
  * `null` until `BladeParser.initialize()` is called.
@@ -122,8 +116,6 @@ export class ParserBackendService extends Context.Tag('ParserBackendService')<
     ParserBackendService,
     MutableRef.MutableRef<ParserTypes.Backend | null>
 >() {}
-
-// ─── Laravel init state ─────────────────────────────────────────────────────
 
 /**
  * Mutable reference to the in-flight Laravel initialization promise.

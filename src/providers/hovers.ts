@@ -113,17 +113,8 @@ Contains all attributes passed to a component.
     }
 
     export function getComponentHover(line: string, column: number): Hover | null {
-        const componentMatch = line.match(/<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/);
-
-        if (!componentMatch) {
-            return null;
-        }
-
-        const componentTag = componentMatch[1];
-        const tagStart = line.indexOf(componentMatch[0]) + 1;
-        const tagEnd = tagStart + componentTag.length;
-
-        if (column < tagStart || column > tagEnd) {
+        const componentTag = Shared.getComponentTagAtColumn(line, column);
+        if (!componentTag) {
             return null;
         }
 
@@ -179,7 +170,7 @@ Contains all attributes passed to a component.
             };
         }
 
-        const component = Components.findByTag(componentTag) || Components.find(componentTag.replace(/^x-/, ''));
+        const component = Components.resolve(componentTag);
 
         if (!component) {
             return {
@@ -215,20 +206,7 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        const attrPattern = /(?::|)([\w-]+)(?:\s*=)?/g;
-        let match;
-        let propName: string | null = null;
-
-        while ((match = attrPattern.exec(line)) !== null) {
-            const attrStart = match.index;
-            const attrNameStart = match[0].startsWith(':') ? attrStart + 1 : attrStart;
-            const attrNameEnd = attrNameStart + match[1].length;
-
-            if (column >= attrNameStart && column <= attrNameEnd) {
-                propName = match[1];
-                break;
-            }
-        }
+        const propName = Shared.getAttributeNameAtColumn(line, column);
 
         if (!propName) {
             return null;
@@ -238,8 +216,7 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        const component =
-            Components.findByTag(context.componentName) || Components.find(context.componentName.replace(/^x-/, ''));
+        const component = Components.resolve(context.componentName);
 
         if (!component) {
             return null;
@@ -274,44 +251,8 @@ Contains all attributes passed to a component.
     }
 
     export function getViewHover(line: string, column: number): Hover | null {
-        const viewDirectives = [
-            'extends',
-            'include',
-            'includeIf',
-            'includeWhen',
-            'includeUnless',
-            'includeFirst',
-            'each',
-            'component',
-        ];
-
-        for (const directive of viewDirectives) {
-            const regex = new RegExp(`@${directive}\\s*\\(\\s*['"]([^'"]+)['"]`);
-            const match = line.match(regex);
-
-            if (match) {
-                const viewName = match[1];
-                const viewStart = line.indexOf(viewName);
-                const viewEnd = viewStart + viewName.length;
-
-                if (column >= viewStart && column <= viewEnd) {
-                    return getViewHoverContent(viewName);
-                }
-            }
-        }
-
-        const viewHelperMatch = line.match(/view\s*\(\s*['"]([^'"]+)['"]/);
-        if (viewHelperMatch) {
-            const viewName = viewHelperMatch[1];
-            const viewStart = line.indexOf(viewName);
-            const viewEnd = viewStart + viewName.length;
-
-            if (column >= viewStart && column <= viewEnd) {
-                return getViewHoverContent(viewName);
-            }
-        }
-
-        return null;
+        const viewName = Shared.getViewReferenceAtColumn(line, column);
+        return viewName ? getViewHoverContent(viewName) : null;
     }
 
     export function getViewHoverContent(viewName: string): Hover {
@@ -359,19 +300,8 @@ Contains all attributes passed to a component.
         column: number,
         tree: BladeParser.Tree,
     ): Hover | null {
-        const colonMatch = line.match(/<x-slot:([\w-]+)/);
-        const nameMatch = line.match(/<x-slot\s+name=["']([\w-]+)["']/);
-
-        const match = colonMatch || nameMatch;
-        if (!match) {
-            return null;
-        }
-
-        const slotName = match[1];
-        const slotStart = line.indexOf(slotName, line.indexOf('x-slot'));
-        const slotEnd = slotStart + slotName.length;
-
-        if (column < slotStart || column > slotEnd) {
+        const slotName = Shared.getSlotNameAtColumn(line, column);
+        if (!slotName) {
             return null;
         }
 
@@ -394,8 +324,7 @@ Contains all attributes passed to a component.
             };
         }
 
-        const component =
-            Components.findByTag(componentContext) || Components.find(componentContext.replace(/^x-/, ''));
+        const component = Components.resolve(componentContext);
 
         if (!component) {
             return {

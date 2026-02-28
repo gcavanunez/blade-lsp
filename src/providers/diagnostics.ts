@@ -18,18 +18,15 @@ import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
+import { Lexer } from '../parser/lexer';
 
 export namespace Diagnostics {
-    // ─── Diagnostic codes (stable string identifiers) ──────────────────────
-
     export const Code = {
         undefinedView: 'blade/undefined-view',
         undefinedComponent: 'blade/undefined-component',
         unclosedDirective: 'blade/unclosed-directive',
         invalidMethod: 'blade/invalid-method',
     } as const;
-
-    // ─── Shared regex helpers ───────────────────────────────────────────────
 
     interface RegexMatch {
         match: RegExpExecArray;
@@ -87,8 +84,6 @@ export namespace Diagnostics {
         };
     }
 
-    // ─── Public API ────────────────────────────────────────────────────────
-
     /**
      * Run all semantic diagnostics on the given source text.
      * When a tree is provided, tree-sitter is used for component detection
@@ -96,16 +91,15 @@ export namespace Diagnostics {
      */
     export function analyze(source: string, tree?: BladeParser.Tree): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
+        const lexedSource = Lexer.lexSource(source);
 
         diagnostics.push(...getUndefinedViewDiagnostics(source));
         diagnostics.push(...getUndefinedComponentDiagnostics(source, tree));
-        diagnostics.push(...getUnclosedDirectiveDiagnostics(source));
-        diagnostics.push(...getInvalidMethodDiagnostics(source));
+        diagnostics.push(...getUnclosedDirectiveDiagnosticsFromLexedSource(lexedSource));
+        diagnostics.push(...getInvalidMethodDiagnosticsFromLexedSource(lexedSource));
 
         return diagnostics;
     }
-
-    // ─── 1. Undefined View References ──────────────────────────────────────
 
     /**
      * Directives whose first string argument is a view name.
@@ -145,7 +139,7 @@ export namespace Diagnostics {
     }
 
     export function getUndefinedViewDiagnostics(source: string): Diagnostic[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.isAvailable() || !Laravel.hasLoadedViews()) return [];
 
         const diagnostics: Diagnostic[] = [];
         const lines = source.split('\n');
@@ -156,8 +150,6 @@ export namespace Diagnostics {
 
         return diagnostics;
     }
-
-    // ─── 2. Undefined Component References ─────────────────────────────────
 
     /**
      * Tags that look like components but aren't -- they're built-in Blade syntax.
@@ -177,11 +169,11 @@ export namespace Diagnostics {
             const viewKey = `livewire.${tag.replace('livewire:', '')}`;
             return !!Views.find(viewKey);
         }
-        return !!(Components.findByTag(tag) || Components.find(tag.replace(/^x-/, '')));
+        return !!Components.resolve(tag);
     }
 
     export function getUndefinedComponentDiagnostics(source: string, tree?: BladeParser.Tree): Diagnostic[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.isAvailable() || !Laravel.hasLoadedComponents()) return [];
 
         const diagnostics: Diagnostic[] = [];
 
@@ -192,11 +184,10 @@ export namespace Diagnostics {
                 if (isBuiltInComponentTag(tag)) continue;
 
                 if (!isComponentDefined(tag)) {
-                    const tagNameStart = ref.startPosition.column + 1;
                     diagnostics.push(
                         createUndefinedComponentDiagnostic(
                             ref.startPosition.row,
-                            tagNameStart,
+                            ref.startPosition.column,
                             tag,
                             tag.startsWith('livewire:'),
                         ),
@@ -228,8 +219,6 @@ export namespace Diagnostics {
 
         return diagnostics;
     }
-
-    // ─── 3. Unclosed Block Directives ──────────────────────────────────────
 
     /**
      * Build a map of opening directive -> closing directive from the
@@ -376,28 +365,23 @@ export namespace Diagnostics {
     /**
      * Scan source lines and collect all block/closing directive occurrences.
      */
-    function scanDirectiveOccurrences(lines: string[]): DirectiveOccurrence[] {
+    function scanDirectiveOccurrences(lexedSource: Lexer.LexedSource): DirectiveOccurrence[] {
         const occurrences: DirectiveOccurrence[] = [];
 
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            const line = lines[lineNum];
-            const directivePattern = /@(\w+)/g;
+        for (const token of lexedSource.directiveTokens) {
+            const name = token.name;
+            if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
 
-            for (const { match } of collectRegexMatches(line, directivePattern)) {
-                const name = `@${match[1]}`;
+            const line = lexedSource.lines[token.line] ?? '';
+            const afterDirective = line.slice(token.colEnd);
+            if (isInlineDirective(name, afterDirective)) continue;
 
-                if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
-
-                const afterDirective = line.slice(match.index + match[0].length);
-                if (isInlineDirective(name, afterDirective)) continue;
-
-                occurrences.push({
-                    name,
-                    line: lineNum,
-                    colStart: match.index,
-                    colEnd: match.index + match[0].length,
-                });
-            }
+            occurrences.push({
+                name,
+                line: token.line,
+                colStart: token.colStart,
+                colEnd: token.colEnd,
+            });
         }
 
         return occurrences;
@@ -417,11 +401,9 @@ export namespace Diagnostics {
         return false;
     }
 
-    export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
+    function getUnclosedDirectiveDiagnosticsFromLexedSource(lexedSource: Lexer.LexedSource): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
-        const lines = source.split('\n');
-
-        const occurrences = scanDirectiveOccurrences(lines);
+        const occurrences = scanDirectiveOccurrences(lexedSource);
 
         const stack: DirectiveOccurrence[] = [];
 
@@ -461,7 +443,9 @@ export namespace Diagnostics {
         return diagnostics;
     }
 
-    // ─── 4. Invalid @method Values ─────────────────────────────────────────
+    export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
+        return getUnclosedDirectiveDiagnosticsFromLexedSource(Lexer.lexSource(source));
+    }
 
     /**
      * Valid HTTP methods for Laravel's `@method()` directive.
@@ -470,28 +454,53 @@ export namespace Diagnostics {
      */
     const VALID_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']);
 
-    export function getInvalidMethodDiagnostics(source: string): Diagnostic[] {
+    const METHOD_INVOCATION_PATTERN = /^\s*\(\s*['"]([^'"]*)['"]\s*\)/;
+
+    function getMethodInvocationInfo(
+        line: string,
+        directiveColumnEnd: number,
+    ): { value: string; valueStart: number } | null {
+        const afterDirective = line.slice(directiveColumnEnd);
+        const match = METHOD_INVOCATION_PATTERN.exec(afterDirective);
+        if (!match) return null;
+
+        const value = match[1];
+        const invocationText = match[0];
+        const valueOffset = invocationText.indexOf(value);
+        if (valueOffset < 0) return null;
+
+        return {
+            value,
+            valueStart: directiveColumnEnd + valueOffset,
+        };
+    }
+
+    function getInvalidMethodDiagnosticsFromLexedSource(lexedSource: Lexer.LexedSource): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
-        const lines = source.split('\n');
 
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            const line = lines[lineNum];
-            const methodPattern = /@method\s*\(\s*['"]([^'"]*)['"]\s*\)/g;
+        for (const token of lexedSource.directiveTokens) {
+            if (token.name !== '@method') continue;
 
-            for (const { match, captured: value } of collectRegexMatches(line, methodPattern)) {
-                if (!VALID_METHODS.has(value.toUpperCase())) {
-                    const valueStart = line.indexOf(value, match.index);
-                    diagnostics.push({
-                        severity: DiagnosticSeverity.Error,
-                        range: Range.create(lineNum, valueStart, lineNum, valueStart + value.length),
-                        message: `Invalid HTTP method '${value}'. Expected one of: ${[...VALID_METHODS].join(', ')}.`,
-                        source: 'blade-lsp',
-                        code: Code.invalidMethod,
-                    });
-                }
-            }
+            const line = lexedSource.lines[token.line] ?? '';
+            const invocation = getMethodInvocationInfo(line, token.colEnd);
+            if (!invocation) continue;
+
+            const { value, valueStart } = invocation;
+            if (VALID_METHODS.has(value.toUpperCase())) continue;
+
+            diagnostics.push({
+                severity: DiagnosticSeverity.Error,
+                range: Range.create(token.line, valueStart, token.line, valueStart + value.length),
+                message: `Invalid HTTP method '${value}'. Expected one of: ${[...VALID_METHODS].join(', ')}.`,
+                source: 'blade-lsp',
+                code: Code.invalidMethod,
+            });
         }
 
         return diagnostics;
+    }
+
+    export function getInvalidMethodDiagnostics(source: string): Diagnostic[] {
+        return getInvalidMethodDiagnosticsFromLexedSource(Lexer.lexSource(source));
     }
 }

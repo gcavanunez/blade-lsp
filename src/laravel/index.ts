@@ -20,8 +20,6 @@ import { FormatErrorForLog } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
 export namespace Laravel {
-    // ─── Errors ────────────────────────────────────────────────────────────────
-
     export const NotDetectedError = NamedError.create(
         'LaravelNotDetectedError',
         z.object({
@@ -44,11 +42,7 @@ export namespace Laravel {
         }),
     );
 
-    // ─── Logger ────────────────────────────────────────────────────────────────
-
     const log = Log.create({ service: 'laravel' });
-
-    // ─── Types ─────────────────────────────────────────────────────────────────
 
     /**
      * Options for Laravel initialization
@@ -69,8 +63,6 @@ export namespace Laravel {
         /** Formatted error messages for any failed refreshes */
         errors: string[];
     }
-
-    // ─── Public Functions ──────────────────────────────────────────────────────
 
     /**
      * Initialize the Laravel integration for a workspace.
@@ -94,6 +86,21 @@ export namespace Laravel {
 
     export function isAvailable(): boolean {
         return LaravelContext.isAvailable();
+    }
+
+    export function hasLoadedViews(): boolean {
+        const state = LaravelContext.get();
+        return !!state && state.views.lastUpdated > 0;
+    }
+
+    export function hasLoadedComponents(): boolean {
+        const state = LaravelContext.get();
+        return !!state && state.components.lastUpdated > 0;
+    }
+
+    export function hasLoadedDirectives(): boolean {
+        const state = LaravelContext.get();
+        return !!state && state.directives.lastUpdated > 0;
     }
 
     /**
@@ -192,8 +199,6 @@ export namespace Laravel {
         }
         log.info('Disposed');
     }
-
-    // ─── Private ──────────────────────────────────────────────────────────────
 
     async function doInitialize(workspaceRoot: string, options: Options): Promise<boolean> {
         const report = options.onProgress ?? (() => {});

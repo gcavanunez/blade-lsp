@@ -9,8 +9,6 @@ import { Project } from './project';
 import type { FrameworkType } from './types';
 
 export namespace PhpRunner {
-    // ─── Errors ────────────────────────────────────────────────────────────────
-
     export const ScriptNotFoundError = NamedError.create(
         'PhpRunnerScriptNotFoundError',
         z.object({
@@ -85,18 +83,13 @@ export namespace PhpRunner {
         | InstanceType<typeof ScriptNotFoundError | typeof VendorDirError | typeof WriteError>
         | ExecuteError;
 
-    // ─── Framework configuration ──────────────────────────────────────────────
-
     interface FrameworkConfig {
-        /** Subdirectory under scripts/ (e.g. 'laravel', 'jigsaw') */
         scriptsSubdir: string;
-        /** Markers used to delimit JSON output in the PHP bootstrap */
         outputMarkers: {
             START: string;
             END: string;
             STARTUP_ERROR: string;
         };
-        /** Placeholder in bootstrap.php that gets replaced with the extract script body */
         placeholder: string;
     }
 
@@ -120,8 +113,6 @@ export namespace PhpRunner {
             placeholder: '__JIGSAW_LSP_OUTPUT__;',
         },
     };
-
-    // ─── Types ─────────────────────────────────────────────────────────────────
 
     interface Options {
         project: Project.AnyProject;
@@ -201,8 +192,7 @@ export namespace PhpRunner {
     }
 
     /**
-     * Build the PHP code by combining bootstrap and extract scripts.
-     * The placeholder in the bootstrap file is replaced with the extract script body.
+     * Build the PHP code by combining bootstrap and extract scripts
      */
     function buildPhpCode(bootstrapScript: string, extractScript: string, placeholder: string): string {
         const bootstrapContent = fs.readFileSync(bootstrapScript, 'utf-8');
@@ -215,8 +205,6 @@ export namespace PhpRunner {
         // Inject script body into the bootstrap placeholder to produce one runnable file.
         return bootstrapContent.replace(placeholder, extractCode);
     }
-
-    // ─── Process output parsing ─────────────────────────────────────────────
 
     /**
      * Parse the raw stdout from a PHP process into a typed result.
@@ -250,8 +238,6 @@ export namespace PhpRunner {
             });
         }
     }
-
-    // ─── Effect-based process execution ─────────────────────────────────────
 
     /**
      * Spawn a PHP child process, collect its output, and parse the result.
@@ -338,14 +324,9 @@ export namespace PhpRunner {
         });
     }
 
-    // ─── Public API ─────────────────────────────────────────────────────────
-
     /**
-     * Run a PHP script in the context of a project (Laravel or Jigsaw).
+     * Run a PHP script in the context of a Laravel or Jigsaw project.
      * Uses file-based execution for Docker compatibility.
-     *
-     * The framework type is derived from the project, which determines
-     * which bootstrap script, output markers, and scripts directory to use.
      *
      * Internally constructs an Effect pipeline with retry
      * (1 retry, 1s exponential backoff, only for transient errors),

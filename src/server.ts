@@ -31,6 +31,13 @@ import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
 import { Diagnostics } from './providers/diagnostics';
+import { DiagnosticStore } from './providers/diagnostic-store';
+import {
+    getDirectiveParameterName,
+    getSlotCompletionSyntax,
+    isComponentTagCompletionTrigger,
+    isLivewireTagCompletionTrigger,
+} from './providers/patterns';
 import { Watcher } from './watcher';
 import { Container } from './runtime/container';
 import { MutableRef } from 'effect';
@@ -75,6 +82,29 @@ export namespace Server {
         return tree;
     }
 
+    function collectDocumentDiagnostics(document: TextDocument): Record<DiagnosticStore.Kind, Diagnostic[]> {
+        const source = document.getText();
+        const tree = parseDocument(document);
+
+        const treeDiagnostics = BladeParser.getDiagnostics(tree);
+        const syntaxDiagnostics: Diagnostic[] = treeDiagnostics.map((diag) => ({
+            severity: mapDiagnosticSeverity(diag.severity),
+            range: {
+                start: Position.create(diag.startPosition.row, diag.startPosition.column),
+                end: Position.create(diag.endPosition.row, diag.endPosition.column),
+            },
+            message: diag.message,
+            source: 'blade-lsp',
+        }));
+
+        const semanticDiagnostics = Diagnostics.analyze(source, tree);
+
+        return {
+            syntax: syntaxDiagnostics,
+            semantic: semanticDiagnostics,
+        };
+    }
+
     const SEVERITY_MAP: Record<string, DiagnosticSeverity> = {
         error: DiagnosticSeverity.Error,
         warning: DiagnosticSeverity.Warning,
@@ -88,6 +118,20 @@ export namespace Server {
     const build = (externalConn?: Connection) => {
         Container.build(externalConn);
         const { connection: conn, documents: docs, treeCache: cache } = Container.get();
+        const diagnosticStore = DiagnosticStore.create();
+
+        function publishDiagnosticsForDocument(document: TextDocument): void {
+            const merged = diagnosticStore.update(document.uri, collectDocumentDiagnostics(document));
+            if (!merged) return;
+
+            conn.sendDiagnostics({ uri: document.uri, diagnostics: merged });
+        }
+
+        function publishDiagnosticsForAllOpenDocuments(): void {
+            for (const document of docs.all()) {
+                publishDiagnosticsForDocument(document);
+            }
+        }
 
         conn.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
             const c = Container.get();
@@ -169,7 +213,7 @@ export namespace Server {
             const settings = MutableRef.get(c.settings);
             const workspaceRoot = MutableRef.get(c.workspaceRoot)!;
 
-            progress.report('Detecting Laravel project...');
+            progress.report('Detecting project...');
             const success = await Laravel.initialize(workspaceRoot, {
                 phpCommand: settings.phpCommand,
                 phpEnvironment: settings.phpEnvironment,
@@ -183,12 +227,12 @@ export namespace Server {
             }
 
             const project = Laravel.getProject();
-            const framework = project?.type ?? 'unknown';
-            const envLabel = project?.phpEnvironment?.label ?? 'unknown';
+            const envLabel = project?.phpEnvironment.label ?? 'unknown';
             const phpCmd = project?.phpCommand.join(' ') ?? settings.phpCommand?.join(' ') ?? 'php';
-            conn.console.log(`${framework} project integration enabled (${envLabel}: ${phpCmd})`);
+            conn.console.log(`${project?.type ?? 'unknown'} project integration enabled (${envLabel}: ${phpCmd})`);
 
             reportRefreshFailures(conn, progress, phpCmd);
+            publishDiagnosticsForAllOpenDocuments();
         }
 
         /**
@@ -211,7 +255,7 @@ export namespace Server {
 
             conn.sendNotification('window/showMessage', {
                 type: MessageType.Warning,
-                message: `Blade LSP: Failed to load ${failedParts} from Laravel. PHP command: ${phpCmd}. Check :LspLog for details.`,
+                message: `Blade LSP: Failed to load ${failedParts} from project integration. PHP command: ${phpCmd}. Check :LspLog for details.`,
             });
             progress.done(`Ready (${failedParts} failed)`);
         }
@@ -275,6 +319,8 @@ export namespace Server {
             await Promise.allSettled(promises);
             progress.done('Reload complete');
             conn.console.log('File watcher: refresh complete');
+
+            publishDiagnosticsForAllOpenDocuments();
         }, 500);
 
         conn.onDidChangeWatchedFiles((params) => {
@@ -288,30 +334,12 @@ export namespace Server {
 
         docs.onDidChangeContent((change) => {
             const document = change.document;
-            const source = document.getText();
-            const tree = parseDocument(document);
-
-            const treeDiagnostics = BladeParser.getDiagnostics(tree);
-            const syntaxDiagnostics: Diagnostic[] = treeDiagnostics.map((diag) => ({
-                severity: mapDiagnosticSeverity(diag.severity),
-                range: {
-                    start: Position.create(diag.startPosition.row, diag.startPosition.column),
-                    end: Position.create(diag.endPosition.row, diag.endPosition.column),
-                },
-                message: diag.message,
-                source: 'blade-lsp',
-            }));
-
-            const semanticDiagnostics = Diagnostics.analyze(source, tree);
-
-            conn.sendDiagnostics({
-                uri: document.uri,
-                diagnostics: [...syntaxDiagnostics, ...semanticDiagnostics],
-            });
+            publishDiagnosticsForDocument(document);
         });
 
         docs.onDidClose((event) => {
             cache.delete(event.document.uri);
+            diagnosticStore.delete(event.document.uri);
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
 
@@ -345,13 +373,9 @@ export namespace Server {
                     items.push(...getCustomDirectiveCompletions('@'));
                 }
 
-                if (textBeforeCursor.endsWith('<livewire:') || /<livewire:[\w.-]*$/.test(textBeforeCursor)) {
+                if (isLivewireTagCompletionTrigger(textBeforeCursor)) {
                     items.push(...Completions.getLivewireCompletions(textBeforeCursor, position));
-                } else if (
-                    textBeforeCursor.endsWith('<x-') ||
-                    /<x-[\w.-]*(?:::[\w.-]*)?$/.test(textBeforeCursor) ||
-                    /<[\w]+:[\w.-]*$/.test(textBeforeCursor)
-                ) {
+                } else if (isComponentTagCompletionTrigger(textBeforeCursor)) {
                     items.push(...Completions.getComponentCompletions(textBeforeCursor, position));
                 }
 
@@ -369,34 +393,23 @@ export namespace Server {
                     );
                 }
 
-                const isColonSyntax = /<x-slot:[\w-]*$/.test(textBeforeCursor);
-                const isNameSyntax = /<x-slot\s+name=["'][\w-]*$/.test(textBeforeCursor);
-                if (isColonSyntax || isNameSyntax) {
-                    items.push(
-                        ...Completions.getSlotCompletions(position.line, isColonSyntax ? 'colon' : 'name', tree),
-                    );
+                const slotSyntax = getSlotCompletionSyntax(textBeforeCursor);
+                if (slotSyntax) {
+                    items.push(...Completions.getSlotCompletions(position.line, slotSyntax, tree));
                 }
 
-                const directiveParamMatch = textBeforeCursor.match(
-                    /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
-                );
-                if (directiveParamMatch) {
-                    items.push(...Completions.getParameterCompletions(directiveParamMatch[1]));
+                const directiveName = getDirectiveParameterName(textBeforeCursor);
+                if (directiveName) {
+                    items.push(...Completions.getParameterCompletions(directiveName));
                 }
             } else if (context.type === 'echo') {
                 items.push(...Completions.getLaravelHelperCompletions());
             } else if (context.type === 'php' || context.type === 'parameter') {
-                // When inside a directive parameter or a php_only node (broken tree),
-                // always use regex on the current line to determine the directive name.
-                // The tree walk-up can incorrectly find a parent directive (e.g. @section)
-                // when the cursor is inside a nested incomplete @include('.
                 const line = source.split('\n')[position.line];
                 const textBeforeCursor = line.slice(0, position.character);
-                const directiveParamMatch = textBeforeCursor.match(
-                    /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/,
-                );
-                if (directiveParamMatch) {
-                    items.push(...Completions.getParameterCompletions(directiveParamMatch[1]));
+                const directiveName = getDirectiveParameterName(textBeforeCursor);
+                if (directiveName) {
+                    items.push(...Completions.getParameterCompletions(directiveName));
                 }
             }
 

@@ -25,14 +25,49 @@ type NativeSyntaxNode = {
     toString(): string;
 };
 
+type NativeLanguageWithQuery = {
+    query?: (source: string) => NativeQuery;
+};
+
+type NativeQueryCapture = {
+    name: string;
+    node: NativeSyntaxNode;
+    patternIndex?: number;
+    pattern?: number;
+};
+
+type NativeQuery = {
+    captures(node: NativeSyntaxNode): NativeQueryCapture[];
+};
+
+type NativeQueryCtor = {
+    new (language: unknown, source: string | Buffer): NativeQuery;
+};
+
+type NativeParserCtor = {
+    new (): {
+        parse(source: string): { rootNode: NativeSyntaxNode };
+        setLanguage(language: unknown): void;
+        getLanguage(): unknown;
+    };
+    Query?: NativeQueryCtor;
+};
+
+const NATIVE_NODE = Symbol('nativeNode');
+
+type WrappedNode = ParserTypes.SyntaxNode & {
+    [NATIVE_NODE]: NativeSyntaxNode;
+};
+
 export namespace NativeBackend {
     export function create(): ParserTypes.Backend {
-        let parser: Awaited<ReturnType<typeof loadParser>> | null = null;
+        let parser: Awaited<ReturnType<typeof loadParser>>['instance'] | null = null;
+        let Query: NativeQueryCtor | null = null;
 
         async function loadParser() {
             // Dynamic import so this module can be imported without tree-sitter installed.
             const parserModule = await import('tree-sitter');
-            const Parser = (parserModule.default ?? parserModule) as typeof import('tree-sitter');
+            const Parser = (parserModule.default ?? parserModule) as unknown as NativeParserCtor;
             const bladeModule = await import('tree-sitter-blade');
             const Blade = bladeModule.default ?? bladeModule;
 
@@ -40,12 +75,14 @@ export namespace NativeBackend {
             // tree-sitter-blade >=0.12.0 exports { name, language, nodeTypeInfo }
             // and tree-sitter >=0.25.0 accepts this object directly.
             instance.setLanguage(Blade);
-            return instance;
+            return { instance, Query: Parser.Query ?? null };
         }
 
         return {
             async initialize(): Promise<void> {
-                parser = await loadParser();
+                const loaded = await loadParser();
+                parser = loaded.instance;
+                Query = loaded.Query;
             },
 
             parse(source: string): ParserTypes.Tree {
@@ -60,7 +97,51 @@ export namespace NativeBackend {
                 // versions. Wrap the root to normalize.
                 return { rootNode: wrapNode(tree.rootNode) };
             },
+
+            compileQuery(source: string): ParserTypes.CompiledQuery {
+                if (!parser) {
+                    throw new Error('NativeBackend not initialized. Call initialize() first.');
+                }
+
+                const language = parser.getLanguage();
+                if (!language) {
+                    throw new Error('NativeBackend language not initialized.');
+                }
+
+                const languageWithQuery = language as NativeLanguageWithQuery;
+                const query =
+                    typeof languageWithQuery.query === 'function'
+                        ? languageWithQuery.query(source)
+                        : Query
+                          ? new Query(language, source)
+                          : null;
+
+                if (!query) {
+                    throw new Error('tree-sitter query support not available in current runtime.');
+                }
+
+                return {
+                    captures(node: ParserTypes.SyntaxNode): ParserTypes.QueryCapture[] {
+                        const nativeNode = unwrapNode(node);
+
+                        return query.captures(nativeNode).map((capture) => ({
+                            name: capture.name,
+                            node: wrapNode(capture.node),
+                            patternIndex: capture.patternIndex ?? capture.pattern ?? 0,
+                        }));
+                    },
+                };
+            },
         };
+    }
+
+    function unwrapNode(node: ParserTypes.SyntaxNode): NativeSyntaxNode {
+        const wrapped = node as Partial<WrappedNode>;
+        if (wrapped[NATIVE_NODE]) {
+            return wrapped[NATIVE_NODE];
+        }
+
+        throw new Error('Expected a native tree-sitter node wrapper.');
     }
 
     /**
@@ -69,7 +150,8 @@ export namespace NativeBackend {
      * and newer versions (property getters).
      */
     function wrapNode(native: NativeSyntaxNode): ParserTypes.SyntaxNode {
-        return {
+        const wrapped: WrappedNode = {
+            [NATIVE_NODE]: native,
             get text() {
                 return native.text;
             },
@@ -103,5 +185,7 @@ export namespace NativeBackend {
                 return native.toString();
             },
         };
+
+        return wrapped;
     }
 }

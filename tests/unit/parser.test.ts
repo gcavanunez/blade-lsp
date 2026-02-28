@@ -141,6 +141,25 @@ describe('BladeParser', () => {
             expect(diags).toEqual([]);
         });
 
+        it('does not report syntax errors for inline @if directives with strict equality in self-closing tags', () => {
+            const tree = BladeParser.parse(`
+<input
+  type="text"
+  inputmode="numeric"
+  pattern="[0-9]"
+  maxlength="1"
+  x-model="code[{{ $index }}]"
+  x-ref="input{{ $index }}"
+  @paste="paste"
+  @input="input({{ $index }}, $event)"
+  @keydown="keydown({{ $index }}, $event)"
+  @if($index === 0) autofocus @endif
+  class="h-14 w-12"
+/>`);
+            const diags = BladeParser.getDiagnostics(tree);
+            expect(diags).toEqual([]);
+        });
+
         it('does not report syntax errors for svg text with inline @if attributes', () => {
             const tree = BladeParser.parse(
                 '<text @if (strlen($initials ?? "") >= 3 ?? false) text-length="85%" length-adjust="spacingAndGlyphs" @endif>{{ $initials }}</text>',
@@ -198,6 +217,22 @@ describe('BladeParser', () => {
             const tree = BladeParser.parse('@if($a)\n@elseif($b)\n@else\n@endif');
             const directives = BladeParser.getAllDirectives(tree);
             expect(directives.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe('getAllComponentReferences', () => {
+        it('collects component tags from start and self-closing tags', () => {
+            const tree = BladeParser.parse('<x-alert></x-alert>\n<flux:button />\n<div></div>');
+            const refs = BladeParser.getAllComponentReferences(tree);
+            expect(refs.map((ref) => ref.tagName)).toEqual(['x-alert', 'flux:button']);
+        });
+
+        it('preserves source positions from captured tag_name nodes', () => {
+            const tree = BladeParser.parse('<x-panel>Body</x-panel>');
+            const refs = BladeParser.getAllComponentReferences(tree);
+            expect(refs.length).toBe(1);
+            expect(refs[0].startPosition.row).toBe(0);
+            expect(refs[0].startPosition.column).toBeGreaterThan(0);
         });
     });
 });
