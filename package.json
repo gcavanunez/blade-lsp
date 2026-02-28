@@ -1,6 +1,6 @@
 {
     "name": "blade-lsp",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Language Server Protocol implementation for Laravel Blade templates",
     "main": "dist/server.js",
     "bin": {
