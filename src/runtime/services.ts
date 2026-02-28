@@ -42,7 +42,7 @@ export class DocumentsService extends Context.Tag('DocumentsService')<
  * Parser facade — initialize + parse.
  */
 export interface ParserApi {
-    initialize(backend: 'native' | 'wasm'): Promise<void>;
+    initialize(): Promise<void>;
     parse(source: string): BladeParser.Tree;
 }
 

@@ -49,8 +49,6 @@ export namespace Server {
         /** Preferred PHP environment — skips auto-detection and tries only this one. */
         phpEnvironment?: PhpEnvironment.Name;
         enableLaravelIntegration?: boolean;
-        /** Parser backend: 'wasm' (web-tree-sitter) or 'native' (node-gyp). Defaults to 'wasm'. */
-        parserBackend?: 'native' | 'wasm';
     }
 
     export function getWorkspaceRoot(): string | null {
@@ -150,12 +148,11 @@ export namespace Server {
             const supportsProgress = !!params.capabilities.window?.workDoneProgress;
             Progress.initialize(conn, supportsProgress);
 
-            const backend = settings.parserBackend ?? 'wasm';
-            const { error } = await tryAsync(() => BladeParser.initialize(backend));
+            const { error } = await tryAsync(() => BladeParser.initialize());
             if (error) {
                 conn.console.error(`Failed to initialize parser: ${FormatErrorForLog(error)}`);
             } else {
-                conn.console.log(`Tree-sitter Blade parser initialized (${backend} backend)`);
+                conn.console.log('Tree-sitter Blade parser initialized');
             }
 
             return {
