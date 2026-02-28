@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+BUMP_TYPE="${1:-patch}"
+
+case "$BUMP_TYPE" in
+  patch|minor|major) ;;
+  *)
+    echo "Usage: ./release.sh [patch|minor|major]"
+    exit 1
+    ;;
+esac
+
+npm version "$BUMP_TYPE"
+git push origin main --follow-tags
+gh release create "$(git describe --tags --abbrev=0)" --generate-notes
