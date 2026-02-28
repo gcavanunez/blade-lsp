@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Diagnostics } from '../../src/providers/diagnostics';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
+import { LaravelContext } from '../../src/laravel/context';
 
 describe('Diagnostics', () => {
     describe('getInvalidMethodDiagnostics', () => {
@@ -420,6 +421,15 @@ describe('Diagnostics', () => {
                 const diags = Diagnostics.getUndefinedViewDiagnostics(source);
                 expect(diags).toEqual([]);
             });
+
+            it('returns empty while Laravel views are not loaded yet', () => {
+                const state = LaravelContext.use();
+                state.views.lastUpdated = 0;
+
+                const source = "@include('nonexistent.view')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
         });
 
         describe('getUndefinedComponentDiagnostics', () => {
@@ -497,6 +507,15 @@ describe('Diagnostics', () => {
 
             it('returns empty when Laravel is not available', () => {
                 clearMockLaravel();
+                const source = '<x-nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('returns empty while Laravel components are not loaded yet', () => {
+                const state = LaravelContext.use();
+                state.components.lastUpdated = 0;
+
                 const source = '<x-nonexistent />';
                 const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
                 expect(diags).toEqual([]);

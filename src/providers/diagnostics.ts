@@ -139,7 +139,7 @@ export namespace Diagnostics {
     }
 
     export function getUndefinedViewDiagnostics(source: string): Diagnostic[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.isAvailable() || !Laravel.hasLoadedViews()) return [];
 
         const diagnostics: Diagnostic[] = [];
         const lines = source.split('\n');
@@ -173,7 +173,7 @@ export namespace Diagnostics {
     }
 
     export function getUndefinedComponentDiagnostics(source: string, tree?: BladeParser.Tree): Diagnostic[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.isAvailable() || !Laravel.hasLoadedComponents()) return [];
 
         const diagnostics: Diagnostic[] = [];
 

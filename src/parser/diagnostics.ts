@@ -320,7 +320,7 @@ export namespace ParserDiagnostics {
             }
         }
 
-        return /^[\s'"()=<>!&|?:+\-]+$/.test(node.text);
+        return /^[\s'"()=<>!&|?:+-]+$/.test(node.text);
     }
 
     function isAtSignInQuotedAttributeError(

@@ -20,7 +20,6 @@ import { FormatErrorForLog } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
 export namespace Laravel {
-
     export const NotDetectedError = NamedError.create(
         'LaravelNotDetectedError',
         z.object({
@@ -87,6 +86,21 @@ export namespace Laravel {
 
     export function isAvailable(): boolean {
         return LaravelContext.isAvailable();
+    }
+
+    export function hasLoadedViews(): boolean {
+        const state = LaravelContext.get();
+        return !!state && state.views.lastUpdated > 0;
+    }
+
+    export function hasLoadedComponents(): boolean {
+        const state = LaravelContext.get();
+        return !!state && state.components.lastUpdated > 0;
+    }
+
+    export function hasLoadedDirectives(): boolean {
+        const state = LaravelContext.get();
+        return !!state && state.directives.lastUpdated > 0;
     }
 
     /**

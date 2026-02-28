@@ -81,6 +81,25 @@ export namespace Server {
         return tree;
     }
 
+    function buildDocumentDiagnostics(document: TextDocument): Diagnostic[] {
+        const source = document.getText();
+        const tree = parseDocument(document);
+
+        const treeDiagnostics = BladeParser.getDiagnostics(tree);
+        const syntaxDiagnostics: Diagnostic[] = treeDiagnostics.map((diag) => ({
+            severity: mapDiagnosticSeverity(diag.severity),
+            range: {
+                start: Position.create(diag.startPosition.row, diag.startPosition.column),
+                end: Position.create(diag.endPosition.row, diag.endPosition.column),
+            },
+            message: diag.message,
+            source: 'blade-lsp',
+        }));
+
+        const semanticDiagnostics = Diagnostics.analyze(source, tree);
+        return [...syntaxDiagnostics, ...semanticDiagnostics];
+    }
+
     const SEVERITY_MAP: Record<string, DiagnosticSeverity> = {
         error: DiagnosticSeverity.Error,
         warning: DiagnosticSeverity.Warning,
@@ -94,6 +113,19 @@ export namespace Server {
     const build = (externalConn?: Connection) => {
         Container.build(externalConn);
         const { connection: conn, documents: docs, treeCache: cache } = Container.get();
+
+        function publishDiagnosticsForDocument(document: TextDocument): void {
+            conn.sendDiagnostics({
+                uri: document.uri,
+                diagnostics: buildDocumentDiagnostics(document),
+            });
+        }
+
+        function publishDiagnosticsForAllOpenDocuments(): void {
+            for (const document of docs.all()) {
+                publishDiagnosticsForDocument(document);
+            }
+        }
 
         conn.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
             const c = Container.get();
@@ -194,6 +226,7 @@ export namespace Server {
             conn.console.log(`${project?.type ?? 'unknown'} project integration enabled (${envLabel}: ${phpCmd})`);
 
             reportRefreshFailures(conn, progress, phpCmd);
+            publishDiagnosticsForAllOpenDocuments();
         }
 
         /**
@@ -280,6 +313,8 @@ export namespace Server {
             await Promise.allSettled(promises);
             progress.done('Reload complete');
             conn.console.log('File watcher: refresh complete');
+
+            publishDiagnosticsForAllOpenDocuments();
         }, 500);
 
         conn.onDidChangeWatchedFiles((params) => {
@@ -293,26 +328,7 @@ export namespace Server {
 
         docs.onDidChangeContent((change) => {
             const document = change.document;
-            const source = document.getText();
-            const tree = parseDocument(document);
-
-            const treeDiagnostics = BladeParser.getDiagnostics(tree);
-            const syntaxDiagnostics: Diagnostic[] = treeDiagnostics.map((diag) => ({
-                severity: mapDiagnosticSeverity(diag.severity),
-                range: {
-                    start: Position.create(diag.startPosition.row, diag.startPosition.column),
-                    end: Position.create(diag.endPosition.row, diag.endPosition.column),
-                },
-                message: diag.message,
-                source: 'blade-lsp',
-            }));
-
-            const semanticDiagnostics = Diagnostics.analyze(source, tree);
-
-            conn.sendDiagnostics({
-                uri: document.uri,
-                diagnostics: [...syntaxDiagnostics, ...semanticDiagnostics],
-            });
+            publishDiagnosticsForDocument(document);
         });
 
         docs.onDidClose((event) => {
