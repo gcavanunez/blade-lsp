@@ -1,24 +1,12 @@
 import { BladeDirectives } from '../directives';
 import { ParserTypes } from './types';
+import { ParserQueryBank } from './query-bank';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
 type QueryCapture = ParserTypes.QueryCapture;
 
 type QueryCaptures = (tree: Tree, querySource: string, node?: SyntaxNode) => QueryCapture[];
-
-const QUERY_BY_NODE_TYPE: Partial<Record<string, string>> = {
-    directive_start: '(directive_start) @node',
-    attribute_value: '(attribute_value) @node',
-    tag_name: '(tag_name) @node',
-    attribute: '(attribute) @node',
-    attribute_name: '(attribute_name) @node',
-};
-
-const ERROR_NODES_QUERY = '(ERROR) @error';
-const ATTRIBUTE_NAMES_QUERY = '(attribute_name) @attribute_name';
-const DIRECTIVE_END_QUERY = '(directive_end) @directive_end';
-const QUERY_ERROR_COLLECTION_THRESHOLD = 64;
 
 interface ErrorNodeContext {
     ancestors: SyntaxNode[];
@@ -51,9 +39,7 @@ export namespace ParserDiagnostics {
         const fallbackErrorNodes: SyntaxNode[] = [];
         collectMissingNodeDiagnostics(tree.rootNode, diagnostics, new Set<string>(), fallbackErrorNodes);
 
-        const errorNodes = shouldUseQueryErrorCollection(fallbackErrorNodes, queryCaptures)
-            ? (collectErrorNodesFromQuery(tree, queryCaptures) ?? fallbackErrorNodes)
-            : fallbackErrorNodes;
+        const errorNodes = collectErrorNodesFromQuery(tree, queryCaptures) ?? fallbackErrorNodes;
 
         for (const node of errorNodes) {
             collectErrorNodeDiagnostic(tree, node, diagnostics, queryCaptures);
@@ -86,7 +72,7 @@ export namespace ParserDiagnostics {
         type: string,
         queryCaptures?: QueryCaptures,
     ): boolean {
-        const query = QUERY_BY_NODE_TYPE[type];
+        const query = ParserQueryBank.getByNodeType(type);
 
         if (query && queryCaptures) {
             try {
@@ -146,7 +132,9 @@ export namespace ParserDiagnostics {
     function collectTagAttributeNames(tree: Tree, tagNode: SyntaxNode, queryCaptures?: QueryCaptures): string[] {
         if (queryCaptures) {
             try {
-                const names = queryCaptures(tree, ATTRIBUTE_NAMES_QUERY, tagNode).map((capture) => capture.node.text);
+                const names = queryCaptures(tree, ParserQueryBank.attributeNames, tagNode).map(
+                    (capture) => capture.node.text,
+                );
                 if (names.length > 0) {
                     return names;
                 }
@@ -197,7 +185,7 @@ export namespace ParserDiagnostics {
 
         if (queryCaptures) {
             try {
-                const hasDirectiveEnd = queryCaptures(tree, DIRECTIVE_END_QUERY, element).some((capture) =>
+                const hasDirectiveEnd = queryCaptures(tree, ParserQueryBank.directiveEnd, element).some((capture) =>
                     capture.node.text.startsWith('@end'),
                 );
                 if (hasDirectiveEnd) {
@@ -260,7 +248,7 @@ export namespace ParserDiagnostics {
         type: string,
         queryCaptures?: QueryCaptures,
     ): SyntaxNode | null {
-        const query = QUERY_BY_NODE_TYPE[type];
+        const query = ParserQueryBank.getByNodeType(type);
 
         if (query && queryCaptures) {
             try {
@@ -440,16 +428,11 @@ export namespace ParserDiagnostics {
         }
     }
 
-    function shouldUseQueryErrorCollection(errorNodes: SyntaxNode[], queryCaptures?: QueryCaptures): boolean {
-        if (!queryCaptures) return false;
-        return errorNodes.length >= QUERY_ERROR_COLLECTION_THRESHOLD;
-    }
-
     function collectErrorNodesFromQuery(tree: Tree, queryCaptures?: QueryCaptures): SyntaxNode[] | null {
         if (!queryCaptures) return null;
 
         try {
-            return queryCaptures(tree, ERROR_NODES_QUERY)
+            return queryCaptures(tree, ParserQueryBank.errorNodes)
                 .map((capture) => capture.node)
                 .filter((node) => node.type === 'ERROR');
         } catch {

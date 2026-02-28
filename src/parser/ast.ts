@@ -1,16 +1,11 @@
 import { ParserTypes } from './types';
+import { ParserQueryBank } from './query-bank';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
 type QueryCapture = ParserTypes.QueryCapture;
 
 type QueryCaptures = (tree: Tree, querySource: string) => QueryCapture[];
-
-const DIRECTIVES_QUERY = `
-    (directive) @directive
-    (directive_start) @directive_start
-    (directive_end) @directive_end
-`;
 
 export namespace ParserAst {
     /**
@@ -25,7 +20,7 @@ export namespace ParserAst {
      */
     export function getAllDirectives(tree: Tree, queryCaptures: QueryCaptures): SyntaxNode[] {
         try {
-            return queryCaptures(tree, DIRECTIVES_QUERY).map((capture) => capture.node);
+            return queryCaptures(tree, ParserQueryBank.directives).map((capture) => capture.node);
         } catch {
             const directives: SyntaxNode[] = [];
             collectDirectives(tree.rootNode, directives);

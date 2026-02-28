@@ -31,6 +31,7 @@ import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
 import { Diagnostics } from './providers/diagnostics';
+import { DiagnosticStore } from './providers/diagnostic-store';
 import {
     getDirectiveParameterName,
     getSlotCompletionSyntax,
@@ -81,7 +82,7 @@ export namespace Server {
         return tree;
     }
 
-    function buildDocumentDiagnostics(document: TextDocument): Diagnostic[] {
+    function collectDocumentDiagnostics(document: TextDocument): Record<DiagnosticStore.Kind, Diagnostic[]> {
         const source = document.getText();
         const tree = parseDocument(document);
 
@@ -97,7 +98,11 @@ export namespace Server {
         }));
 
         const semanticDiagnostics = Diagnostics.analyze(source, tree);
-        return [...syntaxDiagnostics, ...semanticDiagnostics];
+
+        return {
+            syntax: syntaxDiagnostics,
+            semantic: semanticDiagnostics,
+        };
     }
 
     const SEVERITY_MAP: Record<string, DiagnosticSeverity> = {
@@ -113,12 +118,13 @@ export namespace Server {
     const build = (externalConn?: Connection) => {
         Container.build(externalConn);
         const { connection: conn, documents: docs, treeCache: cache } = Container.get();
+        const diagnosticStore = DiagnosticStore.create();
 
         function publishDiagnosticsForDocument(document: TextDocument): void {
-            conn.sendDiagnostics({
-                uri: document.uri,
-                diagnostics: buildDocumentDiagnostics(document),
-            });
+            const merged = diagnosticStore.update(document.uri, collectDocumentDiagnostics(document));
+            if (!merged) return;
+
+            conn.sendDiagnostics({ uri: document.uri, diagnostics: merged });
         }
 
         function publishDiagnosticsForAllOpenDocuments(): void {
@@ -333,6 +339,7 @@ export namespace Server {
 
         docs.onDidClose((event) => {
             cache.delete(event.document.uri);
+            diagnosticStore.delete(event.document.uri);
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
 

@@ -1,4 +1,5 @@
 import { ParserTypes } from './types';
+import { ParserQueryBank } from './query-bank';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
@@ -6,11 +7,6 @@ type QueryCapture = ParserTypes.QueryCapture;
 
 type FindNodeAtPosition = (tree: Tree, row: number, column: number) => SyntaxNode | null;
 type QueryCaptures = (tree: Tree, querySource: string) => QueryCapture[];
-
-const COMPONENT_TAG_QUERY = `
-    (start_tag (tag_name) @tag_name)
-    (self_closing_tag (tag_name) @tag_name)
-`;
 
 function isPositionWithinNode(node: SyntaxNode, row: number, column: number): boolean {
     const start = node.startPosition;
@@ -171,7 +167,7 @@ export namespace ParserComponents {
     function getAllComponentReferencesFromQuery(tree: Tree, queryCaptures: QueryCaptures): ComponentReference[] {
         const refs: ComponentReference[] = [];
 
-        for (const capture of queryCaptures(tree, COMPONENT_TAG_QUERY)) {
+        for (const capture of queryCaptures(tree, ParserQueryBank.componentTagNames)) {
             if (capture.name !== 'tag_name') continue;
 
             const tagName = capture.node.text;
@@ -195,7 +191,7 @@ export namespace ParserComponents {
     ): string | null {
         let best: { node: SyntaxNode; tagName: string } | null = null;
 
-        for (const capture of queryCaptures(tree, COMPONENT_TAG_QUERY)) {
+        for (const capture of queryCaptures(tree, ParserQueryBank.componentTagNames)) {
             if (capture.name !== 'tag_name') continue;
 
             const tagName = capture.node.text;
@@ -224,7 +220,7 @@ export namespace ParserComponents {
         let bestTagNode: SyntaxNode | null = null;
         let bestTagName: string | null = null;
 
-        for (const capture of queryCaptures(tree, COMPONENT_TAG_QUERY)) {
+        for (const capture of queryCaptures(tree, ParserQueryBank.componentTagNames)) {
             if (capture.name !== 'tag_name') continue;
 
             const tagName = capture.node.text;

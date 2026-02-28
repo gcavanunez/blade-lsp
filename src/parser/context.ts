@@ -1,4 +1,5 @@
 import { ParserTypes } from './types';
+import { ParserQueryBank } from './query-bank';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
@@ -6,14 +7,6 @@ type QueryCapture = ParserTypes.QueryCapture;
 
 type FindNodeAtPosition = (tree: Tree, row: number, column: number) => SyntaxNode | null;
 type QueryCaptures = (tree: Tree, querySource: string, node?: SyntaxNode) => QueryCapture[];
-
-const PARAMETER_QUERY = '(parameter) @parameter';
-const PHP_ONLY_QUERY = '(php_only) @php_only';
-const PHP_STATEMENT_QUERY = '(php_statement) @php_statement';
-const COMMENT_QUERY = '(comment) @comment';
-const DIRECTIVE_QUERY = `(directive) @directive
-    (directive_start) @directive_start
-`;
 
 function isPositionWithinNode(node: SyntaxNode, row: number, column: number): boolean {
     if (row < node.startPosition.row || row > node.endPosition.row) return false;
@@ -72,7 +65,13 @@ export namespace ParserContext {
         findNodeAtPosition: FindNodeAtPosition,
         queryCaptures?: QueryCaptures,
     ): boolean {
-        const parameterNode = findNarrowestCaptureAtPosition(tree, row, column, PARAMETER_QUERY, queryCaptures);
+        const parameterNode = findNarrowestCaptureAtPosition(
+            tree,
+            row,
+            column,
+            ParserQueryBank.parameter,
+            queryCaptures,
+        );
         if (parameterNode) {
             return true;
         }
@@ -100,14 +99,14 @@ export namespace ParserContext {
         findNodeAtPosition: FindNodeAtPosition,
         queryCaptures?: QueryCaptures,
     ): boolean {
-        const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, PHP_ONLY_QUERY, queryCaptures);
+        const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, ParserQueryBank.phpOnly, queryCaptures);
         if (phpOnlyNode) {
             return true;
         }
 
         if (queryCaptures) {
             try {
-                for (const capture of queryCaptures(tree, PHP_STATEMENT_QUERY)) {
+                for (const capture of queryCaptures(tree, ParserQueryBank.phpStatement)) {
                     if (!isPositionWithinNode(capture.node, row, column)) continue;
 
                     const firstChild = capture.node.child(0);
@@ -185,7 +184,7 @@ export namespace ParserContext {
             if (queryCaptures) {
                 try {
                     let best: SyntaxNode | null = null;
-                    for (const capture of queryCaptures(tree, DIRECTIVE_QUERY)) {
+                    for (const capture of queryCaptures(tree, ParserQueryBank.directiveNodes)) {
                         if (!isPositionWithinNode(capture.node, row, column)) continue;
                         if (!best || isStrictlyNarrowerRange(capture.node, best)) {
                             best = capture.node;
@@ -223,7 +222,7 @@ export namespace ParserContext {
             };
         }
 
-        const commentNode = findNarrowestCaptureAtPosition(tree, row, column, COMMENT_QUERY, queryCaptures);
+        const commentNode = findNarrowestCaptureAtPosition(tree, row, column, ParserQueryBank.comment, queryCaptures);
         if (commentNode || node?.type === 'comment') {
             return {
                 type: 'comment',
@@ -232,7 +231,7 @@ export namespace ParserContext {
             };
         }
 
-        const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, PHP_ONLY_QUERY, queryCaptures);
+        const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, ParserQueryBank.phpOnly, queryCaptures);
         if (phpOnlyNode) {
             const parent = phpOnlyNode.parent;
             if (parent?.type === 'php_statement') {

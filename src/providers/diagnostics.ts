@@ -18,7 +18,7 @@ import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
-import { BladeAnalysis } from './analysis';
+import { Lexer } from '../parser/lexer';
 
 export namespace Diagnostics {
     export const Code = {
@@ -91,12 +91,12 @@ export namespace Diagnostics {
      */
     export function analyze(source: string, tree?: BladeParser.Tree): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
-        const analysis = BladeAnalysis.build(source);
+        const lexedSource = Lexer.lexSource(source);
 
         diagnostics.push(...getUndefinedViewDiagnostics(source));
         diagnostics.push(...getUndefinedComponentDiagnostics(source, tree));
-        diagnostics.push(...getUnclosedDirectiveDiagnosticsFromAnalysis(analysis));
-        diagnostics.push(...getInvalidMethodDiagnosticsFromAnalysis(analysis));
+        diagnostics.push(...getUnclosedDirectiveDiagnosticsFromLexedSource(lexedSource));
+        diagnostics.push(...getInvalidMethodDiagnosticsFromLexedSource(lexedSource));
 
         return diagnostics;
     }
@@ -366,14 +366,14 @@ export namespace Diagnostics {
     /**
      * Scan source lines and collect all block/closing directive occurrences.
      */
-    function scanDirectiveOccurrences(analysis: BladeAnalysis.SourceAnalysis): DirectiveOccurrence[] {
+    function scanDirectiveOccurrences(lexedSource: Lexer.LexedSource): DirectiveOccurrence[] {
         const occurrences: DirectiveOccurrence[] = [];
 
-        for (const token of analysis.directiveTokens) {
+        for (const token of lexedSource.directiveTokens) {
             const name = token.name;
             if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
 
-            const line = analysis.lines[token.line] ?? '';
+            const line = lexedSource.lines[token.line] ?? '';
             const afterDirective = line.slice(token.colEnd);
             if (isInlineDirective(name, afterDirective)) continue;
 
@@ -402,9 +402,9 @@ export namespace Diagnostics {
         return false;
     }
 
-    function getUnclosedDirectiveDiagnosticsFromAnalysis(analysis: BladeAnalysis.SourceAnalysis): Diagnostic[] {
+    function getUnclosedDirectiveDiagnosticsFromLexedSource(lexedSource: Lexer.LexedSource): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
-        const occurrences = scanDirectiveOccurrences(analysis);
+        const occurrences = scanDirectiveOccurrences(lexedSource);
 
         const stack: DirectiveOccurrence[] = [];
 
@@ -445,7 +445,7 @@ export namespace Diagnostics {
     }
 
     export function getUnclosedDirectiveDiagnostics(source: string): Diagnostic[] {
-        return getUnclosedDirectiveDiagnosticsFromAnalysis(BladeAnalysis.build(source));
+        return getUnclosedDirectiveDiagnosticsFromLexedSource(Lexer.lexSource(source));
     }
 
     /**
@@ -476,13 +476,13 @@ export namespace Diagnostics {
         };
     }
 
-    function getInvalidMethodDiagnosticsFromAnalysis(analysis: BladeAnalysis.SourceAnalysis): Diagnostic[] {
+    function getInvalidMethodDiagnosticsFromLexedSource(lexedSource: Lexer.LexedSource): Diagnostic[] {
         const diagnostics: Diagnostic[] = [];
 
-        for (const token of analysis.directiveTokens) {
+        for (const token of lexedSource.directiveTokens) {
             if (token.name !== '@method') continue;
 
-            const line = analysis.lines[token.line] ?? '';
+            const line = lexedSource.lines[token.line] ?? '';
             const invocation = getMethodInvocationInfo(line, token.colEnd);
             if (!invocation) continue;
 
@@ -502,6 +502,6 @@ export namespace Diagnostics {
     }
 
     export function getInvalidMethodDiagnostics(source: string): Diagnostic[] {
-        return getInvalidMethodDiagnosticsFromAnalysis(BladeAnalysis.build(source));
+        return getInvalidMethodDiagnosticsFromLexedSource(Lexer.lexSource(source));
     }
 }

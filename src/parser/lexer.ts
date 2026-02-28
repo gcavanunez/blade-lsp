@@ -1,4 +1,4 @@
-export namespace BladeLexer {
+export namespace Lexer {
     export interface DirectiveToken {
         kind: 'directive';
         name: string;
@@ -7,6 +7,11 @@ export namespace BladeLexer {
         colEnd: number;
         offsetStart: number;
         offsetEnd: number;
+    }
+
+    export interface LexedSource {
+        lines: string[];
+        directiveTokens: DirectiveToken[];
     }
 
     function isDirectiveStartChar(ch: string | undefined): boolean {
@@ -155,5 +160,12 @@ export namespace BladeLexer {
         }
 
         return tokens;
+    }
+
+    export function lexSource(source: string): LexedSource {
+        return {
+            lines: source.split('\n'),
+            directiveTokens: collectDirectiveTokens(source),
+        };
     }
 }
