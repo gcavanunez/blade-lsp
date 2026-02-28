@@ -9,7 +9,6 @@ import { Project } from './project';
 import type { FrameworkType } from './types';
 
 export namespace PhpRunner {
-
     export const ScriptNotFoundError = NamedError.create(
         'PhpRunnerScriptNotFoundError',
         z.object({

@@ -42,7 +42,6 @@ function formatRefreshError(domain: string, input: Error & { data: { message: st
  * ```
  */
 export function FormatError(input: unknown): string | undefined {
-
     if (PhpRunner.ScriptNotFoundError.isInstance(input)) {
         return `PHP script '${input.data.script}' not found at ${input.data.path}`;
     }

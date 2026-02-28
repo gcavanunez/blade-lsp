@@ -17,7 +17,6 @@ import * as path from 'path';
 import { Log } from '../utils/log';
 
 export namespace PhpEnvironment {
-
     export type Name = 'herd' | 'valet' | 'sail' | 'lando' | 'ddev' | 'local' | 'docker';
 
     export interface Result {
