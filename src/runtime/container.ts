@@ -100,7 +100,7 @@ export namespace Container {
         const DocumentsLive = Layer.succeed(DocumentsService, new TextDocuments(TextDocument));
 
         const ParserLive = Layer.succeed(ParserService, {
-            initialize: (backend: 'native' | 'wasm') => BladeParser.initialize(backend),
+            initialize: () => BladeParser.initialize(),
             parse: (source: string) => BladeParser.parse(source),
         } satisfies ParserApi);
 

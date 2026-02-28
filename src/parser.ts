@@ -1,14 +1,14 @@
 /**
  * Tree-sitter based Blade parser.
  *
- * Public API for all tree-sitter operations. Delegates to either the native
- * (node-gyp) or WASM (web-tree-sitter) backend. The backend is selected
- * at initialization time -- all analysis functions are backend-agnostic.
+ * Public API for all tree-sitter operations.
+ *
+ * Uses the WASM backend (web-tree-sitter) for a portable runtime with no
+ * native compilation requirements.
  */
 
 import { MutableRef } from 'effect';
 import { ParserTypes } from './parser/types';
-import { NativeBackend } from './parser/native';
 import { WasmBackend } from './parser/wasm';
 import { ParserContext } from './parser/context';
 import { ParserComponents } from './parser/components';
@@ -24,13 +24,12 @@ export namespace BladeParser {
     const queryCache = new Map<string, ParserTypes.CompiledQuery>();
 
     /**
-     * Initialize the parser with the chosen backend.
-     * Defaults to 'wasm' for portable npm distribution.
+     * Initialize the parser.
      *
      * Stores the backend in the service container's `parserBackend` MutableRef.
      */
-    export async function initialize(type: 'native' | 'wasm' = 'wasm'): Promise<void> {
-        const backend = type === 'native' ? NativeBackend.create() : WasmBackend.create();
+    export async function initialize(): Promise<void> {
+        const backend = WasmBackend.create();
         await backend.initialize();
         MutableRef.set(Container.get().parserBackend, backend);
         queryCache.clear();

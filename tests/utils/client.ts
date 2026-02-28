@@ -106,7 +106,6 @@ let docCounter = 0;
 export async function createClient(options: ClientOptions = {}): Promise<Client> {
     const rootUri = options.rootUri ?? 'file:///test/project';
     const settings = options.settings ?? {
-        parserBackend: 'wasm',
         enableLaravelIntegration: false,
     };
 
