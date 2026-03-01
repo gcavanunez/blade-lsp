@@ -3,7 +3,7 @@
  *
  * Public API for all tree-sitter operations.
  *
- * Uses the WASM backend (web-tree-sitter) for a portable runtime with no
+ * Uses the WASM parser runtime (web-tree-sitter) for a portable setup with no
  * native compilation requirements.
  */
 
@@ -26,12 +26,12 @@ export namespace BladeParser {
     /**
      * Initialize the parser.
      *
-     * Stores the backend in the service container's `parserBackend` MutableRef.
+     * Stores the parser runtime in the service container's `parserRuntime` MutableRef.
      */
     export async function initialize(): Promise<void> {
-        const backend = WasmBackend.create();
-        await backend.initialize();
-        MutableRef.set(Container.get().parserBackend, backend);
+        const runtime = WasmBackend.create();
+        await runtime.initialize();
+        MutableRef.set(Container.get().parserRuntime, runtime);
         queryCache.clear();
     }
 
@@ -39,20 +39,20 @@ export namespace BladeParser {
      * Parse a Blade template and return the syntax tree.
      */
     export function parse(source: string): Tree {
-        const backend = MutableRef.get(Container.get().parserBackend);
-        if (!backend) {
+        const runtime = MutableRef.get(Container.get().parserRuntime);
+        if (!runtime) {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
-        return backend.parse(source);
+        return runtime.parse(source);
     }
 
     function getQueryCaptures(tree: Tree, querySource: string, node: SyntaxNode = tree.rootNode): QueryCapture[] {
-        const backend = MutableRef.get(Container.get().parserBackend);
-        if (!backend) {
+        const runtime = MutableRef.get(Container.get().parserRuntime);
+        if (!runtime) {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
 
-        const compiled = queryCache.get(querySource) ?? backend.compileQuery(querySource);
+        const compiled = queryCache.get(querySource) ?? runtime.compileQuery(querySource);
         queryCache.set(querySource, compiled);
 
         return compiled.captures(node);
