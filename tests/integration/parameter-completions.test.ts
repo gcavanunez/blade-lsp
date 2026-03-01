@@ -1,12 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createClient, type Client } from '../utils/client';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
 
 describe('Parameter Completions (Integration)', () => {
     let client: Client;
+    let workspaceRoot = '';
 
     beforeAll(async () => {
+        workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-parameter-completions-'));
+
         client = await createClient({
+            rootUri: `file://${workspaceRoot}`,
             settings: {
                 enableLaravelIntegration: false,
             },
@@ -17,6 +24,9 @@ describe('Parameter Completions (Integration)', () => {
     afterAll(async () => {
         await client.shutdown();
         clearMockLaravel();
+        if (workspaceRoot) {
+            await rm(workspaceRoot, { recursive: true, force: true });
+        }
     });
 
     describe('parameter completions', () => {
@@ -165,6 +175,62 @@ describe('Parameter Completions (Integration)', () => {
             for (const expectedLabel of expectedLabels) {
                 expect(labels, `Got labels: [${labels.join(', ')}]`).toContain(expectedLabel);
             }
+
+            await doc.close();
+        });
+    });
+
+    describe('layout-aware section and stack completions', () => {
+        beforeAll(async () => {
+            const layoutPath = path.join(workspaceRoot, 'resources', 'views', 'layouts');
+            await mkdir(layoutPath, { recursive: true });
+            await writeFile(
+                path.join(layoutPath, 'app.blade.php'),
+                `<html>\n<body>\n@yield('hero')\n@yield('content')\n@yield("sidebar")\n@stack('head')\n@stack("scripts")\n</body>\n</html>\n`,
+                'utf-8',
+            );
+
+            installMockLaravel({
+                project: {
+                    root: workspaceRoot,
+                },
+                views: [
+                    {
+                        key: 'layouts.app',
+                        path: 'resources/views/layouts/app.blade.php',
+                        isVendor: false,
+                    },
+                ],
+            });
+        });
+
+        it('offers section names from the parent layout', async () => {
+            const doc = await client.open({
+                name: 'resources/views/users/index.blade.php',
+                text: "@extends('layouts.app')\n@section('",
+            });
+
+            const items = await doc.completions(1, 10);
+            const labels = items.map((item) => item.label);
+
+            expect(labels).toContain('hero');
+            expect(labels).toContain('content');
+            expect(labels).toContain('sidebar');
+
+            await doc.close();
+        });
+
+        it('offers stack names from the parent layout', async () => {
+            const doc = await client.open({
+                name: 'resources/views/users/index.blade.php',
+                text: "@extends('layouts.app')\n@push('",
+            });
+
+            const items = await doc.completions(1, 7);
+            const labels = items.map((item) => item.label);
+
+            expect(labels).toContain('head');
+            expect(labels).toContain('scripts');
 
             await doc.close();
         });

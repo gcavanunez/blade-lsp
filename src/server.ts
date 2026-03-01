@@ -431,7 +431,7 @@ export namespace Server {
 
                 const directiveName = getDirectiveParameterName(textBeforeCursor);
                 if (directiveName) {
-                    items.push(...Completions.getParameterCompletions(directiveName));
+                    items.push(...Completions.getParameterCompletions(directiveName, { source }));
                 }
             } else if (context.type === 'echo') {
                 items.push(...Completions.getLaravelHelperCompletions());
@@ -440,7 +440,7 @@ export namespace Server {
                 const textBeforeCursor = line.slice(0, position.character);
                 const directiveName = getDirectiveParameterName(textBeforeCursor);
                 if (directiveName) {
-                    items.push(...Completions.getParameterCompletions(directiveName));
+                    items.push(...Completions.getParameterCompletions(directiveName, { source }));
                 }
             }
 
