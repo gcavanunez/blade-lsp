@@ -30,6 +30,18 @@ export namespace Completions {
         path: string;
     }
 
+    export interface ParameterCompletionContext {
+        source?: string;
+    }
+
+    interface LayoutDirectiveInfo {
+        sections: string[];
+        stacks: string[];
+    }
+
+    const DEFAULT_SECTION_NAMES = ['content', 'title', 'scripts', 'styles'] as const;
+    const DEFAULT_STACK_NAMES = ['scripts', 'styles'] as const;
+
     export function createDirectiveItem(directive: BladeDirectives.Directive, prefix: string): CompletionItem {
         return {
             label: directive.name,
@@ -262,8 +274,79 @@ export namespace Completions {
         }));
     }
 
-    export function getParameterCompletions(directiveName: string): CompletionItem[] {
+    function createValueItem(label: string, detail: string): CompletionItem {
+        return {
+            label,
+            kind: CompletionItemKind.Value,
+            detail,
+        };
+    }
+
+    function unique(values: string[]): string[] {
+        return [...new Set(values)];
+    }
+
+    function toRelativeViewPath(viewName: string): string | null {
+        const [namespace, scoped] = viewName.split('::');
+        const normalize = (value: string) =>
+            value
+                .trim()
+                .replace(/\//g, '.')
+                .replace(/\.+/g, '.')
+                .replace(/^\.|\.$/g, '');
+
+        if (scoped !== undefined) {
+            const ns = normalize(namespace);
+            const normalizedScoped = normalize(scoped);
+            if (!ns || !normalizedScoped) return null;
+            return `resources/views/vendor/${ns}/${normalizedScoped.replace(/\./g, '/')}.blade.php`;
+        }
+
+        const normalized = normalize(viewName);
+        if (!normalized) return null;
+        return `resources/views/${normalized.replace(/\./g, '/')}.blade.php`;
+    }
+
+    function collectDirectiveStringArgs(content: string, pattern: RegExp): string[] {
+        const values: string[] = [];
+        let match: RegExpExecArray | null;
+        pattern.lastIndex = 0;
+
+        while ((match = pattern.exec(content)) !== null) {
+            if (match[1]) {
+                values.push(match[1]);
+            }
+        }
+
+        return unique(values);
+    }
+
+    function getLayoutDirectiveInfo(source: string | undefined): LayoutDirectiveInfo | null {
+        if (!source) return null;
+
+        const extendsMatch = source.match(/@extends\s*\(\s*['"]([^'"]+)['"]/);
+        const layoutViewName = extendsMatch?.[1];
+        if (!layoutViewName) return null;
+
+        const knownLayout = Laravel.isAvailable() ? Views.find(layoutViewName) : undefined;
+        const relativePath = knownLayout?.path ?? toRelativeViewPath(layoutViewName);
+        if (!relativePath) return null;
+
+        const file = ProjectFile.read(relativePath);
+        if (!file) return null;
+
+        return {
+            sections: collectDirectiveStringArgs(file.content, /@yield\s*\(\s*['"]([^'"]+)['"]/g),
+            stacks: collectDirectiveStringArgs(file.content, /@stack\s*\(\s*['"]([^'"]+)['"]/g),
+        };
+    }
+
+    export function getParameterCompletions(
+        directiveName: string,
+        context: ParameterCompletionContext = {},
+    ): CompletionItem[] {
         const items: CompletionItem[] = [];
+        const layoutInfo = getLayoutDirectiveInfo(context.source);
 
         switch (directiveName) {
             case 'extends':
@@ -291,10 +374,20 @@ export namespace Completions {
             case 'section':
             case 'yield':
                 items.push(
-                    { label: 'content', kind: CompletionItemKind.Value, detail: 'Main content' },
-                    { label: 'title', kind: CompletionItemKind.Value, detail: 'Page title' },
-                    { label: 'scripts', kind: CompletionItemKind.Value, detail: 'JavaScript' },
-                    { label: 'styles', kind: CompletionItemKind.Value, detail: 'CSS styles' },
+                    ...unique([...(layoutInfo?.sections ?? []), ...DEFAULT_SECTION_NAMES]).map((label) =>
+                        createValueItem(
+                            label,
+                            layoutInfo?.sections.includes(label)
+                                ? 'Section from parent layout'
+                                : label === 'content'
+                                  ? 'Main content'
+                                  : label === 'title'
+                                    ? 'Page title'
+                                    : label === 'scripts'
+                                      ? 'JavaScript'
+                                      : 'CSS styles',
+                        ),
+                    ),
                 );
                 break;
 
@@ -328,8 +421,16 @@ export namespace Completions {
             case 'push':
             case 'stack':
                 items.push(
-                    { label: 'scripts', kind: CompletionItemKind.Value, detail: 'JavaScript stack' },
-                    { label: 'styles', kind: CompletionItemKind.Value, detail: 'CSS stack' },
+                    ...unique([...(layoutInfo?.stacks ?? []), ...DEFAULT_STACK_NAMES]).map((label) =>
+                        createValueItem(
+                            label,
+                            layoutInfo?.stacks.includes(label)
+                                ? 'Stack from parent layout'
+                                : label === 'scripts'
+                                  ? 'JavaScript stack'
+                                  : 'CSS stack',
+                        ),
+                    ),
                 );
                 break;
 
