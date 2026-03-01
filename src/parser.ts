@@ -1,14 +1,14 @@
 /**
  * Tree-sitter based Blade parser.
  *
- * Public API for all tree-sitter operations. Delegates to either the native
- * (node-gyp) or WASM (web-tree-sitter) backend. The backend is selected
- * at initialization time -- all analysis functions are backend-agnostic.
+ * Public API for all tree-sitter operations.
+ *
+ * Uses the WASM parser runtime (web-tree-sitter) for a portable setup with no
+ * native compilation requirements.
  */
 
 import { MutableRef } from 'effect';
 import { ParserTypes } from './parser/types';
-import { NativeBackend } from './parser/native';
 import { WasmBackend } from './parser/wasm';
 import { ParserContext } from './parser/context';
 import { ParserComponents } from './parser/components';
@@ -24,15 +24,14 @@ export namespace BladeParser {
     const queryCache = new Map<string, ParserTypes.CompiledQuery>();
 
     /**
-     * Initialize the parser with the chosen backend.
-     * Defaults to 'wasm' for portable npm distribution.
+     * Initialize the parser.
      *
-     * Stores the backend in the service container's `parserBackend` MutableRef.
+     * Stores the parser runtime in the service container's `parserRuntime` MutableRef.
      */
-    export async function initialize(type: 'native' | 'wasm' = 'wasm'): Promise<void> {
-        const backend = type === 'native' ? NativeBackend.create() : WasmBackend.create();
-        await backend.initialize();
-        MutableRef.set(Container.get().parserBackend, backend);
+    export async function initialize(): Promise<void> {
+        const runtime = WasmBackend.create();
+        await runtime.initialize();
+        MutableRef.set(Container.get().parserRuntime, runtime);
         queryCache.clear();
     }
 
@@ -40,20 +39,20 @@ export namespace BladeParser {
      * Parse a Blade template and return the syntax tree.
      */
     export function parse(source: string): Tree {
-        const backend = MutableRef.get(Container.get().parserBackend);
-        if (!backend) {
+        const runtime = MutableRef.get(Container.get().parserRuntime);
+        if (!runtime) {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
-        return backend.parse(source);
+        return runtime.parse(source);
     }
 
     function getQueryCaptures(tree: Tree, querySource: string, node: SyntaxNode = tree.rootNode): QueryCapture[] {
-        const backend = MutableRef.get(Container.get().parserBackend);
-        if (!backend) {
+        const runtime = MutableRef.get(Container.get().parserRuntime);
+        if (!runtime) {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
 
-        const compiled = queryCache.get(querySource) ?? backend.compileQuery(querySource);
+        const compiled = queryCache.get(querySource) ?? runtime.compileQuery(querySource);
         queryCache.set(querySource, compiled);
 
         return compiled.captures(node);

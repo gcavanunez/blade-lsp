@@ -31,7 +31,7 @@ import {
     TreeCacheService,
     LaravelStateService,
     WatchCapabilityService,
-    ParserBackendService,
+    ParserRuntimeService,
     LaravelInitPromiseService,
     LaravelRefreshResultService,
 } from './services';
@@ -49,7 +49,7 @@ export namespace Container {
         readonly treeCache: Map<string, BladeParser.Tree>;
         readonly laravelState: MutableRef.MutableRef<LaravelContext.State | null>;
         readonly watchCapability: MutableRef.MutableRef<boolean>;
-        readonly parserBackend: MutableRef.MutableRef<ParserTypes.Backend | null>;
+        readonly parserRuntime: MutableRef.MutableRef<ParserTypes.Runtime | null>;
         readonly laravelInitPromise: MutableRef.MutableRef<Promise<boolean> | null>;
         readonly laravelRefreshResult: MutableRef.MutableRef<Laravel.RefreshResult | null>;
     }
@@ -100,7 +100,7 @@ export namespace Container {
         const DocumentsLive = Layer.succeed(DocumentsService, new TextDocuments(TextDocument));
 
         const ParserLive = Layer.succeed(ParserService, {
-            initialize: (backend: 'native' | 'wasm') => BladeParser.initialize(backend),
+            initialize: () => BladeParser.initialize(),
             parse: (source: string) => BladeParser.parse(source),
         } satisfies ParserApi);
 
@@ -124,7 +124,7 @@ export namespace Container {
             Layer.succeed(TreeCacheService, new Map<string, BladeParser.Tree>()),
             Layer.succeed(LaravelStateService, MutableRef.make<LaravelContext.State | null>(null)),
             Layer.succeed(WatchCapabilityService, MutableRef.make<boolean>(false)),
-            Layer.succeed(ParserBackendService, MutableRef.make<ParserTypes.Backend | null>(null)),
+            Layer.succeed(ParserRuntimeService, MutableRef.make<ParserTypes.Runtime | null>(null)),
             Layer.succeed(LaravelInitPromiseService, MutableRef.make<Promise<boolean> | null>(null)),
             Layer.succeed(LaravelRefreshResultService, MutableRef.make<Laravel.RefreshResult | null>(null)),
         );
@@ -153,7 +153,7 @@ export namespace Container {
             treeCache: runtime.runSync(TreeCacheService),
             laravelState: runtime.runSync(LaravelStateService),
             watchCapability: runtime.runSync(WatchCapabilityService),
-            parserBackend: runtime.runSync(ParserBackendService),
+            parserRuntime: runtime.runSync(ParserRuntimeService),
             laravelInitPromise: runtime.runSync(LaravelInitPromiseService),
             laravelRefreshResult: runtime.runSync(LaravelRefreshResultService),
         });

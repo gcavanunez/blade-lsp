@@ -5,7 +5,7 @@ import { ensureContainer } from '../utils/laravel-mock';
 describe('BladeParser', () => {
     beforeAll(async () => {
         ensureContainer();
-        await BladeParser.initialize('wasm');
+        await BladeParser.initialize();
     });
 
     describe('parse', () => {

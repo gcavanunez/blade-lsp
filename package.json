@@ -29,16 +29,13 @@
         "web-tree-sitter": "^0.26.5",
         "zod": "^4.3.6"
     },
-    "optionalDependencies": {
-        "tree-sitter": "^0.25.0",
-        "tree-sitter-blade": "github:EmranMR/tree-sitter-blade#v0.12.3"
-    },
     "devDependencies": {
         "@eslint/js": "^9.39.2",
         "@types/node": "^22.0.0",
         "eslint": "^9.39.2",
         "eslint-config-prettier": "^10.1.8",
         "prettier": "^3.8.1",
+        "tree-sitter-blade": "github:EmranMR/tree-sitter-blade#v0.12.3",
         "tree-sitter-cli": "^0.25.6",
         "tsx": "^4.19.0",
         "typescript": "^5.4.0",
