@@ -36,6 +36,40 @@ describe('Hovers', () => {
         });
     });
 
+    describe('formatCustomDirective', () => {
+        it('formats custom directives with parameter usage', () => {
+            const result = Hovers.formatCustomDirective({
+                name: 'datetime',
+                hasParams: true,
+            });
+
+            expect(result).toContain('@datetime');
+            expect(result).toContain("('...')");
+        });
+
+        it('formats custom directives without parameter usage', () => {
+            const result = Hovers.formatCustomDirective({
+                name: 'admin',
+                hasParams: false,
+            });
+
+            expect(result).toContain('@admin');
+            expect(result).not.toContain("('...')");
+        });
+    });
+
+    describe('getDirectiveNameAtColumn', () => {
+        it('returns directive name when cursor is on directive', () => {
+            const value = Hovers.getDirectiveNameAtColumn('@datetime($value)', 4);
+            expect(value).toBe('@datetime');
+        });
+
+        it('ignores email-like @ usages', () => {
+            const value = Hovers.getDirectiveNameAtColumn('support@example.com', 10);
+            expect(value).toBeNull();
+        });
+    });
+
     describe('formatLoopVariable', () => {
         it('returns markdown with all $loop properties', () => {
             const result = Hovers.formatLoopVariable();
