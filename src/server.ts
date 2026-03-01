@@ -4,6 +4,8 @@ import {
     InitializeResult,
     TextDocumentSyncKind,
     CompletionItem,
+    CodeAction,
+    CodeActionParams,
     Hover,
     Diagnostic,
     DiagnosticSeverity,
@@ -31,6 +33,7 @@ import { tryAsync } from './utils/try-async';
 import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
+import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
 import {
@@ -186,6 +189,7 @@ export namespace Server {
                     },
                     hoverProvider: true,
                     definitionProvider: true,
+                    codeActionProvider: true,
                 },
             };
         });
@@ -533,6 +537,18 @@ export namespace Server {
             }
 
             return null;
+        });
+
+        conn.onCodeAction((params: CodeActionParams): CodeAction[] => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return [];
+
+            const workspaceRoot = MutableRef.get(Container.get().workspaceRoot);
+            return CodeActions.getScaffoldActions({
+                document,
+                diagnostics: params.context.diagnostics,
+                workspaceRoot,
+            });
         });
 
         docs.listen(conn);
