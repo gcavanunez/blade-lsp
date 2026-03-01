@@ -5,7 +5,7 @@ import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
-import type { ComponentProp } from '../laravel/types';
+import type { ComponentProp, CustomDirective } from '../laravel/types';
 
 export namespace Hovers {
     /**
@@ -64,6 +64,36 @@ export namespace Hovers {
             content += '\n```';
         }
         return content;
+    }
+
+    export function formatCustomDirective(directive: CustomDirective): string {
+        let content = `## @${directive.name}\n\nCustom Blade directive\n\n`;
+        content += directive.hasParams
+            ? '**Usage:** `@' + directive.name + "('...')`"
+            : '**Usage:** `@' + directive.name + '`';
+        return content;
+    }
+
+    export function getDirectiveNameAtColumn(line: string, column: number): string | null {
+        const directivePattern = /@([A-Za-z_][A-Za-z0-9_]*)/g;
+        let match: RegExpExecArray | null;
+
+        while ((match = directivePattern.exec(line)) !== null) {
+            const full = match[0];
+            const start = match.index;
+            const end = start + full.length;
+            const prev = start > 0 ? line[start - 1] : '';
+
+            if (prev && /[A-Za-z0-9_$]/.test(prev)) {
+                continue;
+            }
+
+            if (column >= start && column <= end) {
+                return full;
+            }
+        }
+
+        return null;
     }
 
     export function formatLoopVariable(): string {

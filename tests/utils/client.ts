@@ -16,6 +16,7 @@ import {
     DidCloseTextDocumentNotification,
     HoverRequest,
     CompletionRequest,
+    CompletionResolveRequest,
     DefinitionRequest,
     CodeActionRequest,
     PublishDiagnosticsNotification,
@@ -60,6 +61,8 @@ export interface ClientDocument {
     hover(line: number, character: number): Promise<Hover | null>;
     /** Send a completion request at the given position */
     completions(line: number, character: number): Promise<CompletionItem[]>;
+    /** Resolve additional docs for a completion item */
+    resolveCompletion(item: CompletionItem): Promise<CompletionItem>;
     /** Send a definition request at the given position */
     definition(line: number, character: number): Promise<Location | Location[] | null>;
     /** Request code actions for current diagnostics */
@@ -223,6 +226,10 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                 if (Array.isArray(result)) return result as CompletionItem[];
                 if (isCompletionList(result)) return result.items;
                 return [];
+            },
+
+            async resolveCompletion(item: CompletionItem): Promise<CompletionItem> {
+                return (await rpc.sendRequest(CompletionResolveRequest.type, item)) as CompletionItem;
             },
 
             async definition(line: number, character: number): Promise<Location | Location[] | null> {
