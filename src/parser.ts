@@ -22,6 +22,7 @@ export namespace BladeParser {
     export type QueryCapture = ParserTypes.QueryCapture;
 
     const queryCache = new Map<string, ParserTypes.CompiledQuery>();
+    let queryCaptureCache = new WeakMap<Tree, Map<string, QueryCapture[]>>();
 
     /**
      * Initialize the parser.
@@ -33,17 +34,18 @@ export namespace BladeParser {
         await runtime.initialize();
         MutableRef.set(Container.get().parserRuntime, runtime);
         queryCache.clear();
+        queryCaptureCache = new WeakMap<Tree, Map<string, QueryCapture[]>>();
     }
 
     /**
      * Parse a Blade template and return the syntax tree.
      */
-    export function parse(source: string): Tree {
+    export function parse(source: string, previousTree?: Tree): Tree {
         const runtime = MutableRef.get(Container.get().parserRuntime);
         if (!runtime) {
             throw new Error('BladeParser not initialized. Call initialize() first.');
         }
-        return runtime.parse(source);
+        return runtime.parse(source, previousTree);
     }
 
     function getQueryCaptures(tree: Tree, querySource: string, node: SyntaxNode = tree.rootNode): QueryCapture[] {
@@ -55,7 +57,21 @@ export namespace BladeParser {
         const compiled = queryCache.get(querySource) ?? runtime.compileQuery(querySource);
         queryCache.set(querySource, compiled);
 
-        return compiled.captures(node);
+        if (node !== tree.rootNode) {
+            return compiled.captures(node);
+        }
+
+        const treeCache = queryCaptureCache.get(tree) ?? new Map<string, QueryCapture[]>();
+        queryCaptureCache.set(tree, treeCache);
+
+        const cached = treeCache.get(querySource);
+        if (cached) {
+            return cached;
+        }
+
+        const captures = compiled.captures(node);
+        treeCache.set(querySource, captures);
+        return captures;
     }
 
     /**
