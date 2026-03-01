@@ -96,6 +96,13 @@ describe('BladeParser', () => {
             const ctx = BladeParser.getCompletionContext(tree, source, 0, 4);
             expect(ctx.type).toBe('echo');
         });
+
+        it('detects php context inside php tags', () => {
+            const source = '<?php\n$foo = 1;\n?>\n<div></div>';
+            const tree = BladeParser.parse(source);
+            const ctx = BladeParser.getCompletionContext(tree, source, 1, 2);
+            expect(ctx.type).toBe('php');
+        });
     });
 
     describe('getDiagnostics', () => {

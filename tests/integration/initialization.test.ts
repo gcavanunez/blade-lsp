@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createClient, type Client } from '../utils/client';
-import { TextDocumentSyncKind } from 'vscode-languageserver/node';
+import { CodeActionKind, TextDocumentSyncKind } from 'vscode-languageserver/node';
 
 describe('Server Initialization', () => {
     let client: Client;
@@ -35,5 +35,16 @@ describe('Server Initialization', () => {
     it('reports definition provider', () => {
         const caps = client.initializeResult.capabilities;
         expect(caps.definitionProvider).toBe(true);
+    });
+
+    it('reports code action kinds', () => {
+        const caps = client.initializeResult.capabilities;
+        expect(caps.codeActionProvider).toBeDefined();
+        expect(typeof caps.codeActionProvider).toBe('object');
+
+        const provider = caps.codeActionProvider as { codeActionKinds?: string[] };
+        expect(provider.codeActionKinds).toEqual(
+            expect.arrayContaining([CodeActionKind.QuickFix, CodeActionKind.Refactor, CodeActionKind.RefactorExtract]),
+        );
     });
 });

@@ -142,7 +142,8 @@ export namespace Diagnostics {
         if (!Laravel.isAvailable() || !Laravel.hasLoadedViews()) return [];
 
         const diagnostics: Diagnostic[] = [];
-        const lines = source.split('\n');
+        const maskedSource = Lexer.maskPhpContent(source);
+        const lines = maskedSource.split('\n');
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
             collectUndefinedViewsOnLine(lineNum, lines[lineNum], diagnostics);
@@ -198,7 +199,8 @@ export namespace Diagnostics {
             return diagnostics;
         }
 
-        const lines = source.split('\n');
+        const maskedSource = Lexer.maskPhpContent(source);
+        const lines = maskedSource.split('\n');
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
             const line = lines[lineNum];
