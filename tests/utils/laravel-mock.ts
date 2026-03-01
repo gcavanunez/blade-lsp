@@ -201,6 +201,7 @@ export function ensureContainer(): void {
         settings: MutableRef.make({}),
         workspaceRoot: MutableRef.make<string | null>('/test/project'),
         treeCache: new Map(),
+        documentSourceCache: new Map(),
         laravelState: MutableRef.make<LaravelContext.State | null>(null),
         watchCapability: MutableRef.make(false),
         parserRuntime: MutableRef.make(null),
