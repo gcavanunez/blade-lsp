@@ -109,12 +109,12 @@ export class WatchCapabilityService extends Context.Tag('WatchCapabilityService'
 >() {}
 
 /**
- * Mutable reference to the active tree-sitter parser backend.
+ * Mutable reference to the active tree-sitter parser runtime.
  * `null` until `BladeParser.initialize()` is called.
  */
-export class ParserBackendService extends Context.Tag('ParserBackendService')<
-    ParserBackendService,
-    MutableRef.MutableRef<ParserTypes.Backend | null>
+export class ParserRuntimeService extends Context.Tag('ParserRuntimeService')<
+    ParserRuntimeService,
+    MutableRef.MutableRef<ParserTypes.Runtime | null>
 >() {}
 
 /**

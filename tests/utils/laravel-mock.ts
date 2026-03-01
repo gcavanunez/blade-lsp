@@ -203,7 +203,7 @@ export function ensureContainer(): void {
         treeCache: new Map(),
         laravelState: MutableRef.make<LaravelContext.State | null>(null),
         watchCapability: MutableRef.make(false),
-        parserBackend: MutableRef.make(null),
+        parserRuntime: MutableRef.make(null),
         laravelInitPromise: MutableRef.make(null),
         laravelRefreshResult: MutableRef.make(null),
     });

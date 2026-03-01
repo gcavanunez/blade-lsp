@@ -39,7 +39,7 @@ export namespace ParserTypes {
         captures(node: SyntaxNode): QueryCapture[];
     }
 
-    export interface Backend {
+    export interface Runtime {
         initialize(): Promise<void>;
         parse(source: string): Tree;
         compileQuery(source: string): CompiledQuery;

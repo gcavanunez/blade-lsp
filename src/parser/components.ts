@@ -157,7 +157,7 @@ export namespace ParserComponents {
         try {
             return getAllComponentReferencesFromQuery(tree, queryCaptures);
         } catch {
-            // Fall back to traversal in case the backend does not support queries.
+            // Fall back to traversal in case the parser runtime does not support queries.
             const refs: ComponentReference[] = [];
             collectComponentRefs(tree.rootNode, refs);
             return refs;
