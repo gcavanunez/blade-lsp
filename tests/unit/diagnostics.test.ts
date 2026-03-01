@@ -119,6 +119,18 @@ describe('Diagnostics', () => {
             expect(diags).toEqual([]);
         });
 
+        it('ignores directives inside php tags', () => {
+            const source = '<?php // @if($show)\n$v = "@endif";\n?>\n@if($show)\n@endif';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
+        it('ignores directives inside @php block contents', () => {
+            const source = '@php\n// @if($show)\n$v = "@endif";\n@endphp';
+            const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
+            expect(diags).toEqual([]);
+        });
+
         it('handles @forelse / @endforelse (without @empty clause)', () => {
             const source = '@forelse($items as $item)\n  {{ $item }}\n@endforelse';
             const diags = Diagnostics.getUnclosedDirectiveDiagnostics(source);
@@ -430,6 +442,18 @@ describe('Diagnostics', () => {
                 const diags = Diagnostics.getUndefinedViewDiagnostics(source);
                 expect(diags).toEqual([]);
             });
+
+            it('ignores view helper patterns inside php tags', () => {
+                const source = "<?php\n$tmp = view('missing.view');\n?>\n@include('layouts.app')";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('ignores view helper patterns inside @php blocks', () => {
+                const source = "@php\n$tmp = view('missing.view');\n@endphp";
+                const diags = Diagnostics.getUndefinedViewDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
         });
 
         describe('getUndefinedComponentDiagnostics', () => {
@@ -517,6 +541,18 @@ describe('Diagnostics', () => {
                 state.components.lastUpdated = 0;
 
                 const source = '<x-nonexistent />';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('ignores component-like tags inside php tags', () => {
+                const source = '<?php\n$html = "<x-nonexistent />";\n?>';
+                const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
+                expect(diags).toEqual([]);
+            });
+
+            it('ignores component-like tags inside @php blocks', () => {
+                const source = "@php\n$html = '<x-nonexistent />';\n@endphp";
                 const diags = Diagnostics.getUndefinedComponentDiagnostics(source);
                 expect(diags).toEqual([]);
             });
