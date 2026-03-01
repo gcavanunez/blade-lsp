@@ -6,9 +6,23 @@
  */
 
 export namespace ParserTypes {
-    interface Position {
+    export interface Position {
         row: number;
         column: number;
+    }
+
+    export interface TreeChangeRange {
+        startPosition: Position;
+        endPosition: Position;
+    }
+
+    export interface TreeEdit {
+        startIndex: number;
+        oldEndIndex: number;
+        newEndIndex: number;
+        startPosition: Position;
+        oldEndPosition: Position;
+        newEndPosition: Position;
     }
 
     export interface SyntaxNode {
@@ -27,6 +41,8 @@ export namespace ParserTypes {
 
     export interface Tree {
         rootNode: SyntaxNode;
+        edit?(edit: TreeEdit): void;
+        getChangedRanges?(other: Tree): TreeChangeRange[];
     }
 
     export interface QueryCapture {
@@ -41,7 +57,7 @@ export namespace ParserTypes {
 
     export interface Runtime {
         initialize(): Promise<void>;
-        parse(source: string): Tree;
+        parse(source: string, previousTree?: Tree): Tree;
         compileQuery(source: string): CompiledQuery;
     }
 }

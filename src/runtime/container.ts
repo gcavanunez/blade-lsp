@@ -29,6 +29,7 @@ import {
     SettingsService,
     WorkspaceRootService,
     TreeCacheService,
+    DocumentSourceCacheService,
     LaravelStateService,
     WatchCapabilityService,
     ParserRuntimeService,
@@ -47,6 +48,7 @@ export namespace Container {
         readonly settings: MutableRef.MutableRef<Server.Settings>;
         readonly workspaceRoot: MutableRef.MutableRef<string | null>;
         readonly treeCache: Map<string, BladeParser.Tree>;
+        readonly documentSourceCache: Map<string, string>;
         readonly laravelState: MutableRef.MutableRef<LaravelContext.State | null>;
         readonly watchCapability: MutableRef.MutableRef<boolean>;
         readonly parserRuntime: MutableRef.MutableRef<ParserTypes.Runtime | null>;
@@ -101,7 +103,7 @@ export namespace Container {
 
         const ParserLive = Layer.succeed(ParserService, {
             initialize: () => BladeParser.initialize(),
-            parse: (source: string) => BladeParser.parse(source),
+            parse: (source: string, previousTree?: BladeParser.Tree) => BladeParser.parse(source, previousTree),
         } satisfies ParserApi);
 
         const LoggerLive = Layer.succeed(LoggerService, Log.create({ service: 'blade-lsp' }));
@@ -122,6 +124,7 @@ export namespace Container {
             Layer.succeed(SettingsService, MutableRef.make<Server.Settings>({})),
             Layer.succeed(WorkspaceRootService, MutableRef.make<string | null>(null)),
             Layer.succeed(TreeCacheService, new Map<string, BladeParser.Tree>()),
+            Layer.succeed(DocumentSourceCacheService, new Map<string, string>()),
             Layer.succeed(LaravelStateService, MutableRef.make<LaravelContext.State | null>(null)),
             Layer.succeed(WatchCapabilityService, MutableRef.make<boolean>(false)),
             Layer.succeed(ParserRuntimeService, MutableRef.make<ParserTypes.Runtime | null>(null)),
@@ -151,6 +154,7 @@ export namespace Container {
             settings: runtime.runSync(SettingsService),
             workspaceRoot: runtime.runSync(WorkspaceRootService),
             treeCache: runtime.runSync(TreeCacheService),
+            documentSourceCache: runtime.runSync(DocumentSourceCacheService),
             laravelState: runtime.runSync(LaravelStateService),
             watchCapability: runtime.runSync(WatchCapabilityService),
             parserRuntime: runtime.runSync(ParserRuntimeService),
