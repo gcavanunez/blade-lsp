@@ -154,6 +154,35 @@ describe('Hover (Integration)', () => {
             await doc.close();
         });
 
+        it('shows hover for custom directives', async () => {
+            const doc = await client.open({
+                text: '@datetime($value)\n@admin',
+            });
+
+            const withParams = await doc.hover(0, 4);
+            expect(withParams).not.toBeNull();
+            const withParamsValue =
+                typeof withParams!.contents === 'string'
+                    ? withParams!.contents
+                    : 'value' in withParams!.contents
+                      ? withParams!.contents.value
+                      : '';
+            expect(withParamsValue).toContain('@datetime');
+            expect(withParamsValue).toContain("('...')");
+
+            const noParams = await doc.hover(1, 2);
+            expect(noParams).not.toBeNull();
+            const noParamsValue =
+                typeof noParams!.contents === 'string'
+                    ? noParams!.contents
+                    : 'value' in noParams!.contents
+                      ? noParams!.contents.value
+                      : '';
+            expect(noParamsValue).toContain('@admin');
+
+            await doc.close();
+        });
+
         it('shows hover for view reference in @include', async () => {
             const doc = await client.open({
                 text: "@include('layouts.app')",

@@ -28,10 +28,22 @@ describe('Parameter Completions (Integration)', () => {
                 expectedLabels: ['layouts.app', 'partials.header'],
             },
             {
+                name: 'provides view names for @extends before opening quote',
+                text: '@extends(',
+                character: 9,
+                expectedLabels: ['layouts.app', 'partials.header'],
+            },
+            {
                 name: 'provides view names for @includeIf',
                 text: "@includeIf('",
                 character: 12,
                 expectedLabels: ['layouts.app'],
+            },
+            {
+                name: 'provides HTTP method suggestions before opening quote',
+                text: '@method(',
+                character: 8,
+                expectedLabels: ['PUT', 'PATCH', 'DELETE'],
             },
             {
                 name: 'provides view names for @includeFirst',

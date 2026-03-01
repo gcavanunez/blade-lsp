@@ -22,6 +22,14 @@ export namespace Completions {
     export type ParsedProp = Shared.ParsedProp;
     export const parsePropsString = Shared.parsePropsString;
 
+    type CompletionResolveKind = 'view' | 'component' | 'livewire';
+
+    interface CompletionResolveData {
+        kind: CompletionResolveKind;
+        key: string;
+        path: string;
+    }
+
     export function createDirectiveItem(directive: BladeDirectives.Directive, prefix: string): CompletionItem {
         return {
             label: directive.name,
@@ -149,6 +157,11 @@ export namespace Completions {
             textEdit: TextEdit.replace(replaceRange, `<${fullTag}`),
             insertTextFormat: InsertTextFormat.PlainText,
             sortText: view.isVendor ? '1' + componentName : '0' + componentName,
+            data: {
+                kind: 'livewire',
+                key: fullTag,
+                path: view.path,
+            } satisfies CompletionResolveData,
         };
     }
 
@@ -193,6 +206,11 @@ export namespace Completions {
             textEdit: TextEdit.replace(replaceRange, snippet),
             insertTextFormat: InsertTextFormat.Snippet,
             sortText: component.isVendor ? '1' + component.key : '0' + component.key,
+            data: {
+                kind: 'component',
+                key: fullTag,
+                path: component.path,
+            } satisfies CompletionResolveData,
         };
     }
 
@@ -361,7 +379,99 @@ export namespace Completions {
                 value: `**${view.key}**\n\nPath: \`${view.path}\``,
             },
             sortText: view.isVendor ? '1' + view.key : '0' + view.key,
+            data: {
+                kind: 'view',
+                key: view.key,
+                path: view.path,
+            } satisfies CompletionResolveData,
         };
+    }
+
+    function isCompletionResolveData(data: unknown): data is CompletionResolveData {
+        if (!data || typeof data !== 'object') {
+            return false;
+        }
+
+        const payload = data as Partial<CompletionResolveData>;
+        return (
+            (payload.kind === 'view' || payload.kind === 'component' || payload.kind === 'livewire') &&
+            typeof payload.key === 'string' &&
+            typeof payload.path === 'string'
+        );
+    }
+
+    function getDocumentationValue(item: CompletionItem): string {
+        const { documentation } = item;
+        if (!documentation) {
+            return '';
+        }
+
+        if (typeof documentation === 'string') {
+            return documentation;
+        }
+
+        if (Array.isArray(documentation)) {
+            return documentation
+                .map((entry) => (typeof entry === 'string' ? entry : entry.value))
+                .filter(Boolean)
+                .join('\n\n');
+        }
+
+        return documentation.value;
+    }
+
+    function createBladePreview(content: string): string | null {
+        const lines = content.split('\n');
+        let firstNonEmpty = 0;
+        while (firstNonEmpty < lines.length && lines[firstNonEmpty].trim() === '') {
+            firstNonEmpty++;
+        }
+
+        if (firstNonEmpty >= lines.length) {
+            return null;
+        }
+
+        const previewLines = lines.slice(firstNonEmpty, firstNonEmpty + 8);
+        let preview = previewLines.join('\n').trimEnd();
+        if (!preview) {
+            return null;
+        }
+
+        if (firstNonEmpty + 8 < lines.length) {
+            preview += '\n...';
+        }
+
+        return preview;
+    }
+
+    export function resolveCompletionItem(item: CompletionItem): CompletionItem {
+        if (!isCompletionResolveData(item.data)) {
+            return item;
+        }
+
+        const { key, path } = item.data;
+        const existingDocumentation = getDocumentationValue(item);
+
+        let value = existingDocumentation || `**${key}**`;
+        const hasPathInDocs = existingDocumentation.includes(`Path: \`${path}\``);
+        if (!hasPathInDocs) {
+            value += `${value ? '\n\n' : ''}Path: \`${path}\``;
+        }
+
+        const file = ProjectFile.read(path);
+        if (file) {
+            const preview = createBladePreview(file.content);
+            if (preview) {
+                value += `\n\n**Preview:**\n\n\`\`\`blade\n${preview}\n\`\`\``;
+            }
+        }
+
+        item.documentation = {
+            kind: MarkupKind.Markdown,
+            value,
+        };
+
+        return item;
     }
 
     /**
