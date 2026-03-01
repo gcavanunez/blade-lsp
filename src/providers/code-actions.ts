@@ -294,18 +294,157 @@ export namespace CodeActions {
         return actions;
     }
 
-    export function getActions(context: Context): CodeAction[] {
-        if (!isKindRequested(context.only, CodeActionKind.QuickFix)) {
-            return [];
+    function isNonEmptyRange(range: Range | undefined): range is Range {
+        if (!range) return false;
+        return range.start.line !== range.end.line || range.start.character !== range.end.character;
+    }
+
+    function getSourcePathFromUri(uri: string): string | null {
+        if (!uri.startsWith('file://')) return null;
+
+        try {
+            const parsed = new URL(uri);
+            const pathname = decodeURIComponent(parsed.pathname);
+            if (process.platform === 'win32') {
+                return pathname.replace(/^\/(\w:)/, '$1');
+            }
+            return pathname;
+        } catch {
+            return null;
+        }
+    }
+
+    function normalizeToPosix(filePath: string): string {
+        return filePath.split(path.sep).join('/');
+    }
+
+    function getSelectionLineSuffix(range: Range): string {
+        const startLine = range.start.line + 1;
+        const endLine =
+            range.end.character === 0 && range.end.line > range.start.line ? range.end.line : range.end.line + 1;
+        return `${startLine}-${Math.max(startLine, endLine)}`;
+    }
+
+    function getUniquePartialPath(targetDir: string, baseName: string): string {
+        const firstCandidate = path.join(targetDir, `${baseName}.blade.php`);
+        if (!fs.existsSync(firstCandidate)) {
+            return firstCandidate;
         }
 
+        let suffix = 2;
+        while (suffix < 5000) {
+            const candidate = path.join(targetDir, `${baseName}-${suffix}.blade.php`);
+            if (!fs.existsSync(candidate)) {
+                return candidate;
+            }
+            suffix++;
+        }
+
+        return path.join(targetDir, `${baseName}-${Date.now()}.blade.php`);
+    }
+
+    function toBladeViewKey(relativePath: string): string | null {
+        const normalized = normalizeToPosix(relativePath);
+        if (!normalized.startsWith('resources/views/')) {
+            return null;
+        }
+
+        const withoutPrefix = normalized.slice('resources/views/'.length);
+        if (!withoutPrefix.endsWith('.blade.php')) {
+            return null;
+        }
+
+        const withoutExt = withoutPrefix.slice(0, -'.blade.php'.length);
+        const segments = withoutExt.split('/').map((segment) => sanitizeSegment(segment));
+        if (segments.some((segment) => !segment)) {
+            return null;
+        }
+
+        return (segments as string[]).join('.');
+    }
+
+    function getExtractSelectionAction(context: Context): CodeAction | null {
+        if (!context.workspaceRoot) return null;
+        if (!isNonEmptyRange(context.range)) return null;
+        if (!isKindRequested(context.only, CodeActionKind.RefactorExtract)) return null;
+
+        const selection = context.document.getText(context.range);
+        if (!selection) return null;
+
+        const sourcePath = getSourcePathFromUri(context.document.uri);
+        if (!sourcePath) return null;
+
+        const workspaceRoot = path.resolve(context.workspaceRoot);
+        const sourceAbsolute = path.resolve(sourcePath);
+        const sourceRelative = path.relative(workspaceRoot, sourceAbsolute);
+
+        if (sourceRelative.startsWith('..') || path.isAbsolute(sourceRelative)) {
+            return null;
+        }
+
+        const normalizedSourceRelative = normalizeToPosix(sourceRelative);
+        if (
+            !normalizedSourceRelative.startsWith('resources/views/') ||
+            !normalizedSourceRelative.endsWith('.blade.php')
+        ) {
+            return null;
+        }
+
+        const sourceDir = path.dirname(sourceAbsolute);
+        const sourceBaseName = path.basename(sourceAbsolute, '.blade.php');
+        const lineSuffix = getSelectionLineSuffix(context.range);
+        const partialBaseName = `${sourceBaseName}-${lineSuffix}`;
+
+        const partialAbsolute = getUniquePartialPath(path.join(sourceDir, 'partials'), partialBaseName);
+        const partialRelative = path.relative(workspaceRoot, partialAbsolute);
+        const includeViewName = toBladeViewKey(partialRelative);
+        if (!includeViewName) {
+            return null;
+        }
+
+        const partialUri = ProjectFile.toUri(partialAbsolute);
+
+        return {
+            title: 'Extract selection to partial view',
+            kind: CodeActionKind.RefactorExtract,
+            isPreferred: true,
+            edit: {
+                documentChanges: [
+                    {
+                        kind: 'create',
+                        uri: partialUri,
+                        options: { ignoreIfExists: true },
+                    },
+                    {
+                        textDocument: { uri: partialUri, version: null },
+                        edits: [TextEdit.insert(Position.create(0, 0), selection)],
+                    },
+                    {
+                        textDocument: { uri: context.document.uri, version: null },
+                        edits: [TextEdit.replace(context.range, `@include('${includeViewName}')`)],
+                    },
+                ],
+            },
+        };
+    }
+
+    function getRefactorActions(context: Context): CodeAction[] {
+        const extractAction = getExtractSelectionAction(context);
+        return extractAction ? [extractAction] : [];
+    }
+
+    export function getActions(context: Context): CodeAction[] {
         const actions: CodeAction[] = [];
 
-        for (const diagnostic of context.diagnostics) {
-            actions.push(...getDiagnosticQuickFixes(context.document, diagnostic));
+        if (isKindRequested(context.only, CodeActionKind.QuickFix)) {
+            for (const diagnostic of context.diagnostics) {
+                actions.push(...getDiagnosticQuickFixes(context.document, diagnostic));
+            }
+
+            actions.push(...getScaffoldActions(context));
         }
 
-        actions.push(...getScaffoldActions(context));
+        actions.push(...getRefactorActions(context));
 
         return actions;
     }
