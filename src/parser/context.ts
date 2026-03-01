@@ -101,7 +101,13 @@ export namespace ParserContext {
     ): boolean {
         const phpOnlyNode = findNarrowestCaptureAtPosition(tree, row, column, ParserQueryBank.phpOnly, queryCaptures);
         if (phpOnlyNode) {
-            return true;
+            const parent = phpOnlyNode.parent;
+            if (parent?.type === 'php_statement') {
+                const firstChild = parent.child(0);
+                if (firstChild && (firstChild.type === '{{' || firstChild.type === '{!!')) {
+                    return true;
+                }
+            }
         }
 
         if (queryCaptures) {
@@ -125,7 +131,13 @@ export namespace ParserContext {
         let current: SyntaxNode | null = node;
         while (current) {
             if (current.type === 'php_only') {
-                return true;
+                const parent = current.parent;
+                if (parent?.type === 'php_statement') {
+                    const firstChild = parent.child(0);
+                    if (firstChild && (firstChild.type === '{{' || firstChild.type === '{!!')) {
+                        return true;
+                    }
+                }
             }
             if (current.type === 'php_statement') {
                 const firstChild = current.child(0);

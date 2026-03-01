@@ -25,4 +25,16 @@ describe('Lexer', () => {
         const tokens = Lexer.collectDirectiveTokens(source);
         expect(tokens.map((token) => token.name)).toEqual(['@if', '@endif']);
     });
+
+    it('ignores directives inside php tags', () => {
+        const source = '<?php // @if($a)\n$raw = "@endif";\n?>\n@if($show)\n@endif';
+        const tokens = Lexer.collectDirectiveTokens(source);
+        expect(tokens.map((token) => token.name)).toEqual(['@if', '@endif']);
+    });
+
+    it('ignores directives inside @php blocks while keeping @endphp', () => {
+        const source = '@php\n// @if($a)\n$raw = "@endif";\n@endphp\n@if($show)\n@endif';
+        const tokens = Lexer.collectDirectiveTokens(source);
+        expect(tokens.map((token) => token.name)).toEqual(['@php', '@endphp', '@if', '@endif']);
+    });
 });
