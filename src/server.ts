@@ -18,7 +18,6 @@ import {
     DefinitionParams,
     Connection,
     DidChangeWatchedFilesNotification,
-    ExecuteCommandParams,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { BladeParser } from './parser';
@@ -192,14 +191,7 @@ export namespace Server {
                     hoverProvider: true,
                     definitionProvider: true,
                     codeActionProvider: {
-                        codeActionKinds: [
-                            CodeActionKind.QuickFix,
-                            CodeActionKind.Refactor,
-                            CodeActionKind.RefactorExtract,
-                        ],
-                    },
-                    executeCommandProvider: {
-                        commands: [CodeActions.COMMAND_EXTRACT_SELECTION_TO_NAMED_PARTIAL],
+                        codeActionKinds: [CodeActionKind.QuickFix],
                     },
                 },
             };
@@ -572,59 +564,8 @@ export namespace Server {
                 document,
                 diagnostics: params.context.diagnostics,
                 workspaceRoot,
-                range: params.range,
                 only: params.context.only,
             });
-        });
-
-        conn.onExecuteCommand((params: ExecuteCommandParams) => {
-            if (params.command !== CodeActions.COMMAND_EXTRACT_SELECTION_TO_NAMED_PARTIAL) {
-                return null;
-            }
-
-            const [rawArgs] = params.arguments ?? [];
-            if (!CodeActions.isNamedExtractCommandArgs(rawArgs)) {
-                conn.sendNotification('window/showMessage', {
-                    type: MessageType.Warning,
-                    message: 'Blade LSP: Invalid arguments for named partial extraction command.',
-                });
-                return null;
-            }
-
-            const document = docs.get(rawArgs.uri);
-            if (!document) {
-                conn.sendNotification('window/showMessage', {
-                    type: MessageType.Warning,
-                    message: 'Blade LSP: Open the Blade document before running named partial extraction.',
-                });
-                return null;
-            }
-
-            const workspaceRoot = MutableRef.get(Container.get().workspaceRoot);
-            if (!workspaceRoot) {
-                conn.sendNotification('window/showMessage', {
-                    type: MessageType.Warning,
-                    message: 'Blade LSP: Workspace root is unavailable for named partial extraction.',
-                });
-                return null;
-            }
-
-            const edit = CodeActions.getNamedExtractWorkspaceEdit({
-                document,
-                workspaceRoot,
-                range: rawArgs.range,
-                explicitPartialName: rawArgs.partialName,
-            });
-
-            if (!edit) {
-                conn.sendNotification('window/showMessage', {
-                    type: MessageType.Warning,
-                    message: 'Blade LSP: Could not build extraction edit for the provided partial name.',
-                });
-                return null;
-            }
-
-            return edit;
         });
 
         docs.listen(conn);
