@@ -3,9 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { CodeActionKind } from 'vscode-languageserver/node';
-import type { CodeAction, Diagnostic, TextDocumentEdit, TextEdit } from 'vscode-languageserver/node';
+import type { CodeAction, Diagnostic, TextDocumentEdit, TextEdit, WorkspaceEdit } from 'vscode-languageserver/node';
 import { createClient, type Client } from '../utils/client';
 import { clearMockLaravel, installMockLaravel } from '../utils/laravel-mock';
+import { CodeActions } from '../../src/providers/code-actions';
 
 describe('Code Actions (Integration)', () => {
     let client: Client;
@@ -280,6 +281,45 @@ describe('Code Actions (Integration)', () => {
 
         const action = findAction(actions, 'Extract selection to partial view');
         expect(getActionCreatedUri(action)).toBe(fileUri('resources/views/admin/users/partials/index-2-2-2.blade.php'));
+
+        await doc.close();
+    });
+
+    it('returns a named extraction workspace edit through executeCommand', async () => {
+        const doc = await client.open({
+            name: 'resources/views/admin/users/index.blade.php',
+            text: '<div>\n    <p>{{ $user->name }}</p>\n</div>\n',
+        });
+
+        const commandResult = (await client.executeCommand(CodeActions.COMMAND_EXTRACT_SELECTION_TO_NAMED_PARTIAL, [
+            {
+                uri: doc.uri,
+                range: {
+                    start: { line: 1, character: 4 },
+                    end: { line: 1, character: 28 },
+                },
+                partialName: 'user-row',
+            },
+        ])) as WorkspaceEdit;
+
+        expect(commandResult).toBeDefined();
+        expect(commandResult.documentChanges).toBeDefined();
+
+        const createChange = commandResult.documentChanges?.find(
+            (change) => typeof change === 'object' && 'kind' in change && change.kind === 'create',
+        ) as { uri: string } | undefined;
+        expect(createChange).toBeDefined();
+        expect(createChange?.uri).toContain('user-row.blade.php');
+
+        const sourceEditChange = commandResult.documentChanges?.find(
+            (change) =>
+                typeof change === 'object' &&
+                'textDocument' in change &&
+                !!change.textDocument &&
+                change.textDocument.uri === doc.uri,
+        ) as TextDocumentEdit | undefined;
+        expect(sourceEditChange).toBeDefined();
+        expect(sourceEditChange?.edits[0]?.newText).toBe("@include('admin.users.partials.user-row')");
 
         await doc.close();
     });

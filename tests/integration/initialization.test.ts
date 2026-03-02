@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { createClient, type Client } from '../utils/client';
 import { CodeActionKind, TextDocumentSyncKind } from 'vscode-languageserver/node';
+import { CodeActions } from '../../src/providers/code-actions';
 
 describe('Server Initialization', () => {
     let client: Client;
@@ -45,6 +46,16 @@ describe('Server Initialization', () => {
         const provider = caps.codeActionProvider as { codeActionKinds?: string[] };
         expect(provider.codeActionKinds).toEqual(
             expect.arrayContaining([CodeActionKind.QuickFix, CodeActionKind.Refactor, CodeActionKind.RefactorExtract]),
+        );
+    });
+
+    it('reports execute command support for named partial extraction', () => {
+        const caps = client.initializeResult.capabilities;
+        expect(caps.executeCommandProvider).toBeDefined();
+
+        const provider = caps.executeCommandProvider as { commands?: string[] };
+        expect(provider.commands).toEqual(
+            expect.arrayContaining([CodeActions.COMMAND_EXTRACT_SELECTION_TO_NAMED_PARTIAL]),
         );
     });
 });
