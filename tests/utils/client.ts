@@ -19,7 +19,6 @@ import {
     CompletionResolveRequest,
     DefinitionRequest,
     CodeActionRequest,
-    ExecuteCommandRequest,
     PublishDiagnosticsNotification,
     RegistrationRequest,
     ConfigurationRequest,
@@ -83,8 +82,6 @@ export interface Client {
     initializeResult: InitializeResult;
     /** Open a document and return a ClientDocument handle */
     open(desc: DocumentDescriptor): Promise<ClientDocument>;
-    /** Execute a workspace command on the LSP server */
-    executeCommand(command: string, args?: unknown[]): Promise<unknown>;
     /** Shut down the server and clean up */
     shutdown(): Promise<void>;
 }
@@ -350,13 +347,6 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
             await new Promise((resolve) => setTimeout(resolve, 50));
 
             return createDocument(uri, version);
-        },
-
-        async executeCommand(command: string, args: unknown[] = []): Promise<unknown> {
-            return rpc.sendRequest(ExecuteCommandRequest.type, {
-                command,
-                arguments: args,
-            });
         },
 
         async shutdown(): Promise<void> {
