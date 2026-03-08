@@ -50,6 +50,19 @@ describe('Definition (Integration)', () => {
             await doc.close();
         });
 
+        it('resolves fallback view in @each', async () => {
+            const doc = await client.open({
+                text: "@each('partials.header', $items, 'item', 'partials.footer')",
+            });
+
+            const def = await doc.definition(0, 45);
+            if (def && !Array.isArray(def)) {
+                expect(def.uri).toContain('partials/footer');
+            }
+
+            await doc.close();
+        });
+
         it('returns null for non-view positions', async () => {
             const doc = await client.open({
                 text: '<div>Hello</div>',

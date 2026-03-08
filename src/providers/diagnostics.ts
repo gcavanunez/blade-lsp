@@ -19,6 +19,7 @@ import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
 import { Lexer } from '../parser/lexer';
+import { Shared } from './shared';
 
 export namespace Diagnostics {
     export const Code = {
@@ -101,39 +102,11 @@ export namespace Diagnostics {
         return diagnostics;
     }
 
-    /**
-     * Directives whose first string argument is a view name.
-     *
-     * Note: `@includeIf` is intentionally excluded -- its purpose is to
-     * include a view *only if it exists*, so flagging it would be noisy.
-     *
-     * `@includeFirst` takes an array; handled separately below.
-     */
-    const VIEW_DIRECTIVES = ['extends', 'include', 'includeWhen', 'includeUnless', 'each', 'component'] as const;
-
-    /**
-     * Build a regex pattern for a view directive.
-     */
-    function buildViewDirectivePattern(directive: string): RegExp {
-        return directive === 'includeWhen' || directive === 'includeUnless'
-            ? new RegExp(`@${directive}\\s*\\([^,]+,\\s*['"]([^'"]+)['"]`, 'g')
-            : new RegExp(`@${directive}\\s*\\(\\s*['"]([^'"]+)['"]`, 'g');
-    }
-
-    /** All view-reference patterns, pre-built once. */
-    const VIEW_PATTERNS: RegExp[] = [
-        ...VIEW_DIRECTIVES.map(buildViewDirectivePattern),
-        /\bview\s*\(\s*['"]([^'"]+)['"]/g,
-    ];
-
     /** Collect undefined-view diagnostics from a single line against all patterns. */
     function collectUndefinedViewsOnLine(lineNum: number, line: string, diagnostics: Diagnostic[]): void {
-        for (const pattern of VIEW_PATTERNS) {
-            pattern.lastIndex = 0;
-            for (const { match, captured: viewName } of collectRegexMatches(line, pattern)) {
-                if (!Views.find(viewName)) {
-                    diagnostics.push(createUndefinedViewDiagnostic(lineNum, line, viewName, match.index));
-                }
+        for (const reference of Shared.getViewReferenceMatches(line)) {
+            if (!Views.find(reference.value)) {
+                diagnostics.push(createUndefinedViewDiagnostic(lineNum, line, reference.value, reference.start));
             }
         }
     }
