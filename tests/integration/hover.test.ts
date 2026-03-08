@@ -203,6 +203,25 @@ describe('Hover (Integration)', () => {
             await doc.close();
         });
 
+        it('shows hover for fallback view in @includeFirst', async () => {
+            const doc = await client.open({
+                text: "@includeFirst(['partials.header', 'partials.footer'])",
+            });
+
+            const hover = await doc.hover(0, 43);
+            expect(hover).not.toBeNull();
+
+            const value =
+                typeof hover!.contents === 'string'
+                    ? hover!.contents
+                    : 'value' in hover!.contents
+                      ? hover!.contents.value
+                      : '';
+            expect(value).toContain('partials.footer');
+
+            await doc.close();
+        });
+
         it('shows hover for component prop with type info from context', async () => {
             const doc = await client.open({
                 text: '<x-button type="primary" />',
