@@ -37,6 +37,11 @@ describe('Server Initialization', () => {
         expect(caps.definitionProvider).toBe(true);
     });
 
+    it('reports document symbol provider', () => {
+        const caps = client.initializeResult.capabilities;
+        expect(caps.documentSymbolProvider).toBe(true);
+    });
+
     it('reports code action kinds', () => {
         const caps = client.initializeResult.capabilities;
         expect(caps.codeActionProvider).toBeDefined();
