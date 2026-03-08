@@ -43,6 +43,15 @@ describe('Code Actions (Integration)', () => {
         return (createChange as { uri: string }).uri;
     }
 
+    function getActionCreatedUris(action: CodeAction): string[] {
+        const changes = action.edit?.documentChanges ?? [];
+        return changes
+            .filter((change): change is { kind: 'create'; uri: string } => {
+                return typeof change === 'object' && change !== null && 'kind' in change && change.kind === 'create';
+            })
+            .map((change) => change.uri);
+    }
+
     function getActionTemplate(action: CodeAction): string {
         const textEditChange = action.edit?.documentChanges?.find(
             (change) =>
@@ -97,6 +106,37 @@ describe('Code Actions (Integration)', () => {
             'file:///test/project/resources/views/components/missing-widget.blade.php',
         );
         expect(getActionTemplate(action)).toContain('{{ $slot }}');
+
+        await doc.close();
+    });
+
+    it('offers a batch action to create all missing Blade files in the document', async () => {
+        const doc = await client.open({
+            text: "@include('missing.page')\n@include('missing.page')\n<x-missing-widget />",
+        });
+
+        const diagnostics = await doc.diagnostics();
+        const actions = await doc.codeActions({ diagnostics });
+        const action = findAction(actions, 'Create all missing Blade files in this file');
+
+        expect(getActionCreatedUris(action)).toEqual([
+            'file:///test/project/resources/views/missing/page.blade.php',
+            'file:///test/project/resources/views/components/missing-widget.blade.php',
+        ]);
+
+        await doc.close();
+    });
+
+    it('does not offer the batch action when only one file is missing', async () => {
+        const doc = await client.open({
+            text: "@include('missing.page')",
+        });
+
+        const diagnostics = await doc.diagnostics();
+        const actions = await doc.codeActions({ diagnostics });
+        const batchAction = actions.find((item) => item.title.includes('Create all missing Blade files in this file'));
+
+        expect(batchAction).toBeUndefined();
 
         await doc.close();
     });
