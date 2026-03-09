@@ -508,7 +508,8 @@ export namespace Server {
             }
 
             if (wordAtPosition.startsWith('$')) {
-                const phpSymbol = PhpPreambleSymbols.findSymbol(source, wordAtPosition);
+                const baseVariable = wordAtPosition.match(/^\$\w+/)?.[0] ?? wordAtPosition;
+                const phpSymbol = PhpPreambleSymbols.findSymbol(source, baseVariable);
                 if (phpSymbol) {
                     return {
                         contents: {
@@ -594,6 +595,26 @@ export namespace Server {
             const position = params.position;
             const lines = source.split('\n');
             const currentLine = lines[position.line] || '';
+
+            const phpSymbolDefinition = Definitions.getPhpSymbolDefinition(
+                currentLine,
+                position.character,
+                source,
+                document.uri,
+            );
+            if (phpSymbolDefinition) {
+                return phpSymbolDefinition;
+            }
+
+            const wireAttributeDefinition = Definitions.getWireAttributeDefinition(
+                currentLine,
+                position.character,
+                source,
+                document.uri,
+            );
+            if (wireAttributeDefinition) {
+                return wireAttributeDefinition;
+            }
 
             const viewDefinition = Definitions.getViewDefinition(
                 currentLine,

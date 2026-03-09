@@ -5,8 +5,17 @@ import { ProjectFile } from './project-file';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
+import { PhpPreambleSymbols } from './php-preamble-symbols';
+import { Hovers } from './hovers';
 
 export namespace Definitions {
+    function toSameFileLocation(uri: string, line: number, column: number, length: number): Location {
+        return {
+            uri,
+            range: Range.create(line, column, line, column + Math.max(length, 1)),
+        };
+    }
+
     export function getViewDefinition(
         line: string,
         column: number,
@@ -41,6 +50,51 @@ export namespace Definitions {
     export function getComponentDefinition(line: string, column: number): Location | null {
         const componentTag = Shared.getComponentTagAtColumn(line, column);
         return componentTag ? resolveComponentLocation(componentTag) : null;
+    }
+
+    export function getPhpSymbolDefinition(line: string, column: number, source: string, uri: string): Location | null {
+        const word = Hovers.getWordAtPosition(line, column);
+        const variableName = word.match(/^\$\w+/)?.[0] ?? word;
+        if (!variableName.startsWith('$')) {
+            return null;
+        }
+
+        const symbol = PhpPreambleSymbols.findSymbol(source, variableName);
+        if (!symbol) {
+            return null;
+        }
+
+        return toSameFileLocation(uri, symbol.line, symbol.column, symbol.length);
+    }
+
+    export function getWireAttributeDefinition(
+        line: string,
+        column: number,
+        source: string,
+        uri: string,
+    ): Location | null {
+        const context = Shared.getAttributeValueContextAtColumn(line, column);
+        if (!context) return null;
+
+        if (context.name === 'wire:model' || context.name.startsWith('wire:model.')) {
+            const property = PhpPreambleSymbols.findLivewireProperty(source, context.value);
+            return property ? toSameFileLocation(uri, property.line, property.column, property.length) : null;
+        }
+
+        const isWireAction = [
+            'wire:submit',
+            'wire:click',
+            'wire:change',
+            'wire:input',
+            'wire:keydown',
+            'wire:keyup',
+            'wire:blur',
+            'wire:init',
+        ].some((prefix) => context.name === prefix || context.name.startsWith(`${prefix}.`));
+        if (!isWireAction) return null;
+
+        const method = PhpPreambleSymbols.findLivewireMethod(source, context.value);
+        return method ? toSameFileLocation(uri, method.line, method.column, method.length) : null;
     }
 
     export function resolveComponentLocation(componentTag: string): Location | null {
