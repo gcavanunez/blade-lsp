@@ -91,6 +91,41 @@ describe('Code Actions (Integration)', () => {
         await doc.close();
     });
 
+    it('uses a layout-oriented stub for missing @extends views', async () => {
+        const doc = await client.open({
+            text: "@extends('layouts.missing')",
+        });
+
+        const diagnostics = await doc.diagnostics();
+        const diagnostic = findDiagnosticByCode(diagnostics, 'blade/undefined-view');
+
+        const actions = await doc.codeActions({ diagnostics: [diagnostic] });
+        const action = findAction(actions, "Create missing view 'layouts.missing'");
+
+        expect(getActionCreatedUri(action)).toBe('file:///test/project/resources/views/layouts/missing.blade.php');
+        expect(getActionTemplate(action)).toContain("@yield('content')");
+        expect(getActionTemplate(action)).toContain('<!DOCTYPE html>');
+
+        await doc.close();
+    });
+
+    it('uses a slot-oriented stub for missing @component views', async () => {
+        const doc = await client.open({
+            text: "@component('mail.panel')",
+        });
+
+        const diagnostics = await doc.diagnostics();
+        const diagnostic = findDiagnosticByCode(diagnostics, 'blade/undefined-view');
+
+        const actions = await doc.codeActions({ diagnostics: [diagnostic] });
+        const action = findAction(actions, "Create missing view 'mail.panel'");
+
+        expect(getActionCreatedUri(action)).toBe('file:///test/project/resources/views/mail/panel.blade.php');
+        expect(getActionTemplate(action)).toContain('{{ $slot }}');
+
+        await doc.close();
+    });
+
     it('offers scaffold action for undefined components', async () => {
         const doc = await client.open({
             text: '<x-missing-widget />',

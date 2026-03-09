@@ -12,6 +12,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Diagnostics } from './diagnostics';
 import { ProjectFile } from './project-file';
+import { VIEW_HELPER_PATTERN, VIEW_REFERENCE_DIRECTIVES, getViewReferencePattern } from './patterns';
 
 export namespace CodeActions {
     interface ScaffoldTarget {
@@ -20,6 +21,8 @@ export namespace CodeActions {
         title: string;
         template: string;
     }
+
+    type ViewScaffoldKind = 'layout' | 'component' | 'partial';
 
     interface Context {
         document: TextDocument;
@@ -134,8 +137,13 @@ export namespace CodeActions {
         };
     }
 
-    function createActionForView(diagnostic: Diagnostic, fullPath: string, viewName: string): CodeAction {
-        const target = createViewTarget(diagnostic, fullPath, viewName);
+    function createActionForView(
+        document: TextDocument,
+        diagnostic: Diagnostic,
+        fullPath: string,
+        viewName: string,
+    ): CodeAction {
+        const target = createViewTarget(document, diagnostic, fullPath, viewName);
 
         return {
             title: target.title,
@@ -146,12 +154,84 @@ export namespace CodeActions {
         };
     }
 
-    function createViewTarget(diagnostic: Diagnostic, fullPath: string, viewName: string): ScaffoldTarget {
+    function createLayoutTemplate(): string {
+        return [
+            '<!DOCTYPE html>',
+            "<html lang=\"{{ str_replace('_', '-', app()->getLocale()) }}\">",
+            '<head>',
+            '    <meta charset="utf-8">',
+            '    <meta name="viewport" content="width=device-width, initial-scale=1">',
+            "    <title>@yield('title')</title>",
+            '</head>',
+            '<body>',
+            "    @yield('content')",
+            '</body>',
+            '</html>',
+            '',
+        ].join('\n');
+    }
+
+    function createPartialTemplate(viewName: string): string {
+        return `<div>\n    <!-- ${viewName} -->\n</div>\n`;
+    }
+
+    function createComponentViewTemplate(): string {
+        return `<div>\n    {{ $slot }}\n</div>\n`;
+    }
+
+    function inferViewScaffoldKind(document: TextDocument, diagnostic: Diagnostic): ViewScaffoldKind {
+        const line = document.getText({
+            start: { line: diagnostic.range.start.line, character: 0 },
+            end: { line: diagnostic.range.start.line + 1, character: 0 },
+        });
+        const lineText = line.replace(/\r?\n$/, '');
+        const targetColumn = diagnostic.range.start.character;
+
+        for (const directive of VIEW_REFERENCE_DIRECTIVES) {
+            const pattern = getViewReferencePattern(directive);
+            const match = lineText.match(pattern);
+            if (!match || !match[1]) continue;
+
+            const start = lineText.indexOf(match[1], match.index ?? 0);
+            const end = start + match[1].length;
+            if (targetColumn < start || targetColumn > end) continue;
+
+            if (directive === 'extends') return 'layout';
+            if (directive === 'component') return 'component';
+            return 'partial';
+        }
+
+        const helperMatch = lineText.match(VIEW_HELPER_PATTERN);
+        if (helperMatch?.[1]) {
+            const start = lineText.indexOf(helperMatch[1], helperMatch.index ?? 0);
+            const end = start + helperMatch[1].length;
+            if (targetColumn >= start && targetColumn <= end) {
+                return 'partial';
+            }
+        }
+
+        return 'partial';
+    }
+
+    function createViewTarget(
+        document: TextDocument,
+        diagnostic: Diagnostic,
+        fullPath: string,
+        viewName: string,
+    ): ScaffoldTarget {
+        const scaffoldKind = inferViewScaffoldKind(document, diagnostic);
+        const template =
+            scaffoldKind === 'layout'
+                ? createLayoutTemplate()
+                : scaffoldKind === 'component'
+                  ? createComponentViewTemplate()
+                  : createPartialTemplate(viewName);
+
         return {
             diagnostic,
             fullPath,
             title: `Create missing view '${viewName}'`,
-            template: `<div>\n    <!-- ${viewName} -->\n</div>\n`,
+            template,
         };
     }
 
@@ -286,7 +366,7 @@ export namespace CodeActions {
             if (code === Diagnostics.Code.undefinedView) {
                 const viewName = inferViewName(document, target.diagnostic);
                 if (viewName) {
-                    actions.push(createActionForView(target.diagnostic, target.fullPath, viewName));
+                    actions.push(createActionForView(document, target.diagnostic, target.fullPath, viewName));
                 }
                 continue;
             }
@@ -327,7 +407,7 @@ export namespace CodeActions {
                 if (seenPaths.has(fullPath) || fs.existsSync(fullPath)) continue;
 
                 seenPaths.add(fullPath);
-                targets.push(createViewTarget(diagnostic, fullPath, viewName));
+                targets.push(createViewTarget(document, diagnostic, fullPath, viewName));
                 continue;
             }
 
