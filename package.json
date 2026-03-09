@@ -19,7 +19,7 @@
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
         "test": "vitest run",
-        "test:e2e:php-bridge": "vitest run tests/e2e/php-bridge-backend.test.ts",
+        "test:e2e:php-bridge": "vitest run tests/e2e/*.test.ts",
         "test:watch": "vitest",
         "prepublishOnly": "npm run build"
     },
