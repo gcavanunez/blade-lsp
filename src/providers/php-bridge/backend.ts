@@ -24,6 +24,19 @@ export namespace PhpBridgeBackend {
         backendName: BackendName;
         command: string[];
         workspaceRoot: string;
+        settings?: {
+            intelephense?: {
+                globalStoragePath?: string;
+                storagePath?: string;
+                files?: {
+                    maxSize?: number;
+                };
+            };
+        };
+        logger?: {
+            log(message: string): void;
+            error(message: string): void;
+        };
     }
 
     export interface Client {
@@ -50,6 +63,11 @@ export namespace PhpBridgeBackend {
         let connection: ReturnType<typeof createProtocolConnection> | null = null;
         let started = false;
         const openVersions = new Map<string, number>();
+        let indexing = false;
+
+        function getConfiguration() {
+            return config.settings ?? {};
+        }
 
         async function ensureStarted(): Promise<void> {
             if (started) return;
@@ -64,12 +82,26 @@ export namespace PhpBridgeBackend {
                 new StreamMessageReader(processRef.stdout),
                 new StreamMessageWriter(processRef.stdin),
             );
+            connection.onRequest('workspace/configuration', () => [getConfiguration()]);
+            connection.onNotification('indexingStarted', () => {
+                indexing = true;
+                config.logger?.log(`[php-bridge:${config.backendName}] indexing started`);
+            });
+            connection.onNotification('indexingEnded', () => {
+                indexing = false;
+                config.logger?.log(`[php-bridge:${config.backendName}] indexing ended`);
+            });
             connection.listen();
 
             await connection.sendRequest('initialize', {
                 processId: process.pid,
                 rootUri: workspaceUri(config.workspaceRoot),
-                capabilities: {},
+                capabilities: {
+                    workspace: {
+                        configuration: true,
+                    },
+                },
+                initializationOptions: getConfiguration(),
                 workspaceFolders: [
                     {
                         uri: workspaceUri(config.workspaceRoot),
@@ -135,6 +167,9 @@ export namespace PhpBridgeBackend {
 
             async completion(uri, position) {
                 await ensureStarted();
+                if (indexing) {
+                    config.logger?.log(`[php-bridge:${config.backendName}] completion requested while indexing`);
+                }
                 return connection
                     ? ((await connection.sendRequest('textDocument/completion', {
                           textDocument: { uri },

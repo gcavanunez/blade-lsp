@@ -31,7 +31,22 @@ describe('PhpBridge backend skeleton', () => {
             backendName: 'phpactor',
             command: ['phpactor', 'language-server'],
             workspaceRoot: '/workspace',
+            settings: undefined,
         });
+    });
+
+    it('provides default intelephense storage settings for embedded bridge backend', () => {
+        const config = PhpBridge.resolveBackendConfig(
+            {
+                enableEmbeddedPhpBridge: true,
+                embeddedPhpBackend: 'intelephense',
+            },
+            '/workspace',
+        );
+
+        expect(config?.settings?.intelephense?.globalStoragePath).toContain('.local/share/intelephense');
+        expect(config?.settings?.intelephense?.storagePath).toContain('.local/share/intelephense');
+        expect(config?.settings?.intelephense?.files?.maxSize).toBe(10_000_000);
     });
 
     it('writes and syncs a stable shadow document through the backend', async () => {
@@ -46,6 +61,7 @@ describe('PhpBridge backend skeleton', () => {
             hover: async () => null,
             definition: async () => null,
             completion: async () => null,
+            resolveCompletion: async () => null,
             shutdown: async () => {},
         };
 
@@ -95,6 +111,7 @@ describe('PhpBridge backend skeleton', () => {
             hover: async () => null,
             definition: async () => null,
             completion: async () => null,
+            resolveCompletion: async () => null,
             shutdown: async () => {},
         }));
 
@@ -131,6 +148,7 @@ describe('PhpBridge backend skeleton', () => {
             hover: async () => null,
             definition: async () => null,
             completion: async () => null,
+            resolveCompletion: async () => null,
             shutdown: async () => {},
         }));
 

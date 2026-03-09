@@ -75,6 +75,28 @@ export namespace PhpBridge {
             backendName,
             command,
             workspaceRoot,
+            settings:
+                backendName === 'intelephense'
+                    ? {
+                          intelephense: {
+                              globalStoragePath: path.join(
+                                  process.env.HOME ?? workspaceRoot,
+                                  '.local',
+                                  'share',
+                                  'intelephense',
+                              ),
+                              storagePath: path.join(
+                                  process.env.HOME ?? workspaceRoot,
+                                  '.local',
+                                  'share',
+                                  'intelephense',
+                              ),
+                              files: {
+                                  maxSize: 10_000_000,
+                              },
+                          },
+                      }
+                    : undefined,
         };
     }
 
@@ -88,7 +110,10 @@ export namespace PhpBridge {
             return null;
         }
 
-        const backend = backendFactory(config);
+        const backend = backendFactory({
+            ...config,
+            logger: state.logger,
+        });
         try {
             await backend.start();
             state.backend = backend;
