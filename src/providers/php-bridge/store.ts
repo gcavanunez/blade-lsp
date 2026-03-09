@@ -4,11 +4,12 @@ export namespace PhpBridgeStore {
     export interface Entry {
         bladeUri: string;
         version: number;
+        source: string;
         shadow: PhpBridgeShadowDocument.ShadowDocument;
     }
 
     export interface Store {
-        get(bladeUri: string, version: number): Entry | null;
+        get(bladeUri: string, version: number, source: string): Entry | null;
         set(entry: Entry): void;
         clear(bladeUri?: string): void;
     }
@@ -17,9 +18,9 @@ export namespace PhpBridgeStore {
         const entries = new Map<string, Entry>();
 
         return {
-            get(bladeUri, version) {
+            get(bladeUri, version, source) {
                 const entry = entries.get(bladeUri) ?? null;
-                if (!entry || entry.version !== version) {
+                if (!entry || entry.version !== version || entry.source !== source) {
                     return null;
                 }
 
