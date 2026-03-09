@@ -5,11 +5,13 @@ export namespace PhpBridgeStore {
         bladeUri: string;
         version: number;
         source: string;
+        signature: string;
         shadow: PhpBridgeShadowDocument.ShadowDocument;
     }
 
     export interface Store {
         get(bladeUri: string, version: number, source: string): Entry | null;
+        getLatest(bladeUri: string): Entry | null;
         set(entry: Entry): void;
         clear(bladeUri?: string): void;
     }
@@ -25,6 +27,10 @@ export namespace PhpBridgeStore {
                 }
 
                 return entry;
+            },
+
+            getLatest(bladeUri) {
+                return entries.get(bladeUri) ?? null;
             },
 
             set(entry) {
