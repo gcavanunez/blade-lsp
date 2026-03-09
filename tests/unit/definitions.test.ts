@@ -187,4 +187,72 @@ describe('Definitions', () => {
             expect(result).toBeNull();
         });
     });
+
+    describe('PHP preamble definitions', () => {
+        it('resolves extracted preamble variables to same-file declarations', () => {
+            const source = `<?php
+use App\\Models\\Post;
+use Illuminate\\View\\View;
+
+render(function (View $view, Post $post) {
+    return $view->with('photos', []);
+});
+?>
+
+{{ $photos }}
+{{ $post->title }}`;
+
+            const photosLine = '{{ $photos }}';
+            const photosResult = Definitions.getPhpSymbolDefinition(
+                photosLine,
+                4,
+                source,
+                'file:///test/project/test.blade.php',
+            );
+            expect(photosResult).not.toBeNull();
+            expect(photosResult!.range.start.line).toBe(5);
+
+            const postLine = '{{ $post->title }}';
+            const postResult = Definitions.getPhpSymbolDefinition(
+                postLine,
+                4,
+                source,
+                'file:///test/project/test.blade.php',
+            );
+            expect(postResult).not.toBeNull();
+            expect(postResult!.range.start.line).toBe(4);
+        });
+
+        it('resolves wire:model and wire action values to inline livewire members', () => {
+            const source = `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title = '';
+    public function save(): void {}
+};
+?>
+
+<input wire:model="title">
+<form wire:submit="save"></form>`;
+
+            const modelResult = Definitions.getWireAttributeDefinition(
+                '<input wire:model="title">',
+                19,
+                source,
+                'file:///test/project/test.blade.php',
+            );
+            expect(modelResult).not.toBeNull();
+            expect(modelResult!.range.start.line).toBe(4);
+
+            const actionResult = Definitions.getWireAttributeDefinition(
+                '<form wire:submit="save"></form>',
+                20,
+                source,
+                'file:///test/project/test.blade.php',
+            );
+            expect(actionResult).not.toBeNull();
+            expect(actionResult!.range.start.line).toBe(5);
+        });
+    });
 });

@@ -245,6 +245,52 @@ new class extends Component {
 
             await doc.close();
         });
+
+        it('resolves wire:model values to inline livewire property declarations', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title = '';
+};
+?>
+
+<input wire:model="title">`,
+            });
+
+            const def = await doc.definition(8, 19);
+            expect(def).not.toBeNull();
+            if (def && !Array.isArray(def)) {
+                expect(def.uri).toBe(doc.uri);
+                expect(def.range.start.line).toBe(4);
+            }
+
+            await doc.close();
+        });
+
+        it('resolves wire action values to inline livewire method declarations', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public function save(): void {}
+};
+?>
+
+<form wire:submit="save"></form>`,
+            });
+
+            const def = await doc.definition(8, 20);
+            expect(def).not.toBeNull();
+            if (def && !Array.isArray(def)) {
+                expect(def.uri).toBe(doc.uri);
+                expect(def.range.start.line).toBe(4);
+            }
+
+            await doc.close();
+        });
     });
 
     // ─── Diagnostics ────────────────────────────────────────────────────────
