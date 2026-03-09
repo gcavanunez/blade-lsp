@@ -19,6 +19,13 @@ export namespace Shared {
         end: number;
     }
 
+    export interface AttributeValueContext {
+        name: string;
+        value: string;
+        valueStart: number;
+        valueEnd: number;
+    }
+
     export interface ComponentPropContext {
         componentName: string;
         existingProps: string[];
@@ -157,6 +164,31 @@ export namespace Shared {
 
             if (column >= attrNameStart && column <= attrNameEnd) {
                 return match[1];
+            }
+        }
+
+        return null;
+    }
+
+    export function getAttributeValueContextAtColumn(line: string, column: number): AttributeValueContext | null {
+        const attrPattern = /([:@\w.-]+)\s*=\s*(["'])([^"']*)(\2)/g;
+        let match: RegExpExecArray | null;
+
+        while ((match = attrPattern.exec(line)) !== null) {
+            const name = match[1];
+            const quote = match[2];
+            const value = match[3] ?? '';
+            const full = match[0];
+            const valueStart = (match.index ?? 0) + full.indexOf(quote) + 1;
+            const valueEnd = valueStart + value.length;
+
+            if (column >= valueStart && column <= valueEnd) {
+                return {
+                    name,
+                    value,
+                    valueStart,
+                    valueEnd,
+                };
             }
         }
 

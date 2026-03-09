@@ -3,11 +3,18 @@ import { Lexer } from '../parser/lexer';
 
 export namespace PhpPreambleSymbols {
     export type SymbolSource = 'assignment' | 'folio-param' | 'view-with' | 'livewire-prop';
+    export type MethodSource = 'livewire-method';
 
     export interface TemplateSymbol {
         name: string;
         type: string | null;
         source: SymbolSource;
+    }
+
+    export interface TemplateMethod {
+        name: string;
+        returnType: string | null;
+        source: MethodSource;
     }
 
     function addSymbol(symbols: Map<string, TemplateSymbol>, symbol: TemplateSymbol): void {
@@ -94,6 +101,21 @@ export namespace PhpPreambleSymbols {
         }
     }
 
+    function collectLivewireMethods(text: string, methods: Map<string, TemplateMethod>): void {
+        const pattern = /\bpublic\s+function\s+([A-Za-z_]\w*)\s*\([^)]*\)\s*(?::\s*([A-Za-z_\\][\w\\|?&]*))?/g;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(text)) !== null) {
+            const name = match[1];
+            if (!name || name === 'render') continue;
+
+            methods.set(name, {
+                name,
+                returnType: normalizeType(match[2]),
+                source: 'livewire-method',
+            });
+        }
+    }
+
     function updateBraceDepth(line: string, depth: number): number {
         let nextDepth = depth;
         let quote: "'" | '"' | null = null;
@@ -158,6 +180,18 @@ export namespace PhpPreambleSymbols {
         return [...symbols.values()];
     }
 
+    export function getMethods(source: string): TemplateMethod[] {
+        const lexed = Lexer.lexSource(source);
+        const methods = new Map<string, TemplateMethod>();
+
+        for (const range of lexed.phpRanges) {
+            const text = source.slice(range.offsetStart, range.offsetEnd);
+            collectLivewireMethods(text, methods);
+        }
+
+        return [...methods.values()];
+    }
+
     function sourceDetail(source: SymbolSource): string {
         switch (source) {
             case 'folio-param':
@@ -175,6 +209,16 @@ export namespace PhpPreambleSymbols {
         return getSymbols(source).find((symbol) => symbol.name === name) ?? null;
     }
 
+    export function findLivewireProperty(source: string, name: string): TemplateSymbol | null {
+        return (
+            getSymbols(source).find((symbol) => symbol.source === 'livewire-prop' && symbol.name === `$${name}`) ?? null
+        );
+    }
+
+    export function findLivewireMethod(source: string, name: string): TemplateMethod | null {
+        return getMethods(source).find((method) => method.name === name) ?? null;
+    }
+
     export function toCompletionItems(source: string): CompletionItem[] {
         return getSymbols(source).map((symbol) => ({
             label: symbol.name,
@@ -188,11 +232,48 @@ export namespace PhpPreambleSymbols {
         }));
     }
 
+    export function toLivewirePropertyItems(source: string): CompletionItem[] {
+        return getSymbols(source)
+            .filter((symbol) => symbol.source === 'livewire-prop')
+            .map((symbol) => ({
+                label: symbol.name.slice(1),
+                kind: CompletionItemKind.Field,
+                detail: 'Livewire public property',
+                documentation: {
+                    kind: MarkupKind.Markdown,
+                    value: formatSymbol(symbol),
+                },
+                sortText: `0${symbol.name}`,
+            }));
+    }
+
+    export function toLivewireMethodItems(source: string): CompletionItem[] {
+        return getMethods(source).map((method) => ({
+            label: method.name,
+            kind: CompletionItemKind.Method,
+            detail: 'Livewire action',
+            documentation: {
+                kind: MarkupKind.Markdown,
+                value: formatMethod(method),
+            },
+            sortText: `0${method.name}`,
+        }));
+    }
+
     export function formatSymbol(symbol: TemplateSymbol): string {
         let content = `## ${symbol.name}\n\n`;
         content += `**Source:** ${sourceDetail(symbol.source)}\n`;
         if (symbol.type) {
             content += `\n**Type:** \`${symbol.type}\`\n`;
+        }
+        return content;
+    }
+
+    export function formatMethod(method: TemplateMethod): string {
+        let content = `## ${method.name}()\n\n`;
+        content += '**Source:** Livewire action\n';
+        if (method.returnType) {
+            content += `\n**Returns:** \`${method.returnType}\`\n`;
         }
         return content;
     }
