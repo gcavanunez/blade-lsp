@@ -104,25 +104,32 @@ export namespace PhpBridge {
 
         const extraction = PhpBridgeRegions.extract(source);
         const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction);
+        const previous = state.store.getLatest(document.uri);
+        const shouldResyncBackend = !previous || previous.signature !== extraction.signature;
 
-        await mkdir(path.dirname(shadow.shadowPath), { recursive: true });
-        await writeFile(shadow.shadowPath, shadow.content, 'utf-8');
+        if (shouldResyncBackend) {
+            await mkdir(path.dirname(shadow.shadowPath), { recursive: true });
+            await writeFile(shadow.shadowPath, shadow.content, 'utf-8');
+        }
 
         const entry: PhpBridgeStore.Entry = {
             bladeUri: document.uri,
             version: document.version,
             source,
+            signature: extraction.signature,
             shadow,
         };
         state.store.set(entry);
 
-        const backend = await ensureBackend(state);
-        if (backend) {
-            await backend.openOrUpdate({
-                uri: shadow.shadowUri,
-                version: document.version,
-                text: shadow.content,
-            });
+        if (shouldResyncBackend) {
+            const backend = await ensureBackend(state);
+            if (backend) {
+                await backend.openOrUpdate({
+                    uri: shadow.shadowUri,
+                    version: document.version,
+                    text: shadow.content,
+                });
+            }
         }
 
         return entry;

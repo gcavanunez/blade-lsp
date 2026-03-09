@@ -19,6 +19,7 @@ export namespace PhpBridgeRegions {
     export interface RegionExtraction {
         lexed: Lexer.LexedSource;
         regions: Region[];
+        signature: string;
     }
 
     function offsetToPosition(source: string, offset: number): Position {
@@ -46,6 +47,10 @@ export namespace PhpBridgeRegions {
             contentOffsetStart: rawOffsetStart + openLength,
             contentOffsetEnd: Math.max(rawOffsetStart + openLength, rawOffsetEnd - closeLength),
         };
+    }
+
+    export function getSignature(regions: Region[]): string {
+        return regions.map((region) => `${region.kind}:${region.content}`).join('\n/* region-break */\n');
     }
 
     export function extract(source: string, lexed: Lexer.LexedSource = Lexer.lexSource(source)): RegionExtraction {
@@ -76,7 +81,7 @@ export namespace PhpBridgeRegions {
             });
         }
 
-        return { lexed, regions };
+        return { lexed, regions, signature: getSignature(regions) };
     }
 
     export function getRegionAtOffset(regions: Region[], offset: number): Region | null {
