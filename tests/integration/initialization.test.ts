@@ -42,6 +42,12 @@ describe('Server Initialization', () => {
         expect(caps.documentSymbolProvider).toBe(true);
     });
 
+    it('reports document link provider', () => {
+        const caps = client.initializeResult.capabilities;
+        expect(caps.documentLinkProvider).toBeDefined();
+        expect(typeof caps.documentLinkProvider).toBe('object');
+    });
+
     it('reports code action kinds', () => {
         const caps = client.initializeResult.capabilities;
         expect(caps.codeActionProvider).toBeDefined();
