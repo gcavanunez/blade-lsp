@@ -1,0 +1,128 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import type { TextDocument } from 'vscode-languageserver-textdocument';
+import type { Server } from '../../server';
+import { PhpBridgeBackend } from './backend';
+import { PhpBridgeRegions } from './regions';
+import { PhpBridgeShadowDocument } from './shadow-document';
+import { PhpBridgeStore } from './store';
+
+export namespace PhpBridge {
+    export interface Logger {
+        log(message: string): void;
+        error(message: string): void;
+    }
+
+    export interface State {
+        workspaceRoot: string;
+        settings: Server.Settings;
+        logger: Logger;
+        store: PhpBridgeStore.Store;
+        backend: PhpBridgeBackend.Client | null;
+    }
+
+    type BackendFactory = (config: PhpBridgeBackend.BackendConfig) => PhpBridgeBackend.Client;
+
+    let backendFactory: BackendFactory = PhpBridgeBackend.createLspClient;
+
+    export function setBackendFactoryForTests(factory: BackendFactory | null): void {
+        backendFactory = factory ?? PhpBridgeBackend.createLspClient;
+    }
+
+    export function createState(workspaceRoot: string, settings: Server.Settings, logger: Logger): State {
+        return {
+            workspaceRoot,
+            settings,
+            logger,
+            store: PhpBridgeStore.create(),
+            backend: null,
+        };
+    }
+
+    export function isEnabled(settings: Server.Settings): boolean {
+        return settings.enableEmbeddedPhpBridge === true;
+    }
+
+    export function resolveBackendConfig(
+        settings: Server.Settings,
+        workspaceRoot: string,
+    ): PhpBridgeBackend.BackendConfig | null {
+        if (!isEnabled(settings)) {
+            return null;
+        }
+
+        const backendName = settings.embeddedPhpBackend ?? 'intelephense';
+        const command = settings.embeddedPhpLspCommand ?? PhpBridgeBackend.resolveDefaultCommand(backendName);
+        if (!command || command.length === 0) {
+            return null;
+        }
+
+        return {
+            backendName,
+            command,
+            workspaceRoot,
+        };
+    }
+
+    export async function ensureBackend(state: State): Promise<PhpBridgeBackend.Client | null> {
+        if (state.backend) {
+            return state.backend;
+        }
+
+        const config = resolveBackendConfig(state.settings, state.workspaceRoot);
+        if (!config) {
+            return null;
+        }
+
+        const backend = backendFactory(config);
+        try {
+            await backend.start();
+            state.backend = backend;
+            state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
+            return backend;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function syncDocument(state: State, document: TextDocument): Promise<PhpBridgeStore.Entry> {
+        const cached = state.store.get(document.uri, document.version);
+        if (cached) {
+            return cached;
+        }
+
+        const extraction = PhpBridgeRegions.extract(document.getText());
+        const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction);
+
+        await mkdir(path.dirname(shadow.shadowPath), { recursive: true });
+        await writeFile(shadow.shadowPath, shadow.content, 'utf-8');
+
+        const entry: PhpBridgeStore.Entry = {
+            bladeUri: document.uri,
+            version: document.version,
+            shadow,
+        };
+        state.store.set(entry);
+
+        const backend = await ensureBackend(state);
+        if (backend) {
+            await backend.openOrUpdate({
+                uri: shadow.shadowUri,
+                version: document.version,
+                text: shadow.content,
+            });
+        }
+
+        return entry;
+    }
+
+    export async function shutdown(state: State): Promise<void> {
+        if (state.backend) {
+            await state.backend.shutdown();
+        }
+
+        state.backend = null;
+        state.store.clear();
+    }
+}

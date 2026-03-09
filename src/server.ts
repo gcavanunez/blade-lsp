@@ -59,6 +59,9 @@ export namespace Server {
         /** Preferred PHP environment — skips auto-detection and tries only this one. */
         phpEnvironment?: PhpEnvironment.Name;
         enableLaravelIntegration?: boolean;
+        enableEmbeddedPhpBridge?: boolean;
+        embeddedPhpBackend?: 'intelephense' | 'phpactor';
+        embeddedPhpLspCommand?: string[];
     }
 
     export function getWorkspaceRoot(): string | null {
