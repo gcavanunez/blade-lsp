@@ -18,6 +18,7 @@ import { PhpBridgeStore } from './store';
 
 export namespace PhpBridge {
     const COMPLETION_BRIDGE_DATA_KEY = '__bladePhpBridge';
+    const EAGER_COMPLETION_RESOLVE_LIMIT = 20;
 
     export interface Logger {
         log(message: string): void;
@@ -325,7 +326,21 @@ export namespace PhpBridge {
             }
 
             const items = Array.isArray(result) ? result : result.items;
-            const remapped = items
+            const resolvedItems = await Promise.all(
+                items.map(async (item, index) => {
+                    if (index >= EAGER_COMPLETION_RESOLVE_LIMIT) {
+                        return item;
+                    }
+
+                    try {
+                        return (await backend.resolveCompletion(item)) ?? item;
+                    } catch {
+                        return item;
+                    }
+                }),
+            );
+
+            const remapped = resolvedItems
                 .map((item) => remapCompletionItem(source, entry.shadow, item))
                 .filter((item): item is CompletionItem => !!item);
 
