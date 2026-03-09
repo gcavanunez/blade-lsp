@@ -63,6 +63,52 @@ describe('Livewire (Integration)', () => {
 
             await doc.close();
         });
+
+        it('completes wire:model values from inline livewire public properties', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title = '';
+    public string $content = '';
+};
+?>
+
+<input wire:model="">`,
+            });
+
+            const items = await doc.completions(9, 19);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('title');
+            expect(labels).toContain('content');
+
+            await doc.close();
+        });
+
+        it('completes wire action values from inline livewire methods', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public function save(): void {}
+    public function publish() {}
+};
+?>
+
+<form wire:submit=""></form>`,
+            });
+
+            const items = await doc.completions(9, 19);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('save');
+            expect(labels).toContain('publish');
+
+            await doc.close();
+        });
     });
 
     // ─── Hover ──────────────────────────────────────────────────────────────
@@ -110,6 +156,62 @@ describe('Livewire (Integration)', () => {
                       ? hover!.contents.value
                       : '';
             expect(value).toContain('not found');
+
+            await doc.close();
+        });
+
+        it('shows hover for wire:model values from inline livewire properties', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title = '';
+};
+?>
+
+<input wire:model="title">`,
+            });
+
+            const hover = await doc.hover(8, 19);
+            expect(hover).not.toBeNull();
+
+            const value =
+                typeof hover!.contents === 'string'
+                    ? hover!.contents
+                    : 'value' in hover!.contents
+                      ? hover!.contents.value
+                      : '';
+            expect(value).toContain('$title');
+            expect(value).toContain('Livewire public property');
+
+            await doc.close();
+        });
+
+        it('shows hover for wire action values from inline livewire methods', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public function save(): void {}
+};
+?>
+
+<form wire:submit="save"></form>`,
+            });
+
+            const hover = await doc.hover(8, 20);
+            expect(hover).not.toBeNull();
+
+            const value =
+                typeof hover!.contents === 'string'
+                    ? hover!.contents
+                    : 'value' in hover!.contents
+                      ? hover!.contents.value
+                      : '';
+            expect(value).toContain('save()');
+            expect(value).toContain('Livewire action');
 
             await doc.close();
         });

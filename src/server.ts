@@ -41,6 +41,7 @@ import { PhpPreambleSymbols } from './providers/php-preamble-symbols';
 import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
+import { Shared } from './providers/shared';
 import {
     getDirectiveParameterName,
     getSlotCompletionSyntax,
@@ -385,7 +386,12 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const position = params.position;
             const source = document.getText();
+            const currentLine = source.split('\n')[position.line] || '';
             const context = BladeParser.getCompletionContext(tree, source, position.line, position.character);
+            const wireAttributeItems = Completions.getWireAttributeCompletions(source, currentLine, position);
+            if (wireAttributeItems.length > 0) {
+                return wireAttributeItems;
+            }
 
             const items: CompletionItem[] = [];
 
@@ -397,8 +403,7 @@ export namespace Server {
 
                 items.push(...getCustomDirectiveCompletions(context.prefix));
             } else if (context.type === 'html') {
-                const line = source.split('\n')[position.line];
-                const textBeforeCursor = line.slice(0, position.character);
+                const textBeforeCursor = currentLine.slice(0, position.character);
 
                 if (textBeforeCursor.endsWith('@')) {
                     for (const directive of BladeDirectives.all) {
@@ -441,8 +446,7 @@ export namespace Server {
                 items.push(...PhpPreambleSymbols.toCompletionItems(source));
                 items.push(...Completions.getLaravelHelperCompletions());
             } else if (context.type === 'php' || context.type === 'parameter') {
-                const line = source.split('\n')[position.line];
-                const textBeforeCursor = line.slice(0, position.character);
+                const textBeforeCursor = currentLine.slice(0, position.character);
                 const directiveName = getDirectiveParameterName(textBeforeCursor);
                 if (directiveName) {
                     items.push(...Completions.getParameterCompletions(directiveName, { source }));
@@ -512,6 +516,49 @@ export namespace Server {
                             value: PhpPreambleSymbols.formatSymbol(phpSymbol),
                         },
                     };
+                }
+            }
+
+            const attributeValueContext = Shared.getAttributeValueContextAtColumn(lineText, position.character);
+            if (attributeValueContext) {
+                if (
+                    attributeValueContext.name === 'wire:model' ||
+                    attributeValueContext.name.startsWith('wire:model.')
+                ) {
+                    const prop = PhpPreambleSymbols.findLivewireProperty(source, attributeValueContext.value);
+                    if (prop) {
+                        return {
+                            contents: {
+                                kind: MarkupKind.Markdown,
+                                value: PhpPreambleSymbols.formatSymbol(prop),
+                            },
+                        };
+                    }
+                }
+
+                const isWireAction = [
+                    'wire:submit',
+                    'wire:click',
+                    'wire:change',
+                    'wire:input',
+                    'wire:keydown',
+                    'wire:keyup',
+                    'wire:blur',
+                    'wire:init',
+                ].some(
+                    (prefix) =>
+                        attributeValueContext.name === prefix || attributeValueContext.name.startsWith(`${prefix}.`),
+                );
+                if (isWireAction) {
+                    const method = PhpPreambleSymbols.findLivewireMethod(source, attributeValueContext.value);
+                    if (method) {
+                        return {
+                            contents: {
+                                kind: MarkupKind.Markdown,
+                                value: PhpPreambleSymbols.formatMethod(method),
+                            },
+                        };
+                    }
                 }
             }
 
