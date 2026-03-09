@@ -11,6 +11,7 @@ describe('Embedded PHP bridge completion (Integration)', () => {
     let client: Client;
     let workspaceRoot = '';
     const completionCalls: Array<{ uri: string; position: Position }> = [];
+    let resolveCalls = 0;
 
     beforeAll(async () => {
         workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-completion-'));
@@ -25,28 +26,21 @@ describe('Embedded PHP bridge completion (Integration)', () => {
                     completionCalls.push({ uri, position });
                     return [
                         {
-                            label: '$post',
+                            label: 'User',
+                            kind: 7,
                             textEdit: {
                                 range: {
                                     start: { line: position.line, character: 0 },
                                     end: { line: position.line, character: position.character },
                                 },
-                                newText: '$post',
+                                newText: 'User',
                             },
-                            additionalTextEdits: [
-                                {
-                                    range: {
-                                        start: { line: 1, character: 0 },
-                                        end: { line: 1, character: 0 },
-                                    },
-                                    newText: 'use App\\Models\\Post;\n',
-                                },
-                            ],
                         } satisfies CompletionItem,
                     ];
                 },
-                resolveCompletion: async (item) =>
-                    ({
+                resolveCompletion: async (item) => {
+                    resolveCalls += 1;
+                    return {
                         ...item,
                         additionalTextEdits: [
                             {
@@ -57,7 +51,8 @@ describe('Embedded PHP bridge completion (Integration)', () => {
                                 newText: 'use App\\Models\\User;\n',
                             },
                         ],
-                    }) satisfies CompletionItem,
+                    } satisfies CompletionItem;
+                },
                 shutdown: async () => {},
             }),
         );
@@ -84,25 +79,26 @@ describe('Embedded PHP bridge completion (Integration)', () => {
         const doc = await client.open({
             name: 'resources/views/show.blade.php',
             text: `<?php
-$po
+Use
 ?>`,
         });
 
         const items = await doc.completions(1, 3);
-        expect(items.map((item) => item.label)).toContain('$post');
+        expect(items.map((item) => item.label)).toContain('User');
         expect(completionCalls).toHaveLength(1);
+        expect(resolveCalls).toBeGreaterThan(0);
         expect(completionCalls[0].uri).toContain('.blade-lsp/shadow/resources-views-show.php');
 
-        const postItem = items.find((item) => item.label === '$post');
-        expect(postItem?.textEdit).toBeDefined();
-        if (postItem?.textEdit && 'range' in postItem.textEdit) {
-            expect(postItem.textEdit.range.start.line).toBe(1);
-            expect(postItem.textEdit.range.start.character).toBe(0);
-            expect(postItem.textEdit.range.end.character).toBe(3);
+        const userItem = items.find((item) => item.label === 'User');
+        expect(userItem?.textEdit).toBeDefined();
+        if (userItem?.textEdit && 'range' in userItem.textEdit) {
+            expect(userItem.textEdit.range.start.line).toBe(1);
+            expect(userItem.textEdit.range.start.character).toBe(0);
+            expect(userItem.textEdit.range.end.character).toBe(3);
         }
-        expect(postItem?.additionalTextEdits?.[0]?.range.start.line).toBe(0);
-        expect(postItem?.additionalTextEdits?.[0]?.range.start.character).toBe(5);
-        expect(postItem?.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\Post;');
+        expect(userItem?.additionalTextEdits?.[0]?.range.start.line).toBe(0);
+        expect(userItem?.additionalTextEdits?.[0]?.range.start.character).toBe(5);
+        expect(userItem?.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\User;');
 
         await doc.close();
     });
@@ -118,7 +114,7 @@ Use
         const items = await doc.completions(1, 3);
         const resolved = await doc.resolveCompletion(items[0]);
 
-        expect(resolved.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\Post;');
+        expect(resolved.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\User;');
 
         await doc.close();
     });
