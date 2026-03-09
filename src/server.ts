@@ -32,7 +32,6 @@ import { Components } from './laravel/components';
 import { PhpEnvironment } from './laravel/php-environment';
 import { FormatErrorForLog } from './utils/format-error';
 import { Progress } from './utils/progress';
-import { tryAsync } from './utils/try-async';
 import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
@@ -178,11 +177,11 @@ export namespace Server {
             const supportsProgress = !!params.capabilities.window?.workDoneProgress;
             Progress.initialize(conn, supportsProgress);
 
-            const { error } = await tryAsync(() => BladeParser.initialize());
-            if (error) {
-                conn.console.error(`Failed to initialize parser: ${FormatErrorForLog(error)}`);
-            } else {
+            try {
+                await BladeParser.initialize();
                 conn.console.log('Tree-sitter Blade parser initialized');
+            } catch (error) {
+                conn.console.error(`Failed to initialize parser: ${FormatErrorForLog(error)}`);
             }
 
             return {
@@ -590,6 +589,11 @@ export namespace Server {
             });
         });
 
+        conn.onShutdown(async () => {
+            Laravel.dispose();
+            await Container.dispose();
+        });
+
         docs.listen(conn);
         return conn;
     };
@@ -604,9 +608,9 @@ export namespace Server {
     /**
      * Reset all server state. Used between test runs for isolation.
      */
-    export function reset(): void {
+    export async function reset(): Promise<void> {
         Laravel.dispose();
-        Container.dispose();
+        await Container.dispose();
     }
 }
 
