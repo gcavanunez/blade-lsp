@@ -28,6 +28,7 @@ export namespace PhpBridge {
         logger: Logger;
         store: PhpBridgeStore.Store;
         backend: PhpBridgeBackend.Client | null;
+        shadowVersion: number;
     }
 
     type BackendFactory = (config: PhpBridgeBackend.BackendConfig) => PhpBridgeBackend.Client;
@@ -45,6 +46,7 @@ export namespace PhpBridge {
             logger,
             store: PhpBridgeStore.create(),
             backend: null,
+            shadowVersion: 0,
         };
     }
 
@@ -95,44 +97,38 @@ export namespace PhpBridge {
         }
     }
 
-    export async function syncDocument(state: State, document: TextDocument): Promise<PhpBridgeStore.Entry> {
+    export async function syncDocument(
+        state: State,
+        document: TextDocument,
+    ): Promise<PhpBridgeStore.BridgeDocumentState> {
         const source = document.getText();
-        const cached = state.store.get(document.uri, document.version, source);
-        if (cached) {
-            return cached;
+        const current = state.store.get(document.uri);
+        if (current && current.bladeVersion === document.version && current.source === source) {
+            return current;
         }
 
         const extraction = PhpBridgeRegions.extract(source);
         const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction);
-        const previous = state.store.getLatest(document.uri);
-        const shouldResyncBackend = !previous || previous.signature !== extraction.signature;
+        const previous = state.store.get(document.uri);
+        const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow);
+        const shouldResyncBackend = !previous || phpChanged;
 
         if (shouldResyncBackend) {
             await mkdir(path.dirname(shadow.shadowPath), { recursive: true });
             await writeFile(shadow.shadowPath, shadow.content, 'utf-8');
-        }
-
-        const entry: PhpBridgeStore.Entry = {
-            bladeUri: document.uri,
-            version: document.version,
-            source,
-            signature: extraction.signature,
-            shadow,
-        };
-        state.store.set(entry);
-
-        if (shouldResyncBackend) {
+            state.shadowVersion += 1;
             const backend = await ensureBackend(state);
             if (backend) {
                 await backend.openOrUpdate({
                     uri: shadow.shadowUri,
-                    version: document.version,
+                    version: state.shadowVersion,
                     text: shadow.content,
                 });
+                state.store.markBackendSynced(document.uri, state.shadowVersion);
             }
         }
 
-        return entry;
+        return state.store.get(document.uri) ?? documentState;
     }
 
     export async function shutdown(state: State): Promise<void> {
@@ -147,7 +143,7 @@ export namespace PhpBridge {
     export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
         try {
             const entry = await syncDocument(state, document);
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(document.getText(), entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(entry.source, entry.shadow, position);
             if (mapped.kind !== 'mapped') {
                 return null;
             }
@@ -171,7 +167,7 @@ export namespace PhpBridge {
     ): Promise<Location | Location[] | null> {
         try {
             const entry = await syncDocument(state, document);
-            const source = document.getText();
+            const source = entry.source;
             const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
             if (mapped.kind !== 'mapped') {
                 return null;
@@ -273,7 +269,7 @@ export namespace PhpBridge {
     ): Promise<CompletionItem[] | null> {
         try {
             const entry = await syncDocument(state, document);
-            const source = document.getText();
+            const source = entry.source;
             const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
             if (mapped.kind !== 'mapped') {
                 return null;

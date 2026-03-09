@@ -156,11 +156,12 @@ describe('PhpBridge backend skeleton', () => {
         const first = await PhpBridge.syncDocument(state, firstDocument);
         const second = await PhpBridge.syncDocument(state, secondDocument);
 
-        expect(first.signature).toBe(second.signature);
+        expect(first.extraction.signature).toBe(second.extraction.signature);
         expect(first.shadow.shadowUri).toBe(second.shadow.shadowUri);
         expect(first.shadow.regions[0]?.bladeContentOffsetStart).not.toBe(
             second.shadow.regions[0]?.bladeContentOffsetStart,
         );
+        expect(first.backendSyncedVersion).toBe(second.backendSyncedVersion);
         expect(syncCount).toBe(1);
 
         await PhpBridge.shutdown(state);

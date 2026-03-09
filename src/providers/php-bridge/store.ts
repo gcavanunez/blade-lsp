@@ -1,40 +1,76 @@
+import type { TextDocument } from 'vscode-languageserver-textdocument';
+import { PhpBridgeRegions } from './regions';
 import { PhpBridgeShadowDocument } from './shadow-document';
 
 export namespace PhpBridgeStore {
-    export interface Entry {
+    export interface BridgeDocumentState {
         bladeUri: string;
-        version: number;
+        bladeVersion: number;
         source: string;
-        signature: string;
+        extraction: PhpBridgeRegions.RegionExtraction;
         shadow: PhpBridgeShadowDocument.ShadowDocument;
+        backendSyncedVersion: number | null;
+        backendAckVersion: number | null;
+    }
+
+    export interface ApplyResult {
+        state: BridgeDocumentState;
+        phpChanged: boolean;
     }
 
     export interface Store {
-        get(bladeUri: string, version: number, source: string): Entry | null;
-        getLatest(bladeUri: string): Entry | null;
-        set(entry: Entry): void;
+        get(bladeUri: string): BridgeDocumentState | null;
+        apply(
+            document: TextDocument,
+            extraction: PhpBridgeRegions.RegionExtraction,
+            shadow: PhpBridgeShadowDocument.ShadowDocument,
+        ): ApplyResult;
+        markBackendSynced(bladeUri: string, shadowVersion: number): void;
         clear(bladeUri?: string): void;
     }
 
     export function create(): Store {
-        const entries = new Map<string, Entry>();
+        const entries = new Map<string, BridgeDocumentState>();
 
         return {
-            get(bladeUri, version, source) {
-                const entry = entries.get(bladeUri) ?? null;
-                if (!entry || entry.version !== version || entry.source !== source) {
-                    return null;
-                }
-
-                return entry;
-            },
-
-            getLatest(bladeUri) {
+            get(bladeUri) {
                 return entries.get(bladeUri) ?? null;
             },
 
-            set(entry) {
-                entries.set(entry.bladeUri, entry);
+            apply(document, extraction, shadow) {
+                const previous = entries.get(document.uri) ?? null;
+                const phpChanged = !previous || previous.extraction.signature !== extraction.signature;
+
+                const nextState: BridgeDocumentState = {
+                    bladeUri: document.uri,
+                    bladeVersion: document.version,
+                    source: document.getText(),
+                    extraction,
+                    shadow,
+                    backendSyncedVersion:
+                        !previous || phpChanged
+                            ? (previous?.backendSyncedVersion ?? null)
+                            : previous.backendSyncedVersion,
+                    backendAckVersion:
+                        !previous || phpChanged ? (previous?.backendAckVersion ?? null) : previous.backendAckVersion,
+                };
+
+                entries.set(document.uri, nextState);
+                return {
+                    state: nextState,
+                    phpChanged,
+                };
+            },
+
+            markBackendSynced(bladeUri, shadowVersion) {
+                const current = entries.get(bladeUri);
+                if (!current) return;
+
+                entries.set(bladeUri, {
+                    ...current,
+                    backendSyncedVersion: shadowVersion,
+                    backendAckVersion: shadowVersion,
+                });
             },
 
             clear(bladeUri) {
