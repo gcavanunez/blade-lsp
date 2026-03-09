@@ -233,6 +233,38 @@ export namespace PhpBridge {
         };
     }
 
+    function remapAdditionalTextEdit(
+        source: string,
+        shadow: PhpBridgeShadowDocument.ShadowDocument,
+        edit: TextEdit,
+    ): TextEdit | null {
+        const mapped = remapTextEdit(source, shadow, edit);
+        if (mapped) {
+            return mapped;
+        }
+
+        const firstRegion = shadow.regions[0];
+        if (!firstRegion) {
+            return null;
+        }
+
+        const shadowStart = PhpBridgeMapping.positionToOffset(shadow.content, edit.range.start);
+        const shadowEnd = PhpBridgeMapping.positionToOffset(shadow.content, edit.range.end);
+        const isInsertion = shadowStart === shadowEnd;
+        if (!isInsertion || shadowStart > firstRegion.shadowContentOffsetStart) {
+            return null;
+        }
+
+        const bladeInsertPosition = PhpBridgeMapping.offsetToPosition(source, firstRegion.bladeContentOffsetStart);
+        return {
+            newText: edit.newText,
+            range: {
+                start: bladeInsertPosition,
+                end: bladeInsertPosition,
+            },
+        };
+    }
+
     function remapCompletionItem(
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
@@ -245,7 +277,7 @@ export namespace PhpBridge {
         }
 
         const additionalTextEdits = item.additionalTextEdits
-            ?.map((edit) => remapTextEdit(source, shadow, edit))
+            ?.map((edit) => remapAdditionalTextEdit(source, shadow, edit))
             .filter((edit): edit is TextEdit => !!edit);
         if (
             item.additionalTextEdits &&
