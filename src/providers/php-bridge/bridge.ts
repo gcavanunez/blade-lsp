@@ -1,6 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { Position, type Hover, type Location } from 'vscode-languageserver/node';
+import {
+    Position,
+    TextEdit,
+    type CompletionItem,
+    type CompletionList,
+    type Hover,
+    type Location,
+} from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Server } from '../../server';
 import { PhpBridgeBackend } from './backend';
@@ -199,6 +206,90 @@ export namespace PhpBridge {
             return Array.isArray(result) ? remapped : (remapped[0] ?? null);
         } catch (error) {
             state.logger.error(`Embedded PHP bridge definition failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    function remapTextEdit(
+        source: string,
+        shadow: PhpBridgeShadowDocument.ShadowDocument,
+        edit: TextEdit | undefined,
+    ): TextEdit | null {
+        if (!edit) {
+            return null;
+        }
+
+        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, edit.range);
+        if (mapped.kind !== 'mapped') {
+            return null;
+        }
+
+        return {
+            newText: edit.newText,
+            range: mapped.range,
+        };
+    }
+
+    function remapCompletionItem(
+        source: string,
+        shadow: PhpBridgeShadowDocument.ShadowDocument,
+        item: CompletionItem,
+    ): CompletionItem | null {
+        const textEdit =
+            'textEdit' in item ? remapTextEdit(source, shadow, item.textEdit as TextEdit | undefined) : null;
+        if ('textEdit' in item && item.textEdit && !textEdit) {
+            return null;
+        }
+
+        const additionalTextEdits = item.additionalTextEdits
+            ?.map((edit) => remapTextEdit(source, shadow, edit))
+            .filter((edit): edit is TextEdit => !!edit);
+        if (
+            item.additionalTextEdits &&
+            item.additionalTextEdits.length > 0 &&
+            (!additionalTextEdits || additionalTextEdits.length !== item.additionalTextEdits.length)
+        ) {
+            return null;
+        }
+
+        return {
+            ...item,
+            ...(textEdit ? { textEdit } : {}),
+            ...(additionalTextEdits ? { additionalTextEdits } : {}),
+        };
+    }
+
+    export async function getCompletion(
+        state: State,
+        document: TextDocument,
+        position: Position,
+    ): Promise<CompletionItem[] | null> {
+        try {
+            const entry = await syncDocument(state, document);
+            const source = document.getText();
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
+            if (mapped.kind !== 'mapped') {
+                return null;
+            }
+
+            const backend = await ensureBackend(state);
+            if (!backend) {
+                return null;
+            }
+
+            const result = await backend.completion(entry.shadow.shadowUri, mapped.position);
+            if (!result) {
+                return null;
+            }
+
+            const items = Array.isArray(result) ? result : result.items;
+            const remapped = items
+                .map((item) => remapCompletionItem(source, entry.shadow, item))
+                .filter((item): item is CompletionItem => !!item);
+
+            return remapped;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge completion failed: ${String(error)}`);
             return null;
         }
     }
