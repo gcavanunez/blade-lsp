@@ -115,6 +115,7 @@ $foo = bar();
             bladeUri: shadow.bladeUri,
             version: 3,
             source,
+            signature: extraction.signature,
             shadow,
         });
 
