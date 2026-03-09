@@ -9,12 +9,27 @@ export namespace PhpPreambleSymbols {
         name: string;
         type: string | null;
         source: SymbolSource;
+        line: number;
+        column: number;
+        length: number;
     }
 
     export interface TemplateMethod {
         name: string;
         returnType: string | null;
         source: MethodSource;
+        line: number;
+        column: number;
+        length: number;
+    }
+
+    function getLineAndColumn(source: string, offset: number): { line: number; column: number } {
+        const before = source.slice(0, offset);
+        const lines = before.split('\n');
+        return {
+            line: lines.length - 1,
+            column: lines[lines.length - 1]?.length ?? 0,
+        };
     }
 
     function addSymbol(symbols: Map<string, TemplateSymbol>, symbol: TemplateSymbol): void {
@@ -36,7 +51,12 @@ export namespace PhpPreambleSymbols {
         return trimmed ? trimmed.replace(/^\\+/, '') : null;
     }
 
-    function collectFolioRenderParams(text: string, symbols: Map<string, TemplateSymbol>): void {
+    function collectFolioRenderParams(
+        text: string,
+        baseOffset: number,
+        fullSource: string,
+        symbols: Map<string, TemplateSymbol>,
+    ): void {
         const pattern = /render\s*\(\s*function\s*\(([^)]*)\)/g;
         let match: RegExpExecArray | null;
 
@@ -47,6 +67,8 @@ export namespace PhpPreambleSymbols {
                 if (!paramMatch?.[1]) continue;
 
                 const name = paramMatch[1];
+                const localOffset = text.indexOf(name, match.index ?? 0);
+                const position = getLineAndColumn(fullSource, baseOffset + localOffset);
                 const typeMatch = param.match(/^\s*(?:readonly\s+)?([A-Za-z_\\][\w\\|?&]*)\s+\$\w+/);
                 const type = normalizeType(typeMatch?.[1]);
 
@@ -58,19 +80,32 @@ export namespace PhpPreambleSymbols {
                     name,
                     type,
                     source: 'folio-param',
+                    line: position.line,
+                    column: position.column,
+                    length: name.length,
                 });
             }
         }
     }
 
-    function collectViewWithSymbols(text: string, symbols: Map<string, TemplateSymbol>): void {
+    function collectViewWithSymbols(
+        text: string,
+        baseOffset: number,
+        fullSource: string,
+        symbols: Map<string, TemplateSymbol>,
+    ): void {
         const singlePattern = /->with\s*\(\s*['"]([^'"]+)['"]\s*,/g;
         let match: RegExpExecArray | null;
         while ((match = singlePattern.exec(text)) !== null) {
+            const localOffset = (match.index ?? 0) + match[0].indexOf(match[1]);
+            const position = getLineAndColumn(fullSource, baseOffset + localOffset);
             addSymbol(symbols, {
                 name: `$${match[1]}`,
                 type: null,
                 source: 'view-with',
+                line: position.line,
+                column: position.column,
+                length: match[1].length,
             });
         }
 
@@ -80,38 +115,65 @@ export namespace PhpPreambleSymbols {
             const keyPattern = /['"]([^'"]+)['"]\s*=>/g;
             let keyMatch: RegExpExecArray | null;
             while ((keyMatch = keyPattern.exec(body)) !== null) {
+                const localOffset = (match.index ?? 0) + body.indexOf(keyMatch[1], keyMatch.index ?? 0);
+                const position = getLineAndColumn(fullSource, baseOffset + localOffset);
                 addSymbol(symbols, {
                     name: `$${keyMatch[1]}`,
                     type: null,
                     source: 'view-with',
+                    line: position.line,
+                    column: position.column,
+                    length: keyMatch[1].length,
                 });
             }
         }
     }
 
-    function collectLivewireProps(text: string, symbols: Map<string, TemplateSymbol>): void {
+    function collectLivewireProps(
+        text: string,
+        baseOffset: number,
+        fullSource: string,
+        symbols: Map<string, TemplateSymbol>,
+    ): void {
         const pattern = /\bpublic\s+(?:static\s+)?(?:readonly\s+)?(?:([A-Za-z_\\][\w\\|?&]*)\s+)?(\$\w+)\s*(?:=|;)/g;
         let match: RegExpExecArray | null;
         while ((match = pattern.exec(text)) !== null) {
+            const name = match[2];
+            const localOffset = (match.index ?? 0) + match[0].indexOf(name);
+            const position = getLineAndColumn(fullSource, baseOffset + localOffset);
             addSymbol(symbols, {
-                name: match[2],
+                name,
                 type: normalizeType(match[1]),
                 source: 'livewire-prop',
+                line: position.line,
+                column: position.column,
+                length: name.length,
             });
         }
     }
 
-    function collectLivewireMethods(text: string, methods: Map<string, TemplateMethod>): void {
+    function collectLivewireMethods(
+        text: string,
+        baseOffset: number,
+        fullSource: string,
+        methods: Map<string, TemplateMethod>,
+    ): void {
         const pattern = /\bpublic\s+function\s+([A-Za-z_]\w*)\s*\([^)]*\)\s*(?::\s*([A-Za-z_\\][\w\\|?&]*))?/g;
         let match: RegExpExecArray | null;
         while ((match = pattern.exec(text)) !== null) {
             const name = match[1];
             if (!name || name === 'render') continue;
 
+            const localOffset = (match.index ?? 0) + match[0].indexOf(name);
+            const position = getLineAndColumn(fullSource, baseOffset + localOffset);
+
             methods.set(name, {
                 name,
                 returnType: normalizeType(match[2]),
                 source: 'livewire-method',
+                line: position.line,
+                column: position.column,
+                length: name.length,
             });
         }
     }
@@ -145,23 +207,35 @@ export namespace PhpPreambleSymbols {
         return nextDepth;
     }
 
-    function collectTopLevelAssignments(text: string, symbols: Map<string, TemplateSymbol>): void {
+    function collectTopLevelAssignments(
+        text: string,
+        baseOffset: number,
+        fullSource: string,
+        symbols: Map<string, TemplateSymbol>,
+    ): void {
         const lines = text.split('\n');
         let depth = 0;
+        let lineOffset = 0;
 
         for (const line of lines) {
             if (depth === 0) {
                 const match = line.match(/^\s*(\$\w+)\s*=/);
                 if (match?.[1]) {
+                    const localOffset = lineOffset + line.indexOf(match[1]);
+                    const position = getLineAndColumn(fullSource, baseOffset + localOffset);
                     addSymbol(symbols, {
                         name: match[1],
                         type: null,
                         source: 'assignment',
+                        line: position.line,
+                        column: position.column,
+                        length: match[1].length,
                     });
                 }
             }
 
             depth = updateBraceDepth(line, depth);
+            lineOffset += line.length + 1;
         }
     }
 
@@ -171,10 +245,10 @@ export namespace PhpPreambleSymbols {
 
         for (const range of lexed.phpRanges) {
             const text = source.slice(range.offsetStart, range.offsetEnd);
-            collectFolioRenderParams(text, symbols);
-            collectViewWithSymbols(text, symbols);
-            collectLivewireProps(text, symbols);
-            collectTopLevelAssignments(text, symbols);
+            collectFolioRenderParams(text, range.offsetStart, source, symbols);
+            collectViewWithSymbols(text, range.offsetStart, source, symbols);
+            collectLivewireProps(text, range.offsetStart, source, symbols);
+            collectTopLevelAssignments(text, range.offsetStart, source, symbols);
         }
 
         return [...symbols.values()];
@@ -186,7 +260,7 @@ export namespace PhpPreambleSymbols {
 
         for (const range of lexed.phpRanges) {
             const text = source.slice(range.offsetStart, range.offsetEnd);
-            collectLivewireMethods(text, methods);
+            collectLivewireMethods(text, range.offsetStart, source, methods);
         }
 
         return [...methods.values()];

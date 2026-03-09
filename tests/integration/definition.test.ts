@@ -73,6 +73,38 @@ describe('Definition (Integration)', () => {
 
             await doc.close();
         });
+
+        it('resolves Folio-style variables back to php preamble declarations', async () => {
+            const doc = await client.open({
+                text: `<?php
+use App\\Models\\Post;
+use Illuminate\\View\\View;
+
+render(function (View $view, Post $post) {
+    return $view->with('photos', []);
+});
+?>
+
+{{ $photos }}
+{{ $post->title }}`,
+            });
+
+            const photosDef = await doc.definition(9, 4);
+            expect(photosDef).not.toBeNull();
+            if (photosDef && !Array.isArray(photosDef)) {
+                expect(photosDef.uri).toBe(doc.uri);
+                expect(photosDef.range.start.line).toBe(5);
+            }
+
+            const postDef = await doc.definition(10, 4);
+            expect(postDef).not.toBeNull();
+            if (postDef && !Array.isArray(postDef)) {
+                expect(postDef.uri).toBe(doc.uri);
+                expect(postDef.range.start.line).toBe(4);
+            }
+
+            await doc.close();
+        });
     });
 
     describe('component definition', () => {
