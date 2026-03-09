@@ -114,13 +114,15 @@ $foo = bar();
         store.set({
             bladeUri: shadow.bladeUri,
             version: 3,
+            source,
             shadow,
         });
 
-        expect(store.get(shadow.bladeUri, 2)).toBeNull();
-        expect(store.get(shadow.bladeUri, 3)?.shadow.shadowUri).toBe(shadow.shadowUri);
+        expect(store.get(shadow.bladeUri, 2, source)).toBeNull();
+        expect(store.get(shadow.bladeUri, 3, 'changed')).toBeNull();
+        expect(store.get(shadow.bladeUri, 3, source)?.shadow.shadowUri).toBe(shadow.shadowUri);
 
         store.clear(shadow.bladeUri);
-        expect(store.get(shadow.bladeUri, 3)).toBeNull();
+        expect(store.get(shadow.bladeUri, 3, source)).toBeNull();
     });
 });

@@ -38,6 +38,7 @@ import { Definitions } from './providers/definitions';
 import { DocumentLinks } from './providers/document-links';
 import { DocumentSymbols } from './providers/document-symbols';
 import { PhpPreambleSymbols } from './providers/php-preamble-symbols';
+import { PhpBridge } from './providers/php-bridge/bridge';
 import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
@@ -151,6 +152,29 @@ export namespace Server {
             documentSourceCache: sourceCache,
         } = Container.get();
         const diagnosticStore = DiagnosticStore.create();
+        let phpBridgeState: PhpBridge.State | null = null;
+
+        function getPhpBridgeState(): PhpBridge.State | null {
+            const c = Container.get();
+            const settings = MutableRef.get(c.settings);
+            const workspaceRoot = MutableRef.get(c.workspaceRoot);
+            if (!workspaceRoot || !PhpBridge.isEnabled(settings)) {
+                return null;
+            }
+
+            if (
+                !phpBridgeState ||
+                phpBridgeState.workspaceRoot !== workspaceRoot ||
+                phpBridgeState.settings !== settings
+            ) {
+                phpBridgeState = PhpBridge.createState(workspaceRoot, settings, {
+                    log: (message) => conn.console.log(message),
+                    error: (message) => conn.console.error(message),
+                });
+            }
+
+            return phpBridgeState;
+        }
 
         function publishDiagnosticsForDocument(document: TextDocument): void {
             const merged = diagnosticStore.update(document.uri, collectDocumentDiagnostics(document));
@@ -461,7 +485,7 @@ export namespace Server {
 
         conn.onCompletionResolve((item: CompletionItem): CompletionItem => Completions.resolveCompletionItem(item));
 
-        conn.onHover((params: TextDocumentPositionParams): Hover | null => {
+        conn.onHover(async (params: TextDocumentPositionParams): Promise<Hover | null> => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return null;
 
@@ -469,6 +493,14 @@ export namespace Server {
             const position = params.position;
             const source = document.getText();
             const lineText = source.split('\n')[position.line] || '';
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                const bridgeHover = await PhpBridge.getHover(phpBridge, document, position);
+                if (bridgeHover) {
+                    return bridgeHover;
+                }
+            }
 
             const node = BladeParser.findNodeAtPosition(tree, position.line, position.character);
 
@@ -675,6 +707,10 @@ export namespace Server {
         });
 
         conn.onShutdown(async () => {
+            if (phpBridgeState) {
+                await PhpBridge.shutdown(phpBridgeState);
+                phpBridgeState = null;
+            }
             Laravel.dispose();
             await Container.dispose();
         });
