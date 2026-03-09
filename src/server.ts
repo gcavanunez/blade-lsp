@@ -621,7 +621,7 @@ export namespace Server {
             return null;
         });
 
-        conn.onDefinition((params: DefinitionParams): Location | null => {
+        conn.onDefinition(async (params: DefinitionParams): Promise<Location | Location[] | null> => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return null;
 
@@ -630,6 +630,14 @@ export namespace Server {
             const position = params.position;
             const lines = source.split('\n');
             const currentLine = lines[position.line] || '';
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                const bridgeDefinition = await PhpBridge.getDefinition(phpBridge, document, position);
+                if (bridgeDefinition) {
+                    return bridgeDefinition;
+                }
+            }
 
             const phpSymbolDefinition = Definitions.getPhpSymbolDefinition(
                 currentLine,
