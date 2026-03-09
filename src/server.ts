@@ -491,7 +491,17 @@ export namespace Server {
             return items;
         });
 
-        conn.onCompletionResolve((item: CompletionItem): CompletionItem => Completions.resolveCompletionItem(item));
+        conn.onCompletionResolve(async (item: CompletionItem): Promise<CompletionItem> => {
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge && PhpBridge.isBridgeCompletionItem(item)) {
+                const resolved = await PhpBridge.resolveCompletion(phpBridge, item);
+                if (resolved) {
+                    return resolved;
+                }
+            }
+
+            return Completions.resolveCompletionItem(item);
+        });
 
         conn.onHover(async (params: TextDocumentPositionParams): Promise<Hover | null> => {
             const document = docs.get(params.textDocument.uri);

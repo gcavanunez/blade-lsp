@@ -17,6 +17,8 @@ import { PhpBridgeShadowDocument } from './shadow-document';
 import { PhpBridgeStore } from './store';
 
 export namespace PhpBridge {
+    const COMPLETION_BRIDGE_DATA_KEY = '__bladePhpBridge';
+
     export interface Logger {
         log(message: string): void;
         error(message: string): void;
@@ -289,6 +291,11 @@ export namespace PhpBridge {
 
         return {
             ...item,
+            data: {
+                ...(typeof item.data === 'object' && item.data !== null ? item.data : {}),
+                [COMPLETION_BRIDGE_DATA_KEY]: true,
+                bladeUri: shadow.bladeUri,
+            },
             ...(textEdit ? { textEdit } : {}),
             ...(additionalTextEdits ? { additionalTextEdits } : {}),
         };
@@ -325,6 +332,51 @@ export namespace PhpBridge {
             return remapped;
         } catch (error) {
             state.logger.error(`Embedded PHP bridge completion failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export function isBridgeCompletionItem(item: CompletionItem): boolean {
+        return (
+            !!item.data &&
+            typeof item.data === 'object' &&
+            (item.data as Record<string, unknown>)[COMPLETION_BRIDGE_DATA_KEY] === true
+        );
+    }
+
+    export async function resolveCompletion(state: State, item: CompletionItem): Promise<CompletionItem | null> {
+        if (!isBridgeCompletionItem(item)) {
+            return null;
+        }
+
+        try {
+            const backend = await ensureBackend(state);
+            if (!backend) {
+                return null;
+            }
+
+            const resolved = await backend.resolveCompletion(item);
+            if (!resolved) {
+                return item;
+            }
+
+            const bladeUri =
+                typeof item.data === 'object' && item.data !== null
+                    ? (item.data as Record<string, unknown>).bladeUri
+                    : null;
+            if (typeof bladeUri !== 'string') {
+                return resolved;
+            }
+
+            const documentState = state.store.get(bladeUri);
+            if (!documentState) {
+                return resolved;
+            }
+
+            const remapped = remapCompletionItem(documentState.source, documentState.shadow, resolved);
+            return remapped ?? item;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge completion resolve failed: ${String(error)}`);
             return null;
         }
     }

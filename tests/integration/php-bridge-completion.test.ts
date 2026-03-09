@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { CompletionItem, Position } from 'vscode-languageserver/node';
+import type { CompletionItem, CompletionList, Position } from 'vscode-languageserver/node';
 import { createClient, type Client } from '../utils/client';
 import { PhpBridge } from '../../src/providers/php-bridge/bridge';
 import type { PhpBridgeBackend } from '../../src/providers/php-bridge/backend';
@@ -45,6 +45,19 @@ describe('Embedded PHP bridge completion (Integration)', () => {
                         } satisfies CompletionItem,
                     ];
                 },
+                resolveCompletion: async (item) =>
+                    ({
+                        ...item,
+                        additionalTextEdits: [
+                            {
+                                range: {
+                                    start: { line: 0, character: 0 },
+                                    end: { line: 0, character: 0 },
+                                },
+                                newText: 'use App\\Models\\User;\n',
+                            },
+                        ],
+                    }) satisfies CompletionItem,
                 shutdown: async () => {},
             }),
         );
@@ -90,6 +103,22 @@ $po
         expect(postItem?.additionalTextEdits?.[0]?.range.start.line).toBe(0);
         expect(postItem?.additionalTextEdits?.[0]?.range.start.character).toBe(5);
         expect(postItem?.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\Post;');
+
+        await doc.close();
+    });
+
+    it('resolves bridge completion items and keeps import edits', async () => {
+        const doc = await client.open({
+            name: 'resources/views/show.blade.php',
+            text: `<?php
+Use
+?>`,
+        });
+
+        const items = await doc.completions(1, 3);
+        const resolved = await doc.resolveCompletion(items[0]);
+
+        expect(resolved.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\Post;');
 
         await doc.close();
     });
