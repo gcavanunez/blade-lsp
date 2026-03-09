@@ -66,6 +66,29 @@ describe('Completion (Integration)', () => {
 
             await doc.close();
         });
+
+        it('includes php preamble symbols in echo completions', async () => {
+            const doc = await client.open({
+                text: `<?php
+use App\\Models\\Post;
+use Illuminate\\View\\View;
+
+render(function (View $view, Post $post) {
+    return $view->with('photos', []);
+});
+?>
+
+{{ $ }}`,
+            });
+
+            const items = await doc.completions(9, 4);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('$post');
+            expect(labels).toContain('$photos');
+
+            await doc.close();
+        });
     });
 
     describe('directive completions with Laravel mock', () => {
@@ -118,6 +141,29 @@ describe('Completion (Integration)', () => {
 
             expect(labels.some((l) => l.includes('button'))).toBe(true);
             expect(labels.some((l) => l.includes('alert'))).toBe(true);
+
+            await doc.close();
+        });
+
+        it('includes Livewire public properties from php preambles in echo completions', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title = '';
+    public string $content = '';
+};
+?>
+
+{{ $ }}`,
+            });
+
+            const items = await doc.completions(9, 4);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('$title');
+            expect(labels).toContain('$content');
 
             await doc.close();
         });

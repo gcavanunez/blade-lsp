@@ -120,6 +120,64 @@ describe('Hover (Integration)', () => {
 
             await doc.close();
         });
+
+        it('shows hover for Folio variables sourced from php preambles', async () => {
+            const doc = await client.open({
+                text: `<?php
+use App\\Models\\Post;
+use Illuminate\\View\\View;
+
+render(function (View $view, Post $post) {
+    return $view->with('photos', []);
+});
+?>
+
+{{ $photos }}`,
+            });
+
+            const hover = await doc.hover(9, 4);
+            expect(hover).not.toBeNull();
+
+            const value =
+                typeof hover!.contents === 'string'
+                    ? hover!.contents
+                    : 'value' in hover!.contents
+                      ? hover!.contents.value
+                      : '';
+            expect(value).toContain('$photos');
+            expect(value).toContain('View data from with(...)');
+
+            await doc.close();
+        });
+
+        it('shows hover for Livewire public properties sourced from php preambles', async () => {
+            const doc = await client.open({
+                text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title = '';
+};
+?>
+
+{{ $title }}`,
+            });
+
+            const hover = await doc.hover(8, 4);
+            expect(hover).not.toBeNull();
+
+            const value =
+                typeof hover!.contents === 'string'
+                    ? hover!.contents
+                    : 'value' in hover!.contents
+                      ? hover!.contents.value
+                      : '';
+            expect(value).toContain('$title');
+            expect(value).toContain('Livewire public property');
+            expect(value).toContain('string');
+
+            await doc.close();
+        });
     });
 
     describe('component hover with Laravel mock', () => {
