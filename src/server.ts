@@ -15,6 +15,7 @@ import {
     Position,
     TextDocumentPositionParams,
     Location,
+    DocumentLink,
     DocumentSymbol,
     DefinitionParams,
     Connection,
@@ -35,6 +36,7 @@ import { tryAsync } from './utils/try-async';
 import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
+import { DocumentLinks } from './providers/document-links';
 import { DocumentSymbols } from './providers/document-symbols';
 import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
@@ -193,6 +195,9 @@ export namespace Server {
                     hoverProvider: true,
                     definitionProvider: true,
                     documentSymbolProvider: true,
+                    documentLinkProvider: {
+                        resolveProvider: false,
+                    },
                     codeActionProvider: {
                         codeActionKinds: [CodeActionKind.QuickFix],
                     },
@@ -563,6 +568,13 @@ export namespace Server {
             if (!document) return [];
 
             return DocumentSymbols.getSymbols(document.getText());
+        });
+
+        conn.onDocumentLinks((params): DocumentLink[] => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return [];
+
+            return DocumentLinks.getLinks(document.getText());
         });
 
         conn.onCodeAction((params: CodeActionParams): CodeAction[] => {

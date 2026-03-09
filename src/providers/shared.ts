@@ -13,6 +13,12 @@ import {
 } from './patterns';
 
 export namespace Shared {
+    export interface CapturedMatch {
+        value: string;
+        start: number;
+        end: number;
+    }
+
     export interface ComponentPropContext {
         componentName: string;
         existingProps: string[];
@@ -24,12 +30,6 @@ export namespace Shared {
         required: boolean;
         default: unknown;
     }
-
-    type CapturedMatch = {
-        value: string;
-        start: number;
-        end: number;
-    };
 
     function collectCapturedMatches(line: string, pattern: RegExp): CapturedMatch[] {
         const matches: CapturedMatch[] = [];
@@ -109,17 +109,41 @@ export namespace Shared {
         return null;
     }
 
-    export function getComponentTagAtColumn(line: string, column: number): string | null {
-        const match = line.match(COMPONENT_TAG_AT_CURSOR_PATTERN);
-        if (!match || !match[1]) return null;
+    export function getComponentTagMatches(line: string): CapturedMatch[] {
+        const pattern = /<(x-[\w.-]+(?:::[\w.-]+)?|livewire:[\w.-]+|[\w]+:[\w.-]+)(?=[\s/>])/g;
+        const matches: CapturedMatch[] = [];
 
-        const tagName = match[1];
-        const start = line.indexOf(match[0]) + 1; // +1 to skip '<'
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(line)) !== null) {
+            if (!match[1]) continue;
+
+            const value = match[1];
+            const start = (match.index ?? 0) + 1;
+            matches.push({
+                value,
+                start,
+                end: start + value.length,
+            });
+        }
+
+        return matches.filter((item) => item.value !== 'x-slot' && !item.value.startsWith('x-slot:'));
+    }
+
+    export function getComponentTagAtColumn(line: string, column: number): string | null {
+        for (const match of getComponentTagMatches(line)) {
+            if (column >= match.start && column <= match.end) {
+                return match.value;
+            }
+        }
+
+        const fallback = line.match(COMPONENT_TAG_AT_CURSOR_PATTERN);
+        if (!fallback || !fallback[1]) return null;
+
+        const tagName = fallback[1];
+        const start = line.indexOf(fallback[0]) + 1;
         const end = start + tagName.length;
 
-        if (column < start || column > end) return null;
-
-        return tagName;
+        return column >= start && column <= end ? tagName : null;
     }
 
     export function getAttributeNameAtColumn(line: string, column: number): string | null {
