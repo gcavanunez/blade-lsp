@@ -32,6 +32,7 @@ export namespace PhpBridgeBackend {
         hover(uri: string, position: Position): Promise<Hover | null>;
         definition(uri: string, position: Position): Promise<Location | Location[] | null>;
         completion(uri: string, position: Position): Promise<CompletionItem[] | CompletionList | null>;
+        resolveCompletion(item: CompletionItem): Promise<CompletionItem | null>;
         shutdown(): Promise<void>;
     }
 
@@ -139,6 +140,13 @@ export namespace PhpBridgeBackend {
                           textDocument: { uri },
                           position,
                       })) as CompletionItem[] | CompletionList | null)
+                    : null;
+            },
+
+            async resolveCompletion(item) {
+                await ensureStarted();
+                return connection
+                    ? ((await connection.sendRequest('completionItem/resolve', item)) as CompletionItem | null)
                     : null;
             },
 
