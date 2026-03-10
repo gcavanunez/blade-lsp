@@ -35,33 +35,15 @@ export namespace PhpBridgeShadowDocument {
         return `file://${normalized.startsWith('/') ? normalized : `/${normalized}`}`;
     }
 
-    function padToLength(value: string, targetLength: number): string {
-        if (value.length >= targetLength) {
-            return value.slice(0, targetLength);
-        }
-
-        return value.padEnd(targetLength, ' ');
-    }
-
-    function normalizeAnonymousClasses(content: string): string {
-        let transformed = false;
-        const normalized = content.replace(/new\s+((?:#\[[^\]]+\]\s*)*)class\b/g, (match) => {
-            transformed = true;
-            const stripped = match.replace(/^new\s+/, '');
-            const rewritten = stripped.replace(/class\b/, 'class _');
-            return padToLength(rewritten, match.length);
-        });
-
-        if (!transformed) {
-            return normalized;
-        }
-
-        const lastAnonymousClose = normalized.lastIndexOf('};');
-        if (lastAnonymousClose === -1) {
-            return normalized;
-        }
-
-        return `${normalized.slice(0, lastAnonymousClose)}} ${normalized.slice(lastAnonymousClose + 2)}`;
+    /**
+     * Detects whether the content contains a Volt-style anonymous class
+     * (`new class extends Component { ... };`).  We no longer rewrite
+     * anonymous classes to named classes because intelephense returns 0
+     * completions for named `class _` definitions in vendor-located shadow
+     * files.  Both phpactor and intelephense handle anonymous classes fine.
+     */
+    function hasAnonymousClass(content: string): boolean {
+        return /new\s+((?:#\[[^\]]+\]\s*)*)class\b/.test(content);
     }
 
     function slugifyBladePath(relativePath: string): string {
@@ -106,9 +88,40 @@ export namespace PhpBridgeShadowDocument {
         // In the future, we could explicitly parse and hoist `use` statements, but natural order
         // is generally correct for Blade/Volt files.
 
+        // Track whether any region contained a Volt-style anonymous class.
+        // If so, subsequent blade-directive regions are wrapped in a
+        // function scope so language servers can analyze them properly
+        // (bare top-level statements after a class expression can confuse
+        // some backends).
+        let hasVoltClass = false;
+        let scopeCounter = 0;
+
         for (let index = 0; index < orderedRegions.length; index++) {
             const region = orderedRegions[index];
-            const content = normalizeAnonymousClasses(region.content);
+            const content = region.content;
+
+            if (hasAnonymousClass(content)) {
+                hasVoltClass = true;
+            }
+
+            // Wrap blade-directive regions that follow a Volt class in a
+            // function scope.  The wrapper prefix/suffix are injected into
+            // `parts` but the shadowContentOffsetStart is set to point at
+            // the actual region content (past the prefix), so offset
+            // mapping remains correct.
+            const needsScope = hasVoltClass && region.kind === 'blade-directive';
+            let wrapperPrefix = '';
+            let wrapperSuffix = '';
+            if (needsScope) {
+                scopeCounter += 1;
+                wrapperPrefix = `function __blade_lsp_scope_${scopeCounter}() {\n`;
+                wrapperSuffix = '\n}';
+            }
+
+            if (wrapperPrefix) {
+                parts.push(wrapperPrefix);
+                currentOffset += wrapperPrefix.length;
+            }
 
             const shadowContentOffsetStart = currentOffset;
             parts.push(content);
@@ -121,6 +134,11 @@ export namespace PhpBridgeShadowDocument {
                 shadowContentOffsetStart,
                 shadowContentOffsetEnd: currentOffset,
             });
+
+            if (wrapperSuffix) {
+                parts.push(wrapperSuffix);
+                currentOffset += wrapperSuffix.length;
+            }
 
             if (!content.endsWith('\n')) {
                 parts.push('\n');
