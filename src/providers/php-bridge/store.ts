@@ -8,6 +8,7 @@ export namespace PhpBridgeStore {
         bladeVersion: number;
         source: string;
         extraction: PhpBridgeRegions.RegionExtraction;
+        activeRegionId: string | null;
         shadow: PhpBridgeShadowDocument.ShadowDocument;
         backendSyncedVersion: number | null;
         backendAckVersion: number | null;
@@ -24,6 +25,7 @@ export namespace PhpBridgeStore {
             document: TextDocument,
             extraction: PhpBridgeRegions.RegionExtraction,
             shadow: PhpBridgeShadowDocument.ShadowDocument,
+            activeRegionId: string | null,
         ): ApplyResult;
         markBackendSynced(bladeUri: string, shadowVersion: number): void;
         clear(bladeUri?: string): void;
@@ -37,15 +39,19 @@ export namespace PhpBridgeStore {
                 return entries.get(bladeUri) ?? null;
             },
 
-            apply(document, extraction, shadow) {
+            apply(document, extraction, shadow, activeRegionId) {
                 const previous = entries.get(document.uri) ?? null;
-                const phpChanged = !previous || previous.extraction.signature !== extraction.signature;
+                const phpChanged =
+                    !previous ||
+                    previous.extraction.signature !== extraction.signature ||
+                    previous.activeRegionId !== activeRegionId;
 
                 const nextState: BridgeDocumentState = {
                     bladeUri: document.uri,
                     bladeVersion: document.version,
                     source: document.getText(),
                     extraction,
+                    activeRegionId,
                     shadow,
                     backendSyncedVersion:
                         !previous || phpChanged

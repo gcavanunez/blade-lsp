@@ -87,7 +87,7 @@ Use
         expect(items.map((item) => item.label)).toContain('User');
         expect(completionCalls).toHaveLength(1);
         expect(resolveCalls).toBeGreaterThan(0);
-        expect(completionCalls[0].uri).toContain('.blade-lsp/shadow/resources-views-show.php');
+        expect(completionCalls[0].uri).toContain('vendor/blade-lsp/shadow/resources-views-show.php');
 
         const userItem = items.find((item) => item.label === 'User');
         expect(userItem?.textEdit).toBeDefined();

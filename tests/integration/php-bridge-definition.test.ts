@@ -42,6 +42,7 @@ describe('Embedded PHP bridge definition (Integration)', () => {
                     } satisfies Location;
                 },
                 completion: async () => null,
+                resolveCompletion: async () => null,
                 shutdown: async () => {},
             }),
         );
@@ -80,8 +81,8 @@ $post = null;
 
         if (result && !Array.isArray(result)) {
             expect(result.uri).toBe(doc.uri);
-            expect(result.range.start.line).toBe(1);
-            expect(result.range.start.character).toBe(0);
+            expect(result.range.start.line).toBe(0);
+            expect(result.range.start.character).toBe(5);
         }
 
         await doc.close();

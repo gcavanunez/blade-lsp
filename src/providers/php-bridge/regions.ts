@@ -30,6 +30,18 @@ export namespace PhpBridgeRegions {
         return Position.create(parts.length - 1, parts[parts.length - 1]?.length ?? 0);
     }
 
+    function positionToOffset(source: string, position: Position): number {
+        const lines = source.split('\n');
+        let offset = 0;
+        const targetLine = Math.max(0, Math.min(position.line, lines.length - 1));
+
+        for (let line = 0; line < targetLine; line++) {
+            offset += lines[line].length + 1;
+        }
+
+        return offset + Math.max(0, Math.min(position.character, lines[targetLine]?.length ?? 0));
+    }
+
     function getPhpTagContentOffsets(
         source: string,
         rawOffsetStart: number,
@@ -88,5 +100,9 @@ export namespace PhpBridgeRegions {
         return (
             regions.find((region) => offset >= region.contentOffsetStart && offset <= region.contentOffsetEnd) ?? null
         );
+    }
+
+    export function getRegionAtPosition(source: string, regions: Region[], position: Position): Region | null {
+        return getRegionAtOffset(regions, positionToOffset(source, position));
     }
 }

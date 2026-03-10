@@ -23,6 +23,16 @@ describe('PhpBridge backend skeleton', () => {
                 enableEmbeddedPhpBridge: true,
                 embeddedPhpBackend: 'phpactor',
                 embeddedPhpLspCommand: ['phpactor', 'language-server'],
+                phpactor: {
+                    initializationOptions: {
+                        ['language_server_phpstan.enabled']: false,
+                    },
+                    settings: {
+                        phpactor: {
+                            diagnostics: false,
+                        },
+                    },
+                },
             },
             '/workspace',
         );
@@ -31,7 +41,14 @@ describe('PhpBridge backend skeleton', () => {
             backendName: 'phpactor',
             command: ['phpactor', 'language-server'],
             workspaceRoot: '/workspace',
-            settings: undefined,
+            initializationOptions: {
+                ['language_server_phpstan.enabled']: false,
+            },
+            settings: {
+                phpactor: {
+                    diagnostics: false,
+                },
+            },
         });
     });
 
@@ -44,9 +61,36 @@ describe('PhpBridge backend skeleton', () => {
             '/workspace',
         );
 
-        expect(config?.settings?.intelephense?.globalStoragePath).toContain('.local/share/intelephense');
-        expect(config?.settings?.intelephense?.storagePath).toContain('.local/share/intelephense');
+        expect(config?.initializationOptions?.globalStoragePath).toContain('.local/share/intelephense');
+        expect(config?.initializationOptions?.storagePath).toContain('.local/share/intelephense');
+        expect(config?.settings?.intelephense?.client?.autoCloseDocCommentDoSuggest).toBe(true);
         expect(config?.settings?.intelephense?.files?.maxSize).toBe(10_000_000);
+    });
+
+    it('allows overriding nested intelephense bridge config', () => {
+        const config = PhpBridge.resolveBackendConfig(
+            {
+                enableEmbeddedPhpBridge: true,
+                embeddedPhpBackend: 'intelephense',
+                intelephense: {
+                    initializationOptions: {
+                        globalStoragePath: '/tmp/intelephense-global',
+                    },
+                    settings: {
+                        intelephense: {
+                            files: {
+                                maxSize: 2048,
+                            },
+                        },
+                    },
+                },
+            },
+            '/workspace',
+        );
+
+        expect(config?.initializationOptions?.globalStoragePath).toBe('/tmp/intelephense-global');
+        expect(config?.initializationOptions?.storagePath).toContain('.local/share/intelephense');
+        expect(config?.settings?.intelephense?.files?.maxSize).toBe(2048);
     });
 
     it('writes and syncs a stable shadow document through the backend', async () => {
@@ -87,7 +131,7 @@ describe('PhpBridge backend skeleton', () => {
         const entry = await PhpBridge.syncDocument(state, document);
 
         expect(entry.shadow.shadowPath).toBe(
-            path.join(workspaceRoot, '.blade-lsp', 'shadow', 'resources-views-posts-show.php'),
+            path.join(workspaceRoot, 'vendor', 'blade-lsp', 'shadow', 'resources-views-posts-show.php'),
         );
         expect(calls).toHaveLength(1);
         expect(calls[0].uri).toBe(entry.shadow.shadowUri);
