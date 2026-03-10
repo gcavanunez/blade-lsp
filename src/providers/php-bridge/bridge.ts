@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
     CompletionTriggerKind,
+    InsertReplaceEdit,
     Position,
     TextEdit,
     type CompletionItem,
@@ -127,6 +128,27 @@ export namespace PhpBridge {
             await backend.start();
             state.backend = backend;
             state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
+
+            // After the indexer finishes, re-sync all open shadow documents so
+            // phpactor re-analyzes them with a complete index.  Without this,
+            // files opened during indexing get stale analysis that never updates.
+            backend.onReady(() => {
+                state.logger.log('[php-bridge] backend indexer ready — re-syncing open documents');
+                for (const entry of state.store.all()) {
+                    state.shadowVersion += 1;
+                    // Use reopen (didClose + didOpen) instead of openOrUpdate
+                    // (didChange).  Some backends (intelephense) don't fully
+                    // re-analyze files on didChange if they were originally
+                    // opened before the workspace index was built.
+                    backend.reopen({
+                        uri: entry.shadow.shadowUri,
+                        version: state.shadowVersion,
+                        text: entry.shadow.content,
+                    });
+                    state.store.markBackendSynced(entry.bladeUri, state.shadowVersion);
+                }
+            });
+
             return backend;
         } catch (error) {
             state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
@@ -164,10 +186,7 @@ export namespace PhpBridge {
         const backendName = state.settings.embeddedPhpBackend ?? 'intelephense';
         const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
             activeRegionId: activeRegionId ?? undefined,
-            shadowDirectory:
-                backendName === 'phpactor'
-                    ? path.join('app', 'BladeLspShadow')
-                    : path.join('vendor', 'blade-lsp', 'shadow'),
+            shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
         });
         const previous = state.store.get(document.uri);
         const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow, activeRegionId);
@@ -286,13 +305,18 @@ export namespace PhpBridge {
     function remapTextEdit(
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
-        edit: TextEdit | undefined,
+        edit: TextEdit | InsertReplaceEdit | undefined,
     ): TextEdit | null {
         if (!edit) {
             return null;
         }
 
-        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, edit.range);
+        // Intelephense returns InsertReplaceEdit (with insert/replace ranges)
+        // while phpactor returns TextEdit (with a single range).  Normalize
+        // to a single range by preferring the replace range.
+        const range = InsertReplaceEdit.is(edit) ? edit.replace : edit.range;
+
+        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, range);
         if (mapped.kind !== 'mapped') {
             return null;
         }
@@ -341,7 +365,9 @@ export namespace PhpBridge {
         item: CompletionItem,
     ): CompletionItem | null {
         const textEdit =
-            'textEdit' in item ? remapTextEdit(source, shadow, item.textEdit as TextEdit | undefined) : null;
+            'textEdit' in item
+                ? remapTextEdit(source, shadow, item.textEdit as TextEdit | InsertReplaceEdit | undefined)
+                : null;
         if ('textEdit' in item && item.textEdit && !textEdit) {
             return null;
         }

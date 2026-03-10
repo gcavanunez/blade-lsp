@@ -47,7 +47,7 @@ $foo = bar();
         expect(shadow.regions).toHaveLength(2);
     });
 
-    it('projects the active region first without splitting shadow files', () => {
+    it('maintains natural region order even when active region is specified', () => {
         const extraction = PhpBridgeRegions.extract(source);
         const shadow = PhpBridgeShadowDocument.build(
             '/workspace',
@@ -57,7 +57,7 @@ $foo = bar();
         );
 
         expect(shadow.activeRegionId).toBe('blade-region:2');
-        expect(shadow.content.startsWith('<?php\n\n$foo = bar();')).toBe(true);
+        expect(shadow.content.startsWith('<?php\n\nuse App\\Models\\Post;')).toBe(true);
         expect(shadow.shadowPath).toBe('/workspace/vendor/blade-lsp/shadow/resources-views-posts-show.php');
     });
 

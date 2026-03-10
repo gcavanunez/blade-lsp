@@ -18,6 +18,9 @@ describe('Embedded PHP bridge hover (Integration)', () => {
         PhpBridge.setBackendFactoryForTests(
             (): PhpBridgeBackend.Client => ({
                 start: async () => {},
+                waitForReady: async () => true,
+                onReady: () => {},
+                reopen: async () => {},
                 openOrUpdate: async () => {},
                 hover: async (uri, position) => {
                     hoverCalls.push({ uri, position });

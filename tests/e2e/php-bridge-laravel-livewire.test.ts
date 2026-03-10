@@ -19,9 +19,11 @@ const backendName = (process.env.EMBEDDED_PHP_LSP_BACKEND as 'intelephense' | 'p
 const runLaravelE2E = process.env.EMBEDDED_PHP_BRIDGE_RUN_LARAVEL_E2E === 'true';
 const keepLaravelE2EApp = process.env.KEEP_PHP_BRIDGE_E2E_APP === 'true';
 const laravelInstaller = process.env.LARAVEL_INSTALLER_PATH ?? 'laravel';
-const completionRetryAttempts = Number(process.env.EMBEDDED_PHP_BRIDGE_COMPLETION_RETRY_ATTEMPTS ?? '12');
+const completionRetryAttempts = Number(process.env.EMBEDDED_PHP_BRIDGE_COMPLETION_RETRY_ATTEMPTS ?? '30');
 const completionRetryDelayMs = Number(process.env.EMBEDDED_PHP_BRIDGE_COMPLETION_RETRY_DELAY_MS ?? '1000');
 const namespacedRetryAttempts = Number(process.env.EMBEDDED_PHP_BRIDGE_NAMESPACE_RETRY_ATTEMPTS ?? '4');
+/** Maximum time (ms) to wait for the bridge backend indexer to finish before retrying completions */
+const bridgeReadyTimeoutMs = Number(process.env.EMBEDDED_PHP_BRIDGE_READY_TIMEOUT_MS ?? '180000');
 const describeIfConfigured = backendCommandJson && runLaravelE2E ? describe : describe.skip;
 
 function parseBackendCommand(): string[] {
@@ -59,6 +61,46 @@ describeIfConfigured('Embedded PHP bridge Laravel Livewire E2E', () => {
     let rootNamespacedScratchPath = '';
     let nestedNamespacedScratchPath = '';
 
+    /**
+     * Listeners notified whenever a `window/logMessage` notification arrives.
+     * The single `onNotification` handler registered in `beforeAll` fans out
+     * to every callback here, so we never replace that handler.
+     */
+    const logMessageListeners: Array<(raw: string) => void> = [];
+
+    /**
+     * Returns a promise that resolves once the blade-lsp bridge emits the
+     * "backend indexer ready — re-syncing open documents" log message,
+     * meaning phpactor has finished indexing and all open shadow documents
+     * have been re-synced.  Resolves immediately if the message was already
+     * seen.  Rejects after `bridgeReadyTimeoutMs`.
+     */
+    let bridgeReadyPromise: Promise<void> | null = null;
+    function waitForBridgeReady(): Promise<void> {
+        if (bridgeReadyPromise) return bridgeReadyPromise;
+        bridgeReadyPromise = new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                reject(new Error(`Bridge backend did not become ready within ${bridgeReadyTimeoutMs}ms`));
+            }, bridgeReadyTimeoutMs);
+
+            // Check logs already accumulated
+            if (logs.some((l) => l.includes('backend indexer ready'))) {
+                clearTimeout(timer);
+                resolve();
+                return;
+            }
+
+            // Subscribe to future log messages
+            logMessageListeners.push((raw: string) => {
+                if (raw.includes('backend indexer ready')) {
+                    clearTimeout(timer);
+                    resolve();
+                }
+            });
+        });
+        return bridgeReadyPromise;
+    }
+
     const scratchContents = `<?php
 
 use Livewire\\Component;
@@ -90,8 +132,9 @@ new class {
 
         await execFileAsync(
             laravelInstaller,
-            ['new', workspaceRoot, '--livewire', '--no-interaction', '--no-ansi', '--quiet'],
+            ['new', 'laravel-livewire-app', '--livewire', '--no-interaction', '--no-ansi', '--quiet'],
             {
+                cwd: sandboxRoot,
                 env: process.env,
                 maxBuffer: 10 * 1024 * 1024,
             },
@@ -141,6 +184,35 @@ new class extends Component {
             'utf-8',
         );
 
+        // Tell phpactor to exclude ephemeral directories whose files can
+        // appear/disappear during indexing, causing SplFileInfo::getSize() failures.
+        await writeFile(
+            path.join(workspaceRoot, '.phpactor.json'),
+            JSON.stringify(
+                {
+                    'indexer.exclude_patterns': [
+                        '/vendor/**/Tests/**/*',
+                        '/vendor/**/tests/**/*',
+                        '/vendor/composer/**/*',
+                        '/storage/**/*',
+                    ],
+                },
+                null,
+                2,
+            ),
+            'utf-8',
+        );
+
+        // phpactor requires explicit trust for project-local config files.
+        // Without this, the .phpactor.json above is silently ignored.
+        if (backendName === 'phpactor') {
+            const phpactorBin = parseBackendCommand()[0];
+            await execFileAsync(phpactorBin, ['config:trust', '--trust'], {
+                cwd: workspaceRoot,
+                env: process.env,
+            });
+        }
+
         rootScratchPath = path.join(workspaceRoot, 'scratch.php');
         nestedScratchPath = path.join(workspaceRoot, 'vendor', 'sample', 'scratch.php');
         rootNamespacedScratchPath = path.join(workspaceRoot, 'scratch-namespaced.php');
@@ -163,7 +235,11 @@ new class extends Component {
         });
 
         client.connection.onNotification('window/logMessage', (params) => {
-            logs.push(JSON.stringify(params));
+            const raw = JSON.stringify(params);
+            logs.push(raw);
+            for (const listener of logMessageListeners) {
+                listener(raw);
+            }
         });
     }, 1800000);
 
@@ -195,7 +271,19 @@ new class extends Component {
             `MAPPED_COMPLETION_REF ${JSON.stringify(PhpBridgeMapping.bladePositionToShadowPosition(text, shadow, { line: 9, character: 12 }))}`,
         );
 
+        // The first completion triggers ensureBackend() which starts phpactor.
+        // phpactor needs ~113s to index a full Laravel project.  The onReady
+        // callback in the bridge will re-sync shadow documents once indexing
+        // finishes.  Wait for that before retrying, so we don't waste the
+        // retry window during indexing.
         let items = await doc.completions(9, 12);
+        await waitForBridgeReady();
+
+        // After the bridge re-synced, give phpactor a moment to process the
+        // didChange notification before the first retry.
+        await delay(2000);
+
+        items = await doc.completions(9, 12);
         for (let attempt = 0; attempt < completionRetryAttempts && !items.find(isAppUserCandidate); attempt++) {
             await delay(completionRetryDelayMs);
             items = await doc.completions(9, 12);
@@ -219,7 +307,151 @@ new class extends Component {
         );
 
         await doc.close();
-    }, 120000);
+    }, 300000);
+
+    it('writes the expected shadow file shape for a Volt-style component with @php blocks', async () => {
+        const text = await readFile(
+            path.join(workspaceRoot, 'resources', 'views', 'pages', 'bridge', 'fixture.blade.php'),
+            'utf-8',
+        );
+
+        const doc = await client.open({
+            name: 'resources/views/pages/bridge/fixture.blade.php',
+            text,
+        });
+
+        await doc.completions(9, 12);
+
+        const extraction = PhpBridgeRegions.extract(text, Lexer.lexSource(text));
+        const shadow = PhpBridgeShadowDocument.build(workspaceRoot, doc.uri, extraction, {
+            shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
+        });
+        const shadowContent = await readFile(shadow.shadowPath, 'utf-8');
+
+        expect(shadowContent).toContain('use Livewire\\Component;');
+        expect(shadowContent).toContain('class _   extends Component {');
+        expect(shadowContent).toContain("$groovy = 'chevere';");
+        expect(shadowContent).toContain("$phrases = collect(['lets go!', $groovy]);");
+        expect(shadowContent).not.toContain('@endphp');
+        expect(shadowContent).not.toContain('?>');
+
+        await doc.close();
+    }, 300000);
+
+    it('completes collection methods inside @php blocks', async () => {
+        const text = `@php
+    $cool = 'chevere';
+    $phrases = collect(['hello', 'world', 'how', 'are', 'you']);
+    $phrases->ea
+@endphp
+`;
+
+        const doc = await client.open({
+            name: 'resources/views/pages/bridge/collection-methods.blade.php',
+            text,
+        });
+
+        // Trigger the initial completion (starts the backend if not already running)
+        let items = await doc.completions(3, 16);
+
+        // Wait for the bridge backend indexer to finish so shadow documents are
+        // re-synced with a complete index before retrying.
+        logs.push('Collection test: waiting for bridge backend to finish indexing...');
+        await waitForBridgeReady();
+        logs.push('Collection test: bridge backend ready, starting completion retries');
+        await delay(2000);
+
+        items = await doc.completions(3, 16);
+        for (
+            let attempt = 0;
+            attempt < completionRetryAttempts && !items.find((item) => item.label === 'each');
+            attempt++
+        ) {
+            await delay(completionRetryDelayMs);
+            items = await doc.completions(3, 16);
+            logs.push(
+                `COLLECTION_COMPLETION_RETRY_${attempt + 1} ${items
+                    .slice(0, 10)
+                    .map((item) => `${item.label}::${item.detail ?? ''}`)
+                    .join(', ')}`,
+            );
+        }
+
+        expect(
+            items.map((item) => item.label),
+            logs.join('\n'),
+        ).toContain('each');
+
+        await doc.close();
+    }, 300000);
+
+    it('compares collect()->ea completion between Blade shadow and plain scratch PHP', async () => {
+        const backend = PhpBridgeBackend.createLspClient({
+            backendName,
+            command: parseBackendCommand(),
+            workspaceRoot,
+            initializationOptions:
+                backendName === 'intelephense'
+                    ? {
+                          globalStoragePath: path.join(os.homedir(), '.local', 'share', 'intelephense'),
+                          storagePath: path.join(os.homedir(), '.local', 'share', 'intelephense'),
+                      }
+                    : undefined,
+            settings:
+                backendName === 'intelephense'
+                    ? {
+                          intelephense: {
+                              client: { autoCloseDocCommentDoSuggest: true },
+                              files: { maxSize: 10_000_000 },
+                          },
+                      }
+                    : undefined,
+            logger: {
+                log: (message) => logs.push(`COLLECT ${message}`),
+                error: (message) => logs.push(`COLLECT ERROR ${message}`),
+            },
+        });
+
+        try {
+            await backend.start();
+            await backend.waitForReady();
+
+            const scratchPath = path.join(workspaceRoot, 'scratch-collect.php');
+            const scratchText = `<?php
+
+$cool = 'chevere';
+$phrases = collect(['hello', 'world', 'how', 'are', 'you']);
+$phrases->ea
+`;
+            await writeFile(scratchPath, scratchText, 'utf-8');
+
+            const scratchUri = `file://${scratchPath}`;
+            await backend.openOrUpdate({
+                uri: scratchUri,
+                version: 1,
+                text: scratchText,
+            });
+
+            let scratchItems = await backend.completion(scratchUri, { line: 4, character: 12 });
+            let scratchLabels = Array.isArray(scratchItems)
+                ? scratchItems.map((item) => item.label)
+                : (scratchItems?.items ?? []).map((item) => item.label);
+
+            for (let attempt = 0; attempt < completionRetryAttempts && !scratchLabels.includes('each'); attempt++) {
+                await delay(completionRetryDelayMs);
+                scratchItems = await backend.completion(scratchUri, { line: 4, character: 12 });
+                scratchLabels = Array.isArray(scratchItems)
+                    ? scratchItems.map((item) => item.label)
+                    : (scratchItems?.items ?? []).map((item) => item.label);
+                logs.push(`SCRATCH_COLLECT_RETRY_${attempt + 1} ${scratchLabels.slice(0, 10).join(', ')}`);
+            }
+
+            logs.push(`SCRATCH_COLLECT_LABELS ${scratchLabels.slice(0, 20).join(', ')}`);
+            expect(scratchLabels).toContain('each');
+        } finally {
+            await backend.shutdown();
+        }
+    }, 300000);
 
     it('compares shadow-file, root scratch.php, and nested scratch.php completion behavior in the same Laravel app', async () => {
         const backend = PhpBridgeBackend.createLspClient({
@@ -250,6 +482,7 @@ new class extends Component {
 
         try {
             await backend.start();
+            await backend.waitForReady();
 
             async function collectScratchLabels(
                 kind: 'root' | 'nested',
@@ -295,7 +528,7 @@ new class extends Component {
         } finally {
             await backend.shutdown();
         }
-    }, 120000);
+    }, 300000);
 
     it('captures namespaced class completion behavior for root and nested scratch controls', async () => {
         const backend = PhpBridgeBackend.createLspClient({
@@ -326,6 +559,7 @@ new class extends Component {
 
         try {
             await backend.start();
+            await backend.waitForReady();
 
             async function collectNamespacedLabels(kind: 'root' | 'nested', scratchPath: string): Promise<string[]> {
                 const scratchText = await readFile(scratchPath, 'utf-8');
@@ -366,5 +600,5 @@ new class extends Component {
         } finally {
             await backend.shutdown();
         }
-    }, 120000);
+    }, 300000);
 });
