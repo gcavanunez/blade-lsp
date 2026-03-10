@@ -130,7 +130,7 @@ export namespace PhpBridge {
             state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
 
             // After the indexer finishes, re-sync all open shadow documents so
-            // phpactor re-analyzes them with a complete index.  Without this,
+            // the backend re-analyzes them with a complete index.  Without this,
             // files opened during indexing get stale analysis that never updates.
             backend.onReady(() => {
                 state.logger.log('[php-bridge] backend indexer ready — re-syncing open documents');
@@ -183,7 +183,6 @@ export namespace PhpBridge {
             ? PhpBridgeRegions.getRegionAtPosition(source, extraction.regions, activePosition)
             : null;
         const activeRegionId = activeRegion?.id ?? null;
-        const backendName = state.settings.embeddedPhpBackend ?? 'intelephense';
         const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
             activeRegionId: activeRegionId ?? undefined,
             shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
