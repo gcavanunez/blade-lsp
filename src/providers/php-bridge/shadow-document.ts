@@ -97,13 +97,14 @@ export namespace PhpBridgeShadowDocument {
         let currentOffset = parts[0].length;
         const orderedRegions = [...extraction.regions];
 
-        if (options.activeRegionId) {
-            orderedRegions.sort((left, right) => {
-                if (left.id === options.activeRegionId) return -1;
-                if (right.id === options.activeRegionId) return 1;
-                return extraction.regions.indexOf(left) - extraction.regions.indexOf(right);
-            });
-        }
+        // Ensure use imports are grouped at the top to maintain valid PHP semantics.
+        // We do not naively move the active region to the top anymore, because that
+        // breaks PHP if the active region contains executable code and earlier regions contain imports.
+        // For now, we simply maintain natural file order which correctly puts Volt imports and classes
+        // before random @php blocks.
+        //
+        // In the future, we could explicitly parse and hoist `use` statements, but natural order
+        // is generally correct for Blade/Volt files.
 
         for (let index = 0; index < orderedRegions.length; index++) {
             const region = orderedRegions[index];

@@ -99,6 +99,9 @@ describe('PhpBridge backend skeleton', () => {
 
         const fakeBackend: PhpBridgeBackend.Client = {
             start: async () => {},
+            waitForReady: async () => true,
+            onReady: () => {},
+            reopen: async () => {},
             openOrUpdate: async (document) => {
                 calls.push(document);
             },
@@ -149,6 +152,9 @@ describe('PhpBridge backend skeleton', () => {
 
         PhpBridge.setBackendFactoryForTests(() => ({
             start: async () => {},
+            waitForReady: async () => true,
+            onReady: () => {},
+            reopen: async () => {},
             openOrUpdate: async () => {
                 syncCount++;
             },
@@ -186,6 +192,9 @@ describe('PhpBridge backend skeleton', () => {
 
         PhpBridge.setBackendFactoryForTests(() => ({
             start: async () => {},
+            waitForReady: async () => true,
+            onReady: () => {},
+            reopen: async () => {},
             openOrUpdate: async () => {
                 syncCount++;
             },

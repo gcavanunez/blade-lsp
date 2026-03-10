@@ -105,6 +105,9 @@ $post = new Post();
             const entryV1 = await PhpBridge.syncDocument(state, documentV1);
             const backend = await PhpBridge.ensureBackend(state);
             expect(backend).not.toBeNull();
+            if (backend) {
+                await backend.waitForReady();
+            }
             logs.push(`SHADOW_URI ${entryV1.shadow.shadowUri}`);
             logs.push(`SHADOW_CONTENT\n${entryV1.shadow.content}`);
 

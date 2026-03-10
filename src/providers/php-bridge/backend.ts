@@ -1,5 +1,7 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -51,7 +53,13 @@ export namespace PhpBridgeBackend {
 
     export interface Client {
         start(): Promise<void>;
+        waitForReady(timeoutMs?: number): Promise<boolean>;
+        onReady(callback: () => void): void;
         openOrUpdate(document: ShadowDocumentTransport): Promise<void>;
+        /** Close and re-open a document so the backend fully re-analyzes it.
+         *  Useful after indexing completes — some backends (intelephense) don't
+         *  re-analyze files on `didChange` if they were opened pre-index. */
+        reopen(document: ShadowDocumentTransport): Promise<void>;
         hover(uri: string, position: Position): Promise<Hover | null>;
         definition(uri: string, position: Position): Promise<Location | Location[] | null>;
         completion(
@@ -69,7 +77,17 @@ export namespace PhpBridgeBackend {
     }
 
     export function resolveDefaultCommand(backendName: BackendName): string[] {
-        return backendName === 'phpactor' ? ['phpactor', 'language-server'] : ['intelephense', '--stdio'];
+        const binary = backendName === 'phpactor' ? 'phpactor' : 'intelephense';
+        const args = backendName === 'phpactor' ? ['language-server'] : ['--stdio'];
+
+        // Check Mason bin path first — Mason installs LSP servers here via nvim
+        const masonBin = path.join(os.homedir(), '.local', 'share', 'nvim', 'mason', 'bin', binary);
+        if (existsSync(masonBin)) {
+            return [masonBin, ...args];
+        }
+
+        // Fall back to bare command name (relies on $PATH)
+        return [binary, ...args];
     }
 
     function expandPhpactorTokens(value: string, tokens: Record<string, string>): string {
@@ -134,6 +152,23 @@ export namespace PhpBridgeBackend {
         const openVersions = new Map<string, number>();
         let indexing = false;
 
+        // Track $/progress tokens for indexing work-done progress
+        const activeProgressTokens = new Set<string | number>();
+        let indexingEverStarted = false;
+        const readyCallbacks: Array<() => void> = [];
+
+        function checkReady(): void {
+            if (indexingEverStarted && activeProgressTokens.size === 0 && !indexing) {
+                const count = readyCallbacks.length;
+                for (const callback of readyCallbacks.splice(0)) {
+                    callback();
+                }
+                if (count > 0) {
+                    config.logger?.log(`[php-bridge:${config.backendName}] fired ${count} ready callbacks`);
+                }
+            }
+        }
+
         function getConfiguration() {
             return config.settings ?? {};
         }
@@ -188,13 +223,76 @@ export namespace PhpBridgeBackend {
                 (params: { items?: Array<{ section?: string }> } | undefined) =>
                     (params?.items ?? []).map((item) => getConfigurationValue(item.section)),
             );
+            // phpactor sends window/workDoneProgress/create before $/progress notifications.
+            // We must acknowledge this request or phpactor will hang waiting for the response.
+            connection.onRequest('window/workDoneProgress/create', () => {
+                return null;
+            });
             connection.onNotification('indexingStarted', () => {
                 indexing = true;
+                indexingEverStarted = true;
                 config.logger?.log(`[php-bridge:${config.backendName}] indexing started`);
             });
             connection.onNotification('indexingEnded', () => {
                 indexing = false;
                 config.logger?.log(`[php-bridge:${config.backendName}] indexing ended`);
+                checkReady();
+            });
+            connection.onNotification(
+                '$/progress',
+                (params: {
+                    token: string | number;
+                    value: { kind: 'begin' | 'report' | 'end'; title?: string; message?: string; percentage?: number };
+                }) => {
+                    if (params.value.kind === 'begin') {
+                        activeProgressTokens.add(params.token);
+                        indexingEverStarted = true;
+                        config.logger?.log(
+                            `[php-bridge:${config.backendName}] progress begin: ${params.value.title ?? ''} (${String(params.token)})`,
+                        );
+                    } else if (params.value.kind === 'end') {
+                        activeProgressTokens.delete(params.token);
+                        config.logger?.log(
+                            `[php-bridge:${config.backendName}] progress end: (${String(params.token)})`,
+                        );
+                        checkReady();
+                    }
+                },
+            );
+            // Catch-all for any unhandled requests from the backend (e.g.
+            // window/showMessageRequest).  Return null so the backend doesn't hang.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+            (connection as any).onRequest((method: string, params: unknown) => {
+                config.logger?.log(
+                    `[php-bridge:${config.backendName}] unhandled request: ${method} ${JSON.stringify(params)?.slice(0, 300)}`,
+                );
+                return null;
+            });
+            // Catch-all for unhandled notifications.  Detects indexer crashes
+            // so we can treat them as degraded-ready rather than hanging forever.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+            (connection as any).onNotification((method: string, params: unknown) => {
+                // Detect indexer crash: phpactor sends a window/showMessage with
+                // type=1 (Error) mentioning the indexer service.  When this happens,
+                // the indexer will never send $/progress end, so we need to treat
+                // it as a degraded "ready" state.
+                if (
+                    method === 'window/showMessage' &&
+                    typeof params === 'object' &&
+                    params !== null &&
+                    'message' in params &&
+                    typeof (params as { message: unknown }).message === 'string' &&
+                    (params as { message: string }).message.includes('Error in service "indexer"')
+                ) {
+                    config.logger?.error(
+                        `[php-bridge:${config.backendName}] indexer service crashed — treating as degraded ready`,
+                    );
+                    // Clear the indexing progress token since the indexer won't
+                    // send $/progress end after a crash
+                    activeProgressTokens.clear();
+                    indexing = false;
+                    checkReady();
+                }
             });
             connection.listen();
 
@@ -202,6 +300,9 @@ export namespace PhpBridgeBackend {
                 processId: process.pid,
                 rootUri: workspaceUri(config.workspaceRoot),
                 capabilities: {
+                    window: {
+                        workDoneProgress: true,
+                    },
                     workspace: {
                         configuration: true,
                         workspaceFolders: true,
@@ -269,6 +370,55 @@ export namespace PhpBridgeBackend {
                 await ensureStarted();
             },
 
+            onReady(callback: () => void) {
+                // If already ready, fire immediately
+                if (indexingEverStarted && activeProgressTokens.size === 0 && !indexing) {
+                    callback();
+                    return;
+                }
+                readyCallbacks.push(callback);
+            },
+
+            async waitForReady(timeoutMs = 180_000) {
+                await ensureStarted();
+
+                // Already ready: indexing started and finished with no active progress tokens
+                if (indexingEverStarted && activeProgressTokens.size === 0 && !indexing) {
+                    return true;
+                }
+
+                // If indexing hasn't started yet, wait a short time for it to begin
+                if (!indexingEverStarted) {
+                    await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+                    if (!indexingEverStarted) {
+                        // Backend may not emit progress (e.g., empty project) — consider ready
+                        config.logger?.log(`[php-bridge:${config.backendName}] no indexing detected, assuming ready`);
+                        return true;
+                    }
+                }
+
+                return new Promise<boolean>((resolve) => {
+                    const timer = setTimeout(() => {
+                        config.logger?.log(
+                            `[php-bridge:${config.backendName}] waitForReady timed out after ${timeoutMs}ms`,
+                        );
+                        resolve(false);
+                    }, timeoutMs);
+
+                    readyCallbacks.push(() => {
+                        clearTimeout(timer);
+                        config.logger?.log(`[php-bridge:${config.backendName}] indexer ready`);
+                        resolve(true);
+                    });
+
+                    // Check again — race between the check above and registering the callback
+                    if (indexingEverStarted && activeProgressTokens.size === 0 && !indexing) {
+                        clearTimeout(timer);
+                        resolve(true);
+                    }
+                });
+            },
+
             async openOrUpdate(document) {
                 await ensureStarted();
                 if (!connection) return;
@@ -299,6 +449,34 @@ export namespace PhpBridgeBackend {
                     });
                 }
 
+                openVersions.set(document.uri, document.version);
+            },
+
+            async reopen(document) {
+                await ensureStarted();
+                if (!connection) return;
+
+                // Close the document first if it's already open
+                if (openVersions.has(document.uri)) {
+                    config.logger?.log(`[php-bridge:${config.backendName}] didClose (reopen) ${document.uri}`);
+                    connection.sendNotification('textDocument/didClose', {
+                        textDocument: { uri: document.uri },
+                    });
+                    openVersions.delete(document.uri);
+                }
+
+                // Re-open with fresh state
+                config.logger?.log(
+                    `[php-bridge:${config.backendName}] didOpen (reopen) ${document.uri} v${document.version}`,
+                );
+                connection.sendNotification('textDocument/didOpen', {
+                    textDocument: {
+                        uri: document.uri,
+                        languageId: 'php',
+                        version: document.version,
+                        text: document.text,
+                    },
+                });
                 openVersions.set(document.uri, document.version);
             },
 

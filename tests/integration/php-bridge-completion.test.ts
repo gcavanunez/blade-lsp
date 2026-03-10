@@ -19,6 +19,9 @@ describe('Embedded PHP bridge completion (Integration)', () => {
         PhpBridge.setBackendFactoryForTests(
             (): PhpBridgeBackend.Client => ({
                 start: async () => {},
+                waitForReady: async () => true,
+                onReady: () => {},
+                reopen: async () => {},
                 openOrUpdate: async () => {},
                 hover: async () => null,
                 definition: async () => null,

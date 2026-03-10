@@ -21,6 +21,7 @@ export namespace PhpBridgeStore {
 
     export interface Store {
         get(bladeUri: string): BridgeDocumentState | null;
+        all(): BridgeDocumentState[];
         apply(
             document: TextDocument,
             extraction: PhpBridgeRegions.RegionExtraction,
@@ -37,6 +38,10 @@ export namespace PhpBridgeStore {
         return {
             get(bladeUri) {
                 return entries.get(bladeUri) ?? null;
+            },
+
+            all() {
+                return [...entries.values()];
             },
 
             apply(document, extraction, shadow, activeRegionId) {
