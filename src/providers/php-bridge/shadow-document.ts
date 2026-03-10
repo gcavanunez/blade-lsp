@@ -16,6 +16,12 @@ export namespace PhpBridgeShadowDocument {
         shadowUri: string;
         content: string;
         regions: ShadowRegion[];
+        activeRegionId: string | null;
+    }
+
+    export interface BuildOptions {
+        activeRegionId?: string;
+        shadowDirectory?: string;
     }
 
     function uriToPath(uri: string): string {
@@ -29,6 +35,35 @@ export namespace PhpBridgeShadowDocument {
         return `file://${normalized.startsWith('/') ? normalized : `/${normalized}`}`;
     }
 
+    function padToLength(value: string, targetLength: number): string {
+        if (value.length >= targetLength) {
+            return value.slice(0, targetLength);
+        }
+
+        return value.padEnd(targetLength, ' ');
+    }
+
+    function normalizeAnonymousClasses(content: string): string {
+        let transformed = false;
+        const normalized = content.replace(/new\s+((?:#\[[^\]]+\]\s*)*)class\b/g, (match) => {
+            transformed = true;
+            const stripped = match.replace(/^new\s+/, '');
+            const rewritten = stripped.replace(/class\b/, 'class _');
+            return padToLength(rewritten, match.length);
+        });
+
+        if (!transformed) {
+            return normalized;
+        }
+
+        const lastAnonymousClose = normalized.lastIndexOf('};');
+        if (lastAnonymousClose === -1) {
+            return normalized;
+        }
+
+        return `${normalized.slice(0, lastAnonymousClose)}} ${normalized.slice(lastAnonymousClose + 2)}`;
+    }
+
     function slugifyBladePath(relativePath: string): string {
         return relativePath
             .replace(/\\/g, '/')
@@ -39,31 +74,44 @@ export namespace PhpBridgeShadowDocument {
             .replace(/^-|-$/g, '');
     }
 
-    export function getShadowPath(workspaceRoot: string, bladeUri: string): string {
+    export function getShadowPath(
+        workspaceRoot: string,
+        bladeUri: string,
+        shadowDirectory = path.join('vendor', 'blade-lsp', 'shadow'),
+    ): string {
         const bladePath = uriToPath(bladeUri);
         const relativePath = path.relative(workspaceRoot, bladePath);
         const slug = slugifyBladePath(relativePath || path.basename(bladePath, '.blade.php')) || 'shadow';
-        return path.join(workspaceRoot, '.blade-lsp', 'shadow', `${slug}.php`);
+        return path.join(workspaceRoot, shadowDirectory, `${slug}.php`);
     }
 
     export function build(
         workspaceRoot: string,
         bladeUri: string,
         extraction: PhpBridgeRegions.RegionExtraction,
+        options: BuildOptions = {},
     ): ShadowDocument {
-        const shadowPath = getShadowPath(workspaceRoot, bladeUri);
+        const shadowPath = getShadowPath(workspaceRoot, bladeUri, options.shadowDirectory);
         const parts: string[] = ['<?php\n'];
         const regions: ShadowRegion[] = [];
         let currentOffset = parts[0].length;
+        const orderedRegions = [...extraction.regions];
 
-        for (const region of extraction.regions) {
-            const marker = `/* ${region.id} */\n`;
-            parts.push(marker);
-            currentOffset += marker.length;
+        if (options.activeRegionId) {
+            orderedRegions.sort((left, right) => {
+                if (left.id === options.activeRegionId) return -1;
+                if (right.id === options.activeRegionId) return 1;
+                return extraction.regions.indexOf(left) - extraction.regions.indexOf(right);
+            });
+        }
+
+        for (let index = 0; index < orderedRegions.length; index++) {
+            const region = orderedRegions[index];
+            const content = normalizeAnonymousClasses(region.content);
 
             const shadowContentOffsetStart = currentOffset;
-            parts.push(region.content);
-            currentOffset += region.content.length;
+            parts.push(content);
+            currentOffset += content.length;
 
             regions.push({
                 id: region.id,
@@ -73,13 +121,15 @@ export namespace PhpBridgeShadowDocument {
                 shadowContentOffsetEnd: currentOffset,
             });
 
-            if (!region.content.endsWith('\n')) {
+            if (!content.endsWith('\n')) {
                 parts.push('\n');
                 currentOffset += 1;
             }
 
-            parts.push('\n');
-            currentOffset += 1;
+            if (index < orderedRegions.length - 1) {
+                parts.push('\n');
+                currentOffset += 1;
+            }
         }
 
         return {
@@ -88,6 +138,7 @@ export namespace PhpBridgeShadowDocument {
             shadowUri: pathToUri(shadowPath),
             content: parts.join(''),
             regions,
+            activeRegionId: options.activeRegionId ?? null,
         };
     }
 }

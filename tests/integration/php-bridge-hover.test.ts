@@ -30,6 +30,7 @@ describe('Embedded PHP bridge hover (Integration)', () => {
                 },
                 definition: async () => null,
                 completion: async () => null,
+                resolveCompletion: async () => null,
                 shutdown: async () => {},
             }),
         );
@@ -74,7 +75,7 @@ $post = null;
 
         expect(value).toContain('Bridge hover result');
         expect(hoverCalls).toHaveLength(1);
-        expect(hoverCalls[0].uri).toContain('.blade-lsp/shadow/resources-views-show.php');
+        expect(hoverCalls[0].uri).toContain('vendor/blade-lsp/shadow/resources-views-show.php');
 
         await doc.close();
     });
