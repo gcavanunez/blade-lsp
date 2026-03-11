@@ -494,6 +494,23 @@ describe('Diagnostics', () => {
                     expectedCode: Diagnostics.Code.undefinedComponent,
                 },
                 {
+                    name: 'accepts existing Livewire 4 namespaced component',
+                    source: '<livewire:pages::settings.two-factor.recovery-codes />',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'accepts existing Livewire 4 namespaced component with props',
+                    source: '<livewire:pages::settings.two-factor.enable />',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined Livewire 4 namespaced component',
+                    source: '<livewire:pages::nonexistent.component />',
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedComponent,
+                    expectedMessageIncludes: ['Livewire', 'pages::nonexistent.component'],
+                },
+                {
                     name: 'does not flag x-slot as undefined',
                     source: '<x-slot name="header">Title</x-slot>',
                     expectedCount: 0,

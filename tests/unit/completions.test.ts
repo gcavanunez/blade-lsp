@@ -140,6 +140,13 @@ describe('Completions', () => {
                 // These also return livewire component names
                 expect(labels).toContain('counter');
             });
+
+            it('includes Livewire 4 namespaced component names for @livewire', () => {
+                const items = Completions.getParameterCompletions('livewire');
+                const labels = items.map((i) => i.label);
+                expect(labels).toContain('pages::settings.two-factor.recovery-codes');
+                expect(labels).toContain('pages::settings.two-factor.enable');
+            });
         });
     });
 
@@ -229,6 +236,36 @@ describe('Completions', () => {
 
             expect(labels).toContain('livewire:pages.settings.delete-user-form');
             expect(labels).toContain('livewire:pages.settings.update-profile-information-form');
+            expect(labels).not.toContain('livewire:counter');
+            expect(labels).not.toContain('livewire:search-bar');
+        });
+
+        it('returns Livewire 4 namespaced components with :: in their tag name', () => {
+            const items = Completions.getLivewireCompletions('<livewire:', Position.create(0, 10));
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages::settings.two-factor.recovery-codes');
+            expect(labels).toContain('livewire:pages::settings.two-factor.enable');
+        });
+
+        it('filters Livewire 4 namespaced completions by partial path after ::', () => {
+            const items = Completions.getLivewireCompletions(
+                '<livewire:pages::settings.two-factor.rec',
+                Position.create(0, 41),
+            );
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages::settings.two-factor.recovery-codes');
+            expect(labels).not.toContain('livewire:pages::settings.two-factor.enable');
+            expect(labels).not.toContain('livewire:counter');
+        });
+
+        it('filters Livewire 4 namespaced completions by namespace prefix', () => {
+            const items = Completions.getLivewireCompletions('<livewire:pages::', Position.create(0, 17));
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages::settings.two-factor.recovery-codes');
+            expect(labels).toContain('livewire:pages::settings.two-factor.enable');
             expect(labels).not.toContain('livewire:counter');
             expect(labels).not.toContain('livewire:search-bar');
         });

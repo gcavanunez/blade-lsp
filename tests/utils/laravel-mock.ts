@@ -150,6 +150,38 @@ export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
     },
 ];
 
+/**
+ * Livewire 4 namespaced views — views from packages or custom namespaces
+ * that have the `livewire` property but do NOT have a `livewire.` key prefix.
+ * The view key uses `::` (e.g. `pages::settings.two-factor.recovery-codes`).
+ */
+export const DEFAULT_LIVEWIRE_NAMESPACED_VIEWS: ViewItem[] = [
+    {
+        key: 'pages::settings.two-factor.recovery-codes',
+        path: 'resources/views/pages/settings/two-factor/recovery-codes.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: [
+                'app/Livewire/Pages/Settings/TwoFactor/RecoveryCodes.php',
+                'resources/views/pages/settings/two-factor/recovery-codes.blade.php',
+            ],
+        },
+    },
+    {
+        key: 'pages::settings.two-factor.enable',
+        path: 'resources/views/pages/settings/two-factor/enable.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [{ name: 'enabled', type: 'bool', hasDefaultValue: true, defaultValue: false }],
+            files: [
+                'app/Livewire/Pages/Settings/TwoFactor/Enable.php',
+                'resources/views/pages/settings/two-factor/enable.blade.php',
+            ],
+        },
+    },
+];
+
 export const DEFAULT_COMPONENT_PREFIXES: string[] = ['flux'];
 
 export const DEFAULT_DIRECTIVES: CustomDirective[] = [
@@ -198,7 +230,11 @@ export function createMockLaravelState(overrides?: MockLaravelOverrides): Larave
     return {
         project,
         views: {
-            items: overrides?.views ?? [...DEFAULT_VIEWS, ...DEFAULT_LIVEWIRE_VIEWS],
+            items: overrides?.views ?? [
+                ...DEFAULT_VIEWS,
+                ...DEFAULT_LIVEWIRE_VIEWS,
+                ...DEFAULT_LIVEWIRE_NAMESPACED_VIEWS,
+            ],
             lastUpdated: Date.now(),
         },
         components: {
