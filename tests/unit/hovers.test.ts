@@ -205,6 +205,32 @@ describe('Hovers', () => {
                 expect(value).toContain('not found in project');
             });
 
+            it('returns hover for Livewire 4 namespaced component', () => {
+                const line = '<livewire:pages::settings.two-factor.enable />';
+                const tagStart = line.indexOf('livewire:pages::settings.two-factor.enable');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('livewire:pages::settings.two-factor.enable');
+                expect(value).toContain('Livewire component');
+                expect(value).toContain('enable.blade.php');
+                expect(value).toContain('enabled');
+                expect(value).toContain('bool');
+            });
+
+            it('returns hover with files for Livewire 4 namespaced component', () => {
+                const line = '<livewire:pages::settings.two-factor.recovery-codes />';
+                const tagStart = line.indexOf('livewire:pages::settings.two-factor.recovery-codes');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('livewire:pages::settings.two-factor.recovery-codes');
+                expect(value).toContain('Livewire component');
+                expect(value).toContain('RecoveryCodes.php');
+            });
+
             it('handles component with string props', () => {
                 clearMockLaravel();
                 installMockLaravel({

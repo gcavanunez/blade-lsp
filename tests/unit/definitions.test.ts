@@ -127,6 +127,15 @@ describe('Definitions', () => {
             expect(result).not.toBeNull();
         });
 
+        it('matches Livewire 4 namespaced <livewire:pages::settings.two-factor.recovery-codes> tag', () => {
+            const line = '<livewire:pages::settings.two-factor.recovery-codes />';
+            const tagStart = line.indexOf('livewire:pages::settings.two-factor.recovery-codes');
+            const result = Definitions.getComponentDefinition(line, tagStart + 1);
+
+            expect(result).not.toBeNull();
+            expect(result!.uri).toContain('recovery-codes.blade.php');
+        });
+
         it('returns null when cursor is outside the tag name', () => {
             const line = '<x-button type="primary">';
             // Cursor on the attribute, past the tag name
@@ -174,6 +183,18 @@ describe('Definitions', () => {
         it('returns null for unknown Livewire component', () => {
             const result = Definitions.resolveComponentLocation('livewire:nonexistent');
             expect(result).toBeNull();
+        });
+
+        it('resolves Livewire 4 namespaced component via view lookup', () => {
+            const result = Definitions.resolveComponentLocation('livewire:pages::settings.two-factor.recovery-codes');
+            expect(result).not.toBeNull();
+            expect(result!.uri).toContain('recovery-codes.blade.php');
+        });
+
+        it('resolves Livewire 4 namespaced component with props via view lookup', () => {
+            const result = Definitions.resolveComponentLocation('livewire:pages::settings.two-factor.enable');
+            expect(result).not.toBeNull();
+            expect(result!.uri).toContain('enable.blade.php');
         });
 
         it('returns null for unknown component', () => {

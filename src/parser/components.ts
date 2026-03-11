@@ -62,7 +62,7 @@ export namespace ParserComponents {
      * (x-prefixed or namespace:prefixed like flux:button).
      */
     export function isComponentTagName(name: string): boolean {
-        return name.startsWith('x-') || /^[\w]+:[\w.-]+$/.test(name);
+        return name.startsWith('x-') || /^[\w]+:[\w.:-]+$/.test(name);
     }
 
     /**

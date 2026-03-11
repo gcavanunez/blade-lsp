@@ -140,8 +140,8 @@ export namespace Diagnostics {
      */
     function isComponentDefined(tag: string): boolean {
         if (tag.startsWith('livewire:')) {
-            const viewKey = `livewire.${tag.replace('livewire:', '')}`;
-            return !!Views.find(viewKey);
+            const componentName = tag.replace('livewire:', '');
+            return !!Views.findLivewire(componentName);
         }
         return !!Components.resolve(tag);
     }
@@ -177,10 +177,10 @@ export namespace Diagnostics {
 
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
             const line = lines[lineNum];
-            const componentPattern = /<(?!\/)(?:(x-[\w.-]+(?:::[\w.-]+)?)|([\w]+:[\w.-]+))/g;
+            const componentPattern = /<(?!\/)(?:(x-[\w.-]+(?:::[\w.-]+)?)|(livewire:[\w.:-]+)|([\w]+:[\w.-]+))/g;
 
             for (const { match } of collectRegexMatches(line, componentPattern)) {
-                const tag = match[1] || match[2];
+                const tag = match[1] || match[2] || match[3];
                 if (isBuiltInComponentTag(tag)) continue;
 
                 if (!isComponentDefined(tag)) {

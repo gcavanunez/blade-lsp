@@ -144,11 +144,12 @@ export namespace Completions {
             return items;
         }
 
-        const views = Views.getItems();
-        const livewireViews = views.filter((v) => v.key.startsWith('livewire.'));
+        // Use getLivewireItems() which handles both Livewire 3 (key prefix
+        // 'livewire.') and Livewire 4 namespaced components (views with
+        // 'livewire' property set, e.g. key 'pages::settings.foo').
+        const livewireEntries = Views.getLivewireItems();
 
-        for (const view of livewireViews) {
-            const componentName = view.key.replace('livewire.', '').replace(/\./g, '.');
+        for (const { view, componentName } of livewireEntries) {
             const fullTag = `livewire:${componentName}`;
 
             if (fullTag.startsWith(partialName) || partialName === 'livewire:') {
@@ -501,11 +502,10 @@ export namespace Completions {
             case 'livewireStyles':
             case 'livewireScripts':
                 if (Laravel.isAvailable()) {
-                    const views = Views.getItems();
-                    const livewireViews = views.filter((v) => v.key.startsWith('livewire.'));
-                    for (const view of livewireViews) {
+                    const livewireEntries = Views.getLivewireItems();
+                    for (const { view, componentName } of livewireEntries) {
                         items.push({
-                            label: view.key.replace('livewire.', ''),
+                            label: componentName,
                             kind: CompletionItemKind.Class,
                             detail: 'Livewire component',
                             documentation: {

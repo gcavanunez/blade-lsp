@@ -159,8 +159,7 @@ Contains all attributes passed to a component.
 
         if (componentTag.startsWith('livewire:')) {
             const componentName = componentTag.replace('livewire:', '');
-            const viewKey = `livewire.${componentName}`;
-            const view = Views.find(viewKey);
+            const view = Views.findLivewire(componentName);
 
             if (!view) {
                 return {
