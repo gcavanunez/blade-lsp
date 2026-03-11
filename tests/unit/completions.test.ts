@@ -200,10 +200,37 @@ describe('Completions', () => {
 
         it('sorts vendor components after non-vendor', () => {
             const items = Completions.getLivewireCompletions('<livewire:', Position.create(0, 10));
-            // Both mock livewire views are non-vendor so sortText should start with '0'
+            // All mock livewire views are non-vendor so sortText should start with '0'
             for (const item of items) {
                 expect(item.sortText).toMatch(/^0/);
             }
+        });
+
+        it('returns nested livewire components with dot-separated names', () => {
+            const items = Completions.getLivewireCompletions('<livewire:', Position.create(0, 10));
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages.settings.delete-user-form');
+            expect(labels).toContain('livewire:pages.settings.update-profile-information-form');
+        });
+
+        it('filters nested livewire completions by partial path', () => {
+            const items = Completions.getLivewireCompletions('<livewire:pages.settings.del', Position.create(0, 28));
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages.settings.delete-user-form');
+            expect(labels).not.toContain('livewire:pages.settings.update-profile-information-form');
+            expect(labels).not.toContain('livewire:counter');
+        });
+
+        it('filters nested livewire completions by partial namespace', () => {
+            const items = Completions.getLivewireCompletions('<livewire:pages.', Position.create(0, 16));
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages.settings.delete-user-form');
+            expect(labels).toContain('livewire:pages.settings.update-profile-information-form');
+            expect(labels).not.toContain('livewire:counter');
+            expect(labels).not.toContain('livewire:search-bar');
         });
     });
 
@@ -396,6 +423,38 @@ describe('Completions', () => {
                 const labels = items.map((i) => i.label);
 
                 expect(labels).toContain('x-flux::button');
+            });
+
+            it('returns short-form namespaced completions for <flux:', () => {
+                // When typing <flux:, should match flux::button etc. via short-form tag
+                const items = Completions.getComponentCompletions('<flux:', Position.create(0, 6));
+                const labels = items.map((i) => i.label);
+
+                expect(labels).toContain('flux:button');
+                expect(labels).toContain('flux:input');
+                expect(labels).toContain('flux:modal');
+                // Should NOT include non-flux components
+                expect(labels).not.toContain('x-button');
+                expect(labels).not.toContain('x-alert');
+            });
+
+            it('filters short-form namespaced completions by partial name', () => {
+                const items = Completions.getComponentCompletions('<flux:but', Position.create(0, 9));
+                const labels = items.map((i) => i.label);
+
+                expect(labels).toContain('flux:button');
+                expect(labels).not.toContain('flux:input');
+                expect(labels).not.toContain('flux:modal');
+            });
+
+            it('does not duplicate when both x- and short-form would match', () => {
+                // When typing <x-, both x-flux::button and flux:button forms exist
+                // but only x-flux::button should appear since partialName starts with x-
+                const items = Completions.getComponentCompletions('<x-', Position.create(0, 3));
+                const labels = items.map((i) => i.label);
+
+                expect(labels).toContain('x-flux::button');
+                expect(labels).not.toContain('flux:button');
             });
 
             it('sets textEdit to replace from tag start', () => {

@@ -64,6 +64,36 @@ describe('Livewire (Integration)', () => {
             await doc.close();
         });
 
+        it('provides nested livewire component completions with dot-separated paths', async () => {
+            const doc = await client.open({
+                text: '<div>\n<livewire:pages.\n</div>',
+            });
+
+            const items = await doc.completions(1, 17);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages.settings.delete-user-form');
+            expect(labels).toContain('livewire:pages.settings.update-profile-information-form');
+            expect(labels).not.toContain('livewire:counter');
+            expect(labels).not.toContain('livewire:search-bar');
+
+            await doc.close();
+        });
+
+        it('filters nested livewire completions by deep partial path', async () => {
+            const doc = await client.open({
+                text: '<div>\n<livewire:pages.settings.del\n</div>',
+            });
+
+            const items = await doc.completions(1, 31);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('livewire:pages.settings.delete-user-form');
+            expect(labels).not.toContain('livewire:pages.settings.update-profile-information-form');
+
+            await doc.close();
+        });
+
         it('completes wire:model values from inline livewire public properties', async () => {
             const doc = await client.open({
                 text: `<?php

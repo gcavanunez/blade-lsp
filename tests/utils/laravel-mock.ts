@@ -83,6 +83,23 @@ export const DEFAULT_COMPONENTS: ComponentItem[] = [
             { name: 'size', type: 'string', default: 'md' },
         ],
     },
+    {
+        key: 'flux::input',
+        path: 'vendor/livewire/flux/resources/views/components/input.blade.php',
+        paths: ['vendor/livewire/flux/resources/views/components/input.blade.php'],
+        isVendor: true,
+        props: [
+            { name: 'label', type: 'string', default: null },
+            { name: 'type', type: 'string', default: 'text' },
+        ],
+    },
+    {
+        key: 'flux::modal',
+        path: 'vendor/livewire/flux/resources/views/components/modal.blade.php',
+        paths: ['vendor/livewire/flux/resources/views/components/modal.blade.php'],
+        isVendor: true,
+        props: [{ name: 'name', type: 'string', default: null }],
+    },
 ];
 
 export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
@@ -105,6 +122,30 @@ export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
         livewire: {
             props: [],
             files: ['app/Livewire/SearchBar.php'],
+        },
+    },
+    {
+        key: 'livewire.pages.settings.delete-user-form',
+        path: 'resources/views/livewire/pages/settings/delete-user-form.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: [
+                'app/Livewire/Pages/Settings/DeleteUserForm.php',
+                'resources/views/livewire/pages/settings/delete-user-form.blade.php',
+            ],
+        },
+    },
+    {
+        key: 'livewire.pages.settings.update-profile-information-form',
+        path: 'resources/views/livewire/pages/settings/update-profile-information-form.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: [
+                'app/Livewire/Pages/Settings/UpdateProfileInformationForm.php',
+                'resources/views/livewire/pages/settings/update-profile-information-form.blade.php',
+            ],
         },
     },
 ];
