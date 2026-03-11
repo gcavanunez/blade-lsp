@@ -25,9 +25,9 @@ export const VIEW_HELPER_PATTERN = /view\s*\(\s*['"]([^'"]+)['"]/;
 
 export const COMPONENT_TAG_AT_CURSOR_PATTERN = /<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/;
 export const COMPONENT_PARTIAL_MATCH_PATTERN = /<(x-[\w.-]*(?:::[\w.-]*)?|[\w]+:[\w.-]*)$/;
-export const LIVEWIRE_PARTIAL_MATCH_PATTERN = /<(livewire:[\w.-]*)$/;
+export const LIVEWIRE_PARTIAL_MATCH_PATTERN = /<(livewire:[\w.:-]*)$/;
 
-const LIVEWIRE_TRIGGER_PATTERN = /<livewire:[\w.-]*$/;
+const LIVEWIRE_TRIGGER_PATTERN = /<livewire:[\w.:-]*$/;
 const X_COMPONENT_TRIGGER_PATTERN = /<x-[\w.-]*(?:::[\w.-]*)?$/;
 const NAMESPACED_COMPONENT_TRIGGER_PATTERN = /<[\w]+:[\w.-]*$/;
 

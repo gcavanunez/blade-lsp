@@ -101,10 +101,23 @@ export namespace Components {
      * Derive a display tag from a component key.
      * 'button' -> 'x-button'
      * 'turbo::frame' -> 'x-turbo::frame'
-     * Keys with '::' that have flux prefix also get 'flux:' form.
      */
     export function keyToTag(key: string): string {
         return `x-${key}`;
+    }
+
+    /**
+     * Derive the short-form namespaced tag from a component key.
+     * Only applies to keys with '::' (vendor-namespaced components).
+     *
+     * 'flux::button' -> 'flux:button'
+     * 'turbo::frame' -> 'turbo:frame'
+     * 'button'       -> null  (no namespace)
+     */
+    export function keyToShortTag(key: string): string | null {
+        const colonIndex = key.indexOf('::');
+        if (colonIndex === -1) return null;
+        return key.slice(0, colonIndex) + ':' + key.slice(colonIndex + 2);
     }
 
     export function clear(): void {

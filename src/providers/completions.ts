@@ -117,6 +117,13 @@ export namespace Completions {
 
             if (fullTag.startsWith(partialName)) {
                 items.push(createComponentCompletionItem(component, replaceRange, fullTag));
+            } else {
+                // Try short-form namespaced tag (e.g., 'flux:button' for key 'flux::button').
+                // Users can write <flux:button> instead of <x-flux::button>.
+                const shortTag = ComponentsNs.keyToShortTag(component.key);
+                if (shortTag && shortTag.startsWith(partialName)) {
+                    items.push(createComponentCompletionItem(component, replaceRange, shortTag));
+                }
             }
         }
 
