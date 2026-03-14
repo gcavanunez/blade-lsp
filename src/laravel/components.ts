@@ -26,6 +26,7 @@ export namespace Components {
         using _ = await Lock.write(REFRESH_LOCK);
 
         const state = LaravelContext.use();
+        state.components.loadState = LaravelContext.createLoadingLoadState();
 
         try {
             const raw = await PhpRunner.runScript<ComponentsRawResult>({
@@ -43,12 +44,15 @@ export namespace Components {
 
             state.components.items = items;
             state.components.prefixes = raw.prefixes;
-            state.components.lastUpdated = Date.now();
+            state.components.loadState = LaravelContext.createReadyLoadState();
         } catch (error) {
+            const cause = error instanceof Error ? error.message : String(error);
+            state.components.loadState = LaravelContext.createFailedLoadState(cause);
+
             throw new RefreshError(
                 {
                     message: 'Failed to refresh components',
-                    cause: error instanceof Error ? error.message : String(error),
+                    cause,
                 },
                 { cause: error },
             );
@@ -101,16 +105,29 @@ export namespace Components {
      * Derive a display tag from a component key.
      * 'button' -> 'x-button'
      * 'turbo::frame' -> 'x-turbo::frame'
-     * Keys with '::' that have flux prefix also get 'flux:' form.
      */
     export function keyToTag(key: string): string {
         return `x-${key}`;
+    }
+
+    /**
+     * Derive the short-form namespaced tag from a component key.
+     * Only applies to keys with '::' (vendor-namespaced components).
+     *
+     * 'flux::button' -> 'flux:button'
+     * 'turbo::frame' -> 'turbo:frame'
+     * 'button'       -> null  (no namespace)
+     */
+    export function keyToShortTag(key: string): string | null {
+        const colonIndex = key.indexOf('::');
+        if (colonIndex === -1) return null;
+        return key.slice(0, colonIndex) + ':' + key.slice(colonIndex + 2);
     }
 
     export function clear(): void {
         const state = LaravelContext.use();
         state.components.items = [];
         state.components.prefixes = [];
-        state.components.lastUpdated = 0;
+        state.components.loadState = LaravelContext.createIdleLoadState();
     }
 }

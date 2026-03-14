@@ -13,6 +13,7 @@ import {
     MarkupKind,
     MessageType,
     Position,
+    CompletionParams,
     TextDocumentPositionParams,
     Location,
     DocumentLink,
@@ -54,6 +55,28 @@ import { Container } from './runtime/container';
 import { MutableRef } from 'effect';
 
 export namespace Server {
+    export interface IntelephenseBridgeConfig {
+        initializationOptions?: {
+            globalStoragePath?: string;
+            storagePath?: string;
+        };
+        settings?: {
+            intelephense?: {
+                client?: {
+                    autoCloseDocCommentDoSuggest?: boolean;
+                };
+                files?: {
+                    maxSize?: number;
+                };
+            };
+        };
+    }
+
+    export interface PhpactorBridgeConfig {
+        initializationOptions?: Record<string, unknown>;
+        settings?: Record<string, unknown>;
+    }
+
     export interface Settings {
         /** Command array to execute PHP (defaults to auto-detect if not provided) */
         phpCommand?: string[];
@@ -63,6 +86,8 @@ export namespace Server {
         enableEmbeddedPhpBridge?: boolean;
         embeddedPhpBackend?: 'intelephense' | 'phpactor';
         embeddedPhpLspCommand?: string[];
+        intelephense?: IntelephenseBridgeConfig;
+        phpactor?: PhpactorBridgeConfig;
     }
 
     export function getWorkspaceRoot(): string | null {
@@ -74,7 +99,7 @@ export namespace Server {
      * Collect custom directive completions from Laravel, excluding built-in directives.
      */
     function getCustomDirectiveCompletions(prefix: string): CompletionItem[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.hasLoadedDirectives()) return [];
 
         const isSearch = prefix.length > 1; // '@fo' vs just '@'
         const directives = isSearch ? Directives.search(prefix.replace('@', '')) : Directives.getItems();
@@ -379,6 +404,7 @@ export namespace Server {
             }
 
             await Promise.allSettled(promises);
+            Laravel.syncRefreshResultFromState();
             progress.done('Reload complete');
             conn.console.log('File watcher: refresh complete');
 
@@ -404,9 +430,15 @@ export namespace Server {
             sourceCache.delete(event.document.uri);
             diagnosticStore.delete(event.document.uri);
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+
+            if (phpBridgeState) {
+                void PhpBridge.closeDocument(phpBridgeState, event.document.uri).catch((error) => {
+                    conn.console.error(`Embedded PHP bridge close failed: ${FormatErrorForLog(error)}`);
+                });
+            }
         });
 
-        conn.onCompletion(async (params: TextDocumentPositionParams): Promise<CompletionItem[]> => {
+        conn.onCompletion(async (params: CompletionParams): Promise<CompletionItem[]> => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return [];
 
@@ -416,7 +448,7 @@ export namespace Server {
             const currentLine = source.split('\n')[position.line] || '';
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {
-                const bridgeItems = await PhpBridge.getCompletion(phpBridge, document, position);
+                const bridgeItems = await PhpBridge.getCompletion(phpBridge, document, position, params.context);
                 if (bridgeItems) {
                     return bridgeItems;
                 }
@@ -491,7 +523,17 @@ export namespace Server {
             return items;
         });
 
-        conn.onCompletionResolve((item: CompletionItem): CompletionItem => Completions.resolveCompletionItem(item));
+        conn.onCompletionResolve(async (item: CompletionItem): Promise<CompletionItem> => {
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge && PhpBridge.isBridgeCompletionItem(item)) {
+                const resolved = await PhpBridge.resolveCompletion(phpBridge, item);
+                if (resolved) {
+                    return resolved;
+                }
+            }
+
+            return Completions.resolveCompletionItem(item);
+        });
 
         conn.onHover(async (params: TextDocumentPositionParams): Promise<Hover | null> => {
             const document = docs.get(params.textDocument.uri);
@@ -524,7 +566,7 @@ export namespace Server {
             }
 
             const directiveNameFromLine = Hovers.getDirectiveNameAtColumn(lineText, position.character);
-            if (directiveNameFromLine && Laravel.isAvailable()) {
+            if (directiveNameFromLine && Laravel.hasLoadedDirectives()) {
                 const customDirective = Directives.getItems().find((item) => `@${item.name}` === directiveNameFromLine);
                 if (customDirective) {
                     return {

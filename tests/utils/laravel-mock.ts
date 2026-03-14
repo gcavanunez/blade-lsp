@@ -83,6 +83,23 @@ export const DEFAULT_COMPONENTS: ComponentItem[] = [
             { name: 'size', type: 'string', default: 'md' },
         ],
     },
+    {
+        key: 'flux::input',
+        path: 'vendor/livewire/flux/resources/views/components/input.blade.php',
+        paths: ['vendor/livewire/flux/resources/views/components/input.blade.php'],
+        isVendor: true,
+        props: [
+            { name: 'label', type: 'string', default: null },
+            { name: 'type', type: 'string', default: 'text' },
+        ],
+    },
+    {
+        key: 'flux::modal',
+        path: 'vendor/livewire/flux/resources/views/components/modal.blade.php',
+        paths: ['vendor/livewire/flux/resources/views/components/modal.blade.php'],
+        isVendor: true,
+        props: [{ name: 'name', type: 'string', default: null }],
+    },
 ];
 
 export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
@@ -105,6 +122,62 @@ export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
         livewire: {
             props: [],
             files: ['app/Livewire/SearchBar.php'],
+        },
+    },
+    {
+        key: 'livewire.pages.settings.delete-user-form',
+        path: 'resources/views/livewire/pages/settings/delete-user-form.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: [
+                'app/Livewire/Pages/Settings/DeleteUserForm.php',
+                'resources/views/livewire/pages/settings/delete-user-form.blade.php',
+            ],
+        },
+    },
+    {
+        key: 'livewire.pages.settings.update-profile-information-form',
+        path: 'resources/views/livewire/pages/settings/update-profile-information-form.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: [
+                'app/Livewire/Pages/Settings/UpdateProfileInformationForm.php',
+                'resources/views/livewire/pages/settings/update-profile-information-form.blade.php',
+            ],
+        },
+    },
+];
+
+/**
+ * Livewire 4 namespaced views — views from packages or custom namespaces
+ * that have the `livewire` property but do NOT have a `livewire.` key prefix.
+ * The view key uses `::` (e.g. `pages::settings.two-factor.recovery-codes`).
+ */
+export const DEFAULT_LIVEWIRE_NAMESPACED_VIEWS: ViewItem[] = [
+    {
+        key: 'pages::settings.two-factor.recovery-codes',
+        path: 'resources/views/pages/settings/two-factor/recovery-codes.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [],
+            files: [
+                'app/Livewire/Pages/Settings/TwoFactor/RecoveryCodes.php',
+                'resources/views/pages/settings/two-factor/recovery-codes.blade.php',
+            ],
+        },
+    },
+    {
+        key: 'pages::settings.two-factor.enable',
+        path: 'resources/views/pages/settings/two-factor/enable.blade.php',
+        isVendor: false,
+        livewire: {
+            props: [{ name: 'enabled', type: 'bool', hasDefaultValue: true, defaultValue: false }],
+            files: [
+                'app/Livewire/Pages/Settings/TwoFactor/Enable.php',
+                'resources/views/pages/settings/two-factor/enable.blade.php',
+            ],
         },
     },
 ];
@@ -157,17 +230,21 @@ export function createMockLaravelState(overrides?: MockLaravelOverrides): Larave
     return {
         project,
         views: {
-            items: overrides?.views ?? [...DEFAULT_VIEWS, ...DEFAULT_LIVEWIRE_VIEWS],
-            lastUpdated: Date.now(),
+            items: overrides?.views ?? [
+                ...DEFAULT_VIEWS,
+                ...DEFAULT_LIVEWIRE_VIEWS,
+                ...DEFAULT_LIVEWIRE_NAMESPACED_VIEWS,
+            ],
+            loadState: LaravelContext.createReadyLoadState(),
         },
         components: {
             items: overrides?.components ?? DEFAULT_COMPONENTS,
             prefixes: overrides?.prefixes ?? DEFAULT_COMPONENT_PREFIXES,
-            lastUpdated: Date.now(),
+            loadState: LaravelContext.createReadyLoadState(),
         },
         directives: {
             items: overrides?.directives ?? DEFAULT_DIRECTIVES,
-            lastUpdated: Date.now(),
+            loadState: LaravelContext.createReadyLoadState(),
         },
     };
 }

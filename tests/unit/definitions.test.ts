@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Definitions } from '../../src/providers/definitions';
+import { LaravelContext } from '../../src/laravel/context';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
 
 vi.mock('../../src/server', () => ({
@@ -96,6 +97,14 @@ describe('Definitions', () => {
             const result = Definitions.resolveViewLocation('layouts.app');
             expect(result).toBeNull();
         });
+
+        it('returns null while Laravel views are not loaded yet', () => {
+            const state = LaravelContext.use();
+            state.views.loadState = LaravelContext.createIdleLoadState();
+
+            const result = Definitions.resolveViewLocation('layouts.app');
+            expect(result).toBeNull();
+        });
     });
 
     // ─── getComponentDefinition ──────────────────────────────────────────────
@@ -125,6 +134,15 @@ describe('Definitions', () => {
 
             // flux::button component exists in mock
             expect(result).not.toBeNull();
+        });
+
+        it('matches Livewire 4 namespaced <livewire:pages::settings.two-factor.recovery-codes> tag', () => {
+            const line = '<livewire:pages::settings.two-factor.recovery-codes />';
+            const tagStart = line.indexOf('livewire:pages::settings.two-factor.recovery-codes');
+            const result = Definitions.getComponentDefinition(line, tagStart + 1);
+
+            expect(result).not.toBeNull();
+            expect(result!.uri).toContain('recovery-codes.blade.php');
         });
 
         it('returns null when cursor is outside the tag name', () => {
@@ -174,6 +192,18 @@ describe('Definitions', () => {
         it('returns null for unknown Livewire component', () => {
             const result = Definitions.resolveComponentLocation('livewire:nonexistent');
             expect(result).toBeNull();
+        });
+
+        it('resolves Livewire 4 namespaced component via view lookup', () => {
+            const result = Definitions.resolveComponentLocation('livewire:pages::settings.two-factor.recovery-codes');
+            expect(result).not.toBeNull();
+            expect(result!.uri).toContain('recovery-codes.blade.php');
+        });
+
+        it('resolves Livewire 4 namespaced component with props via view lookup', () => {
+            const result = Definitions.resolveComponentLocation('livewire:pages::settings.two-factor.enable');
+            expect(result).not.toBeNull();
+            expect(result!.uri).toContain('enable.blade.php');
         });
 
         it('returns null for unknown component', () => {

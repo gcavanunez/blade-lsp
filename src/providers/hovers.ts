@@ -148,19 +148,18 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        if (!Laravel.isAvailable()) {
-            return {
-                contents: {
-                    kind: MarkupKind.Markdown,
-                    value: `## ${componentTag}\n\nBlade component`,
-                },
-            };
-        }
-
         if (componentTag.startsWith('livewire:')) {
+            if (!Laravel.hasLoadedViews()) {
+                return {
+                    contents: {
+                        kind: MarkupKind.Markdown,
+                        value: `## ${componentTag}\n\nLivewire component`,
+                    },
+                };
+            }
+
             const componentName = componentTag.replace('livewire:', '');
-            const viewKey = `livewire.${componentName}`;
-            const view = Views.find(viewKey);
+            const view = Views.findLivewire(componentName);
 
             if (!view) {
                 return {
@@ -196,6 +195,15 @@ Contains all attributes passed to a component.
                 contents: {
                     kind: MarkupKind.Markdown,
                     value: content,
+                },
+            };
+        }
+
+        if (!Laravel.hasLoadedComponents()) {
+            return {
+                contents: {
+                    kind: MarkupKind.Markdown,
+                    value: `## ${componentTag}\n\nBlade component`,
                 },
             };
         }
@@ -242,7 +250,7 @@ Contains all attributes passed to a component.
             return null;
         }
 
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedComponents()) {
             return null;
         }
 
@@ -286,7 +294,7 @@ Contains all attributes passed to a component.
     }
 
     export function getViewHoverContent(viewName: string): Hover {
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedViews()) {
             return {
                 contents: {
                     kind: MarkupKind.Markdown,
@@ -345,7 +353,7 @@ Contains all attributes passed to a component.
             };
         }
 
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedComponents()) {
             return {
                 contents: {
                     kind: MarkupKind.Markdown,

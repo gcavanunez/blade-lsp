@@ -436,7 +436,7 @@ describe('Diagnostics', () => {
 
             it('returns empty while Laravel views are not loaded yet', () => {
                 const state = LaravelContext.use();
-                state.views.lastUpdated = 0;
+                state.views.loadState = LaravelContext.createIdleLoadState();
 
                 const source = "@include('nonexistent.view')";
                 const diags = Diagnostics.getUndefinedViewDiagnostics(source);
@@ -494,6 +494,23 @@ describe('Diagnostics', () => {
                     expectedCode: Diagnostics.Code.undefinedComponent,
                 },
                 {
+                    name: 'accepts existing Livewire 4 namespaced component',
+                    source: '<livewire:pages::settings.two-factor.recovery-codes />',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'accepts existing Livewire 4 namespaced component with props',
+                    source: '<livewire:pages::settings.two-factor.enable />',
+                    expectedCount: 0,
+                },
+                {
+                    name: 'detects undefined Livewire 4 namespaced component',
+                    source: '<livewire:pages::nonexistent.component />',
+                    expectedCount: 1,
+                    expectedCode: Diagnostics.Code.undefinedComponent,
+                    expectedMessageIncludes: ['Livewire', 'pages::nonexistent.component'],
+                },
+                {
                     name: 'does not flag x-slot as undefined',
                     source: '<x-slot name="header">Title</x-slot>',
                     expectedCount: 0,
@@ -538,7 +555,7 @@ describe('Diagnostics', () => {
 
             it('returns empty while Laravel components are not loaded yet', () => {
                 const state = LaravelContext.use();
-                state.components.lastUpdated = 0;
+                state.components.loadState = LaravelContext.createIdleLoadState();
 
                 const source = '<x-nonexistent />';
                 const diags = Diagnostics.getUndefinedComponentDiagnostics(source);

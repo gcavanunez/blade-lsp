@@ -81,9 +81,55 @@ vim.lsp.config('blade_lsp', {
     -- Enables Laravel project integration (views, components, custom directives
     -- via PHP). Set to false for standalone Blade support only.
     enableLaravelIntegration = true,
+
+    -- boolean|nil (default: false)
+    -- Enables the embedded PHP bridge for `<?php ... ?>` and `@php ... @endphp`
+    -- regions inside Blade files.
+    enableEmbeddedPhpBridge = false,
+
+    -- "intelephense"|"phpactor"|nil (default: "intelephense")
+    -- Selects the downstream PHP backend used by the embedded bridge.
+    embeddedPhpBackend = 'phpactor',
+
+    -- string[]|nil (default: backend-specific command)
+    -- Explicit command array for the embedded PHP backend.
+    embeddedPhpLspCommand = { '/home/you/.local/share/nvim/mason/bin/phpactor', 'language-server' },
+
+    -- Backend-specific bridge configuration.
+    intelephense = {
+      initializationOptions = {
+        globalStoragePath = vim.fn.expand('~/.local/share/intelephense'),
+        storagePath = vim.fn.expand('~/.local/share/intelephense'),
+      },
+      settings = {
+        intelephense = {
+          client = {
+            autoCloseDocCommentDoSuggest = true,
+          },
+          files = {
+            maxSize = 10000000,
+          },
+        },
+      },
+    },
+
+    phpactor = {
+      initializationOptions = {
+        ['language_server_phpstan.enabled'] = false,
+        ['language_server_psalm.enabled'] = false,
+      },
+    },
   },
 })
 ```
+
+### Embedded PHP Bridge Notes
+
+- The embedded PHP bridge currently works best with **`phpactor`** as the downstream backend.
+- `phpactor` is the recommended backend today for practical class completion/import flows such as:
+    - `User` -> `User (App)` -> `use App\Models\User;`
+- `intelephense` support remains available, but is currently more experimental/weaker in this embedded bridge mode.
+- The currently supported happy path is bare class completion in Blade PHP regions; namespaced completion forms like `\App\Models\U` are still being explored.
 
 ## Credits
 

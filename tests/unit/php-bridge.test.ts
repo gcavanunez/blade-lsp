@@ -33,7 +33,7 @@ $foo = bar();
         expect(extraction.regions[1].content.trim()).toBe('$foo = bar();');
     });
 
-    it('builds a stable human-readable shadow document path and stitched content', () => {
+    it('builds a stable human-readable shadow document path and simplified content', () => {
         const extraction = PhpBridgeRegions.extract(source);
         const shadow = PhpBridgeShadowDocument.build(
             '/workspace',
@@ -41,10 +41,24 @@ $foo = bar();
             extraction,
         );
 
-        expect(shadow.shadowPath).toBe('/workspace/.blade-lsp/shadow/resources-views-posts-show.php');
-        expect(shadow.content.startsWith('<?php\n/* blade-region:1 */\n')).toBe(true);
-        expect(shadow.content).toContain('/* blade-region:2 */');
+        expect(shadow.shadowPath).toBe('/workspace/vendor/blade-lsp/shadow/resources-views-posts-show.php');
+        expect(shadow.content.startsWith('<?php\n\nuse App\\Models\\Post;')).toBe(true);
+        expect(shadow.content).not.toContain('blade-region');
         expect(shadow.regions).toHaveLength(2);
+    });
+
+    it('maintains natural region order even when active region is specified', () => {
+        const extraction = PhpBridgeRegions.extract(source);
+        const shadow = PhpBridgeShadowDocument.build(
+            '/workspace',
+            'file:///workspace/resources/views/posts/show.blade.php',
+            extraction,
+            { activeRegionId: 'blade-region:2' },
+        );
+
+        expect(shadow.activeRegionId).toBe('blade-region:2');
+        expect(shadow.content.startsWith('<?php\n\nuse App\\Models\\Post;')).toBe(true);
+        expect(shadow.shadowPath).toBe('/workspace/vendor/blade-lsp/shadow/resources-views-posts-show.php');
     });
 
     it('maps blade positions into shadow positions and back', () => {
@@ -100,7 +114,7 @@ $foo = bar();
             shadow,
             Range.create(Position.create(1, 0), Position.create(11, 1)),
         );
-        expect(invalid.kind).toBe('synthetic');
+        expect(invalid.kind).toBe('unmappable');
     });
 
     it('stores persistent bridge document state per blade uri', () => {
@@ -113,7 +127,7 @@ $foo = bar();
         const store = PhpBridgeStore.create();
         const document = TextDocument.create(shadow.bladeUri, 'blade', 3, source);
 
-        const applied = store.apply(document, extraction, shadow);
+        const applied = store.apply(document, extraction, shadow, null);
 
         expect(applied.phpChanged).toBe(true);
         expect(store.get(shadow.bladeUri)?.bladeVersion).toBe(3);
@@ -122,9 +136,26 @@ $foo = bar();
         store.markBackendSynced(shadow.bladeUri, 7);
         expect(store.get(shadow.bladeUri)?.backendSyncedVersion).toBe(7);
 
-        const reapplied = store.apply(TextDocument.create(shadow.bladeUri, 'blade', 4, source), extraction, shadow);
+        const reapplied = store.apply(
+            TextDocument.create(shadow.bladeUri, 'blade', 4, source),
+            extraction,
+            shadow,
+            null,
+        );
         expect(reapplied.phpChanged).toBe(false);
         expect(reapplied.state.backendSyncedVersion).toBe(7);
+
+        const reordered = store.apply(
+            TextDocument.create(shadow.bladeUri, 'blade', 5, source),
+            extraction,
+            PhpBridgeShadowDocument.build('/workspace', shadow.bladeUri, extraction, {
+                activeRegionId: 'blade-region:2',
+            }),
+            'blade-region:2',
+        );
+        expect(reordered.phpChanged).toBe(true);
+        expect(reordered.state.activeRegionId).toBe('blade-region:2');
+        expect(reordered.state.backendSyncedVersion).toBeNull();
 
         expect(store.get('file:///workspace/other.blade.php')).toBeNull();
 
