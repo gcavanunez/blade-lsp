@@ -11,7 +11,6 @@ export namespace PhpBridgeStore {
         activeRegionId: string | null;
         shadow: PhpBridgeShadowDocument.ShadowDocument;
         backendSyncedVersion: number | null;
-        backendAckVersion: number | null;
     }
 
     export interface ApplyResult {
@@ -58,12 +57,7 @@ export namespace PhpBridgeStore {
                     extraction,
                     activeRegionId,
                     shadow,
-                    backendSyncedVersion:
-                        !previous || phpChanged
-                            ? (previous?.backendSyncedVersion ?? null)
-                            : previous.backendSyncedVersion,
-                    backendAckVersion:
-                        !previous || phpChanged ? (previous?.backendAckVersion ?? null) : previous.backendAckVersion,
+                    backendSyncedVersion: !previous || phpChanged ? null : previous.backendSyncedVersion,
                 };
 
                 entries.set(document.uri, nextState);
@@ -80,7 +74,6 @@ export namespace PhpBridgeStore {
                 entries.set(bladeUri, {
                     ...current,
                     backendSyncedVersion: shadowVersion,
-                    backendAckVersion: shadowVersion,
                 });
             },
 

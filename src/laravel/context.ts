@@ -14,21 +14,44 @@ import { Project } from './project';
 import { ViewItem, ComponentItem, CustomDirective } from './types';
 
 export namespace LaravelContext {
+    export type LoadState =
+        | { status: 'idle' }
+        | { status: 'loading' }
+        | { status: 'ready'; loadedAt: number }
+        | { status: 'failed'; error: string };
+
+    interface DatasetState<T> {
+        items: T[];
+        loadState: LoadState;
+    }
+
     export interface State {
         project: Project.AnyProject;
-        views: {
-            items: ViewItem[];
-            lastUpdated: number;
-        };
-        components: {
-            items: ComponentItem[];
+        views: DatasetState<ViewItem>;
+        components: DatasetState<ComponentItem> & {
             prefixes: string[];
-            lastUpdated: number;
         };
-        directives: {
-            items: CustomDirective[];
-            lastUpdated: number;
-        };
+        directives: DatasetState<CustomDirective>;
+    }
+
+    export function createIdleLoadState(): LoadState {
+        return { status: 'idle' };
+    }
+
+    export function createLoadingLoadState(): LoadState {
+        return { status: 'loading' };
+    }
+
+    export function createReadyLoadState(loadedAt: number = Date.now()): LoadState {
+        return { status: 'ready', loadedAt };
+    }
+
+    export function createFailedLoadState(error: string): LoadState {
+        return { status: 'failed', error };
+    }
+
+    export function isReady(loadState: LoadState): boolean {
+        return loadState.status === 'ready';
     }
 
     /**
@@ -76,16 +99,16 @@ export namespace LaravelContext {
             project,
             views: {
                 items: [],
-                lastUpdated: 0,
+                loadState: createIdleLoadState(),
             },
             components: {
                 items: [],
                 prefixes: [],
-                lastUpdated: 0,
+                loadState: createIdleLoadState(),
             },
             directives: {
                 items: [],
-                lastUpdated: 0,
+                loadState: createIdleLoadState(),
             },
         };
     }

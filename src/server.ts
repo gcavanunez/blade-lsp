@@ -99,7 +99,7 @@ export namespace Server {
      * Collect custom directive completions from Laravel, excluding built-in directives.
      */
     function getCustomDirectiveCompletions(prefix: string): CompletionItem[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.hasLoadedDirectives()) return [];
 
         const isSearch = prefix.length > 1; // '@fo' vs just '@'
         const directives = isSearch ? Directives.search(prefix.replace('@', '')) : Directives.getItems();
@@ -404,6 +404,7 @@ export namespace Server {
             }
 
             await Promise.allSettled(promises);
+            Laravel.syncRefreshResultFromState();
             progress.done('Reload complete');
             conn.console.log('File watcher: refresh complete');
 
@@ -429,6 +430,12 @@ export namespace Server {
             sourceCache.delete(event.document.uri);
             diagnosticStore.delete(event.document.uri);
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+
+            if (phpBridgeState) {
+                void PhpBridge.closeDocument(phpBridgeState, event.document.uri).catch((error) => {
+                    conn.console.error(`Embedded PHP bridge close failed: ${FormatErrorForLog(error)}`);
+                });
+            }
         });
 
         conn.onCompletion(async (params: CompletionParams): Promise<CompletionItem[]> => {
@@ -559,7 +566,7 @@ export namespace Server {
             }
 
             const directiveNameFromLine = Hovers.getDirectiveNameAtColumn(lineText, position.character);
-            if (directiveNameFromLine && Laravel.isAvailable()) {
+            if (directiveNameFromLine && Laravel.hasLoadedDirectives()) {
                 const customDirective = Directives.getItems().find((item) => `@${item.name}` === directiveNameFromLine);
                 if (customDirective) {
                     return {

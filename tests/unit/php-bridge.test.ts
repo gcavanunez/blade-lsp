@@ -155,6 +155,7 @@ $foo = bar();
         );
         expect(reordered.phpChanged).toBe(true);
         expect(reordered.state.activeRegionId).toBe('blade-region:2');
+        expect(reordered.state.backendSyncedVersion).toBeNull();
 
         expect(store.get('file:///workspace/other.blade.php')).toBeNull();
 

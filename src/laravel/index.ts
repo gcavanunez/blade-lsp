@@ -64,6 +64,49 @@ export namespace Laravel {
         errors: string[];
     }
 
+    function setLastRefreshResult(result: RefreshResult): RefreshResult {
+        if (Container.isReady()) {
+            MutableRef.set(Container.get().laravelRefreshResult, result);
+        }
+
+        return result;
+    }
+
+    function summarizeLoadState(loadState: LaravelContext.LoadState): { status: 'ok' | 'failed'; errors: string[] } {
+        switch (loadState.status) {
+            case 'failed':
+                return {
+                    status: 'failed',
+                    errors: [loadState.error],
+                };
+            case 'idle':
+            case 'loading':
+            case 'ready':
+                return {
+                    status: 'ok',
+                    errors: [],
+                };
+        }
+    }
+
+    export function syncRefreshResultFromState(): RefreshResult | null {
+        const state = LaravelContext.get();
+        if (!state) {
+            return null;
+        }
+
+        const views = summarizeLoadState(state.views.loadState);
+        const components = summarizeLoadState(state.components.loadState);
+        const directives = summarizeLoadState(state.directives.loadState);
+
+        return setLastRefreshResult({
+            views: views.status,
+            components: components.status,
+            directives: directives.status,
+            errors: [...views.errors, ...components.errors, ...directives.errors],
+        });
+    }
+
     /**
      * Initialize the Laravel integration for a workspace.
      * Returns true if initialization succeeded, false otherwise.
@@ -92,17 +135,17 @@ export namespace Laravel {
 
     export function hasLoadedViews(): boolean {
         const state = LaravelContext.get();
-        return !!state && state.views.lastUpdated > 0;
+        return !!state && LaravelContext.isReady(state.views.loadState);
     }
 
     export function hasLoadedComponents(): boolean {
         const state = LaravelContext.get();
-        return !!state && state.components.lastUpdated > 0;
+        return !!state && LaravelContext.isReady(state.components.loadState);
     }
 
     export function hasLoadedDirectives(): boolean {
         const state = LaravelContext.get();
-        return !!state && state.directives.lastUpdated > 0;
+        return !!state && LaravelContext.isReady(state.directives.loadState);
     }
 
     /**
@@ -177,13 +220,15 @@ export namespace Laravel {
             result.errors.push(FormatErrorForLog(directiveResult.reason));
         }
 
+        const storedResult = setLastRefreshResult(result);
+
         log.info('Refresh complete', {
             views: result.views,
             components: result.components,
             directives: result.directives,
         });
 
-        return result;
+        return storedResult;
     }
 
     /**
@@ -248,7 +293,7 @@ export namespace Laravel {
                 errors: [String(err)],
             } as RefreshResult;
         });
-        MutableRef.set(Container.get().laravelRefreshResult, result);
+        setLastRefreshResult(result);
 
         return true;
     }

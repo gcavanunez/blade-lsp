@@ -27,7 +27,7 @@ export namespace Definitions {
     }
 
     export function resolveViewLocation(viewName: string): Location | null {
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedViews()) {
             return null;
         }
 
@@ -98,11 +98,11 @@ export namespace Definitions {
     }
 
     export function resolveComponentLocation(componentTag: string): Location | null {
-        if (!Laravel.isAvailable()) {
-            return null;
-        }
-
         if (componentTag.startsWith('livewire:')) {
+            if (!Laravel.hasLoadedViews()) {
+                return null;
+            }
+
             const componentName = componentTag.replace('livewire:', '');
             const view = Views.findLivewire(componentName);
 
@@ -116,6 +116,10 @@ export namespace Definitions {
                     range: Range.create(0, 0, 0, 0),
                 };
             }
+            return null;
+        }
+
+        if (!Laravel.hasLoadedComponents()) {
             return null;
         }
 
@@ -188,7 +192,7 @@ export namespace Definitions {
             return null;
         }
 
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedComponents()) {
             return null;
         }
 
@@ -271,7 +275,7 @@ export namespace Definitions {
         }
 
         const componentContext = BladeParser.findParentComponentFromTree(tree, lineNumber, column);
-        if (!componentContext || !Laravel.isAvailable()) {
+        if (!componentContext || !Laravel.hasLoadedComponents()) {
             return null;
         }
 

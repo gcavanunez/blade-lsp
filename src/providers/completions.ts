@@ -100,7 +100,7 @@ export namespace Completions {
 
         const replaceRange = Range.create(Position.create(position.line, startCharacter), position);
 
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedComponents()) {
             const staticComponents = ['x-button', 'x-alert', 'x-input', 'x-card'];
             return staticComponents.map((tag) => ({
                 label: tag,
@@ -140,7 +140,7 @@ export namespace Completions {
 
         const replaceRange = Range.create(Position.create(position.line, startCharacter), position);
 
-        if (!Laravel.isAvailable()) {
+        if (!Laravel.hasLoadedViews()) {
             return items;
         }
 
@@ -380,7 +380,7 @@ export namespace Completions {
         const layoutViewName = extendsMatch?.[1];
         if (!layoutViewName) return null;
 
-        const knownLayout = Laravel.isAvailable() ? Views.find(layoutViewName) : undefined;
+        const knownLayout = Laravel.hasLoadedViews() ? Views.find(layoutViewName) : undefined;
         const relativePath = knownLayout?.path ?? toRelativeViewPath(layoutViewName);
         if (!relativePath) return null;
 
@@ -407,7 +407,7 @@ export namespace Completions {
             case 'includeWhen':
             case 'includeUnless':
             case 'includeFirst':
-                if (Laravel.isAvailable()) {
+                if (Laravel.hasLoadedViews()) {
                     const views = Views.getItems();
 
                     for (const view of views) {
@@ -501,7 +501,7 @@ export namespace Completions {
             case 'livewire':
             case 'livewireStyles':
             case 'livewireScripts':
-                if (Laravel.isAvailable()) {
+                if (Laravel.hasLoadedViews()) {
                     const livewireEntries = Views.getLivewireItems();
                     for (const { view, componentName } of livewireEntries) {
                         items.push({
@@ -650,7 +650,7 @@ export namespace Completions {
     }
 
     export function getComponentPropCompletions(componentName: string, existingProps: string[]): CompletionItem[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.hasLoadedComponents()) return [];
 
         const component = Components.resolve(componentName);
         if (!component) return [];
@@ -713,7 +713,7 @@ export namespace Completions {
         syntax: 'colon' | 'name' = 'colon',
         tree: BladeParser.Tree,
     ): CompletionItem[] {
-        if (!Laravel.isAvailable()) return [];
+        if (!Laravel.hasLoadedComponents()) return [];
 
         const componentContext = BladeParser.findParentComponentFromTree(tree, currentLine, 0);
         if (!componentContext) return [];

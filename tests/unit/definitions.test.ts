@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Definitions } from '../../src/providers/definitions';
+import { LaravelContext } from '../../src/laravel/context';
 import { installMockLaravel, clearMockLaravel } from '../utils/laravel-mock';
 
 vi.mock('../../src/server', () => ({
@@ -93,6 +94,14 @@ describe('Definitions', () => {
 
         it('returns null when Laravel is not available', () => {
             clearMockLaravel();
+            const result = Definitions.resolveViewLocation('layouts.app');
+            expect(result).toBeNull();
+        });
+
+        it('returns null while Laravel views are not loaded yet', () => {
+            const state = LaravelContext.use();
+            state.views.loadState = LaravelContext.createIdleLoadState();
+
             const result = Definitions.resolveViewLocation('layouts.app');
             expect(result).toBeNull();
         });
