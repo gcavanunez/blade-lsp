@@ -50,7 +50,7 @@ export namespace Watcher {
     /** Jigsaw blade directives file */
     const JIGSAW_BLADE_PHP_GLOB = 'blade.php';
 
-    type RefreshTarget = 'views' | 'components' | 'directives';
+    export type RefreshTarget = 'views' | 'components' | 'directives';
 
     /**
      * Build the list of FileSystemWatchers to register with the client.
@@ -165,27 +165,58 @@ export namespace Watcher {
      * and fires once after `delayMs` of inactivity.
      */
     export function createDebouncedRefresh(
-        callback: (targets: Set<RefreshTarget>) => void,
+        callback: (targets: Set<RefreshTarget>) => void | Promise<void>,
         delayMs: number = 500,
     ): (targets: Set<RefreshTarget>) => void {
         let timer: ReturnType<typeof setTimeout> | null = null;
         let pending = new Set<RefreshTarget>();
+        let running = false;
+
+        const scheduleFlush = () => {
+            if (timer || running) {
+                return;
+            }
+
+            timer = setTimeout(() => {
+                timer = null;
+                void flushPending();
+            }, delayMs);
+        };
+
+        const flushPending = async () => {
+            if (running || pending.size === 0) {
+                return;
+            }
+
+            running = true;
+            const batch = pending;
+            pending = new Set<RefreshTarget>();
+
+            try {
+                await callback(batch);
+            } finally {
+                running = false;
+                if (pending.size > 0) {
+                    scheduleFlush();
+                }
+            }
+        };
 
         return (targets: Set<RefreshTarget>) => {
             for (const t of targets) {
                 pending.add(t);
             }
 
-            if (timer) {
-                clearTimeout(timer);
+            if (running) {
+                return;
             }
 
-            timer = setTimeout(() => {
+            if (timer) {
+                clearTimeout(timer);
                 timer = null;
-                const batch = pending;
-                pending = new Set<RefreshTarget>();
-                callback(batch);
-            }, delayMs);
+            }
+
+            scheduleFlush();
         };
     }
 }

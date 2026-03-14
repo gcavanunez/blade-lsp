@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Hovers } from '../../src/providers/hovers';
 import { BladeDirectives } from '../../src/directives';
+import { LaravelContext } from '../../src/laravel/context';
 import { installMockLaravel, clearMockLaravel, getHoverValue } from '../utils/laravel-mock';
 
 describe('Hovers', () => {
@@ -354,6 +355,17 @@ describe('Hovers', () => {
                 const value = getHoverValue(hover);
                 expect(value).toContain('Vendor package view');
                 expect(value).toContain('**Namespace:** `mail`');
+            });
+
+            it('falls back to generic hover while Laravel views are not loaded yet', () => {
+                const state = LaravelContext.use();
+                state.views.loadState = LaravelContext.createIdleLoadState();
+
+                const hover = Hovers.getViewHoverContent('layouts.app');
+                const value = getHoverValue(hover);
+                expect(value).toContain('layouts.app');
+                expect(value).toContain('Blade view');
+                expect(value).not.toContain('resources/views/layouts/app.blade.php');
             });
         });
 

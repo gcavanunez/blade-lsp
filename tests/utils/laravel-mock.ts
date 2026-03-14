@@ -235,16 +235,16 @@ export function createMockLaravelState(overrides?: MockLaravelOverrides): Larave
                 ...DEFAULT_LIVEWIRE_VIEWS,
                 ...DEFAULT_LIVEWIRE_NAMESPACED_VIEWS,
             ],
-            lastUpdated: Date.now(),
+            loadState: LaravelContext.createReadyLoadState(),
         },
         components: {
             items: overrides?.components ?? DEFAULT_COMPONENTS,
             prefixes: overrides?.prefixes ?? DEFAULT_COMPONENT_PREFIXES,
-            lastUpdated: Date.now(),
+            loadState: LaravelContext.createReadyLoadState(),
         },
         directives: {
             items: overrides?.directives ?? DEFAULT_DIRECTIVES,
-            lastUpdated: Date.now(),
+            loadState: LaravelContext.createReadyLoadState(),
         },
     };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CompletionItemKind, InsertTextFormat, Position, Range } from 'vscode-languageserver/node';
 import { Completions } from '../../src/providers/completions';
 import { BladeDirectives } from '../../src/directives';
+import { LaravelContext } from '../../src/laravel/context';
 import { installMockLaravel, clearMockLaravel, DEFAULT_COMPONENTS } from '../utils/laravel-mock';
 
 vi.mock('../../src/server', () => ({
@@ -177,6 +178,14 @@ describe('Completions', () => {
 
         it('returns empty when Laravel is not available', () => {
             clearMockLaravel();
+            const items = Completions.getLivewireCompletions('<livewire:', Position.create(0, 10));
+            expect(items).toEqual([]);
+        });
+
+        it('returns empty while Laravel views are not loaded yet', () => {
+            const state = LaravelContext.use();
+            state.views.loadState = LaravelContext.createIdleLoadState();
+
             const items = Completions.getLivewireCompletions('<livewire:', Position.create(0, 10));
             expect(items).toEqual([]);
         });
@@ -426,6 +435,22 @@ describe('Completions', () => {
                 expect(labels).toContain('x-input');
                 expect(labels).toContain('x-card');
                 expect(items.length).toBe(4);
+            });
+
+            it('returns static fallback component suggestions while Laravel components are not loaded yet', () => {
+                installMockLaravel();
+                const state = LaravelContext.use();
+                state.components.loadState = LaravelContext.createIdleLoadState();
+
+                const items = Completions.getComponentCompletions('<x-', Position.create(0, 3));
+                const labels = items.map((i) => i.label);
+
+                expect(labels).toContain('x-button');
+                expect(labels).toContain('x-alert');
+                expect(labels).toContain('x-input');
+                expect(labels).toContain('x-card');
+
+                clearMockLaravel();
             });
         });
 

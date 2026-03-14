@@ -101,6 +101,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            close: async () => {},
             reopen: async () => {},
             openOrUpdate: async (document) => {
                 calls.push(document);
@@ -146,6 +147,49 @@ describe('PhpBridge backend skeleton', () => {
         await PhpBridge.shutdown(state);
     });
 
+    it('starts the embedded backend once across concurrent callers', async () => {
+        workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-start-'));
+        let factoryCount = 0;
+        let startCount = 0;
+
+        const fakeBackend: PhpBridgeBackend.Client = {
+            start: async () => {
+                startCount++;
+                await new Promise<void>((resolve) => setTimeout(resolve, 20));
+            },
+            waitForReady: async () => true,
+            onReady: () => {},
+            close: async () => {},
+            reopen: async () => {},
+            openOrUpdate: async () => {},
+            hover: async () => null,
+            definition: async () => null,
+            completion: async () => null,
+            resolveCompletion: async () => null,
+            shutdown: async () => {},
+        };
+
+        PhpBridge.setBackendFactoryForTests(() => {
+            factoryCount++;
+            return fakeBackend;
+        });
+
+        const state = PhpBridge.createState(
+            workspaceRoot,
+            { enableEmbeddedPhpBridge: true },
+            { log: () => {}, error: () => {} },
+        );
+
+        const [first, second] = await Promise.all([PhpBridge.ensureBackend(state), PhpBridge.ensureBackend(state)]);
+
+        expect(first).toBe(fakeBackend);
+        expect(second).toBe(fakeBackend);
+        expect(factoryCount).toBe(1);
+        expect(startCount).toBe(1);
+
+        await PhpBridge.shutdown(state);
+    });
+
     it('reuses cached sync results for the same document version', async () => {
         workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-cache-'));
         let syncCount = 0;
@@ -154,6 +198,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
                 syncCount++;
@@ -186,6 +231,98 @@ describe('PhpBridge backend skeleton', () => {
         await PhpBridge.shutdown(state);
     });
 
+    it('retries backend sync for the same document after a startup failure', async () => {
+        workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-retry-'));
+        let startCount = 0;
+        let syncCount = 0;
+
+        PhpBridge.setBackendFactoryForTests(() => ({
+            start: async () => {
+                startCount++;
+                if (startCount === 1) {
+                    throw new Error('backend boot failed');
+                }
+            },
+            waitForReady: async () => true,
+            onReady: () => {},
+            close: async () => {},
+            reopen: async () => {},
+            openOrUpdate: async () => {
+                syncCount++;
+            },
+            hover: async () => null,
+            definition: async () => null,
+            completion: async () => null,
+            resolveCompletion: async () => null,
+            shutdown: async () => {},
+        }));
+
+        const state = PhpBridge.createState(
+            workspaceRoot,
+            { enableEmbeddedPhpBridge: true },
+            { log: () => {}, error: () => {} },
+        );
+        const document = TextDocument.create(
+            `file://${workspaceRoot}/resources/views/retry.blade.php`,
+            'blade',
+            1,
+            '<?php $foo = 1; ?>',
+        );
+
+        const first = await PhpBridge.syncDocument(state, document);
+        expect(first.backendSyncedVersion).toBeNull();
+
+        const second = await PhpBridge.syncDocument(state, document);
+        expect(second.backendSyncedVersion).not.toBeNull();
+        expect(startCount).toBe(2);
+        expect(syncCount).toBe(1);
+
+        await PhpBridge.shutdown(state);
+    });
+
+    it('closes shadow documents and clears bridge state when a blade document closes', async () => {
+        workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-close-'));
+        const closedUris: string[] = [];
+
+        PhpBridge.setBackendFactoryForTests(() => ({
+            start: async () => {},
+            waitForReady: async () => true,
+            onReady: () => {},
+            close: async (uri) => {
+                closedUris.push(uri);
+            },
+            reopen: async () => {},
+            openOrUpdate: async () => {},
+            hover: async () => null,
+            definition: async () => null,
+            completion: async () => null,
+            resolveCompletion: async () => null,
+            shutdown: async () => {},
+        }));
+
+        const state = PhpBridge.createState(
+            workspaceRoot,
+            { enableEmbeddedPhpBridge: true },
+            { log: () => {}, error: () => {} },
+        );
+        const document = TextDocument.create(
+            `file://${workspaceRoot}/resources/views/close-me.blade.php`,
+            'blade',
+            1,
+            '<?php $foo = 1; ?>',
+        );
+
+        const entry = await PhpBridge.syncDocument(state, document);
+        expect(state.store.get(document.uri)).not.toBeNull();
+
+        await PhpBridge.closeDocument(state, document.uri);
+
+        expect(state.store.get(document.uri)).toBeNull();
+        expect(closedUris).toEqual([entry.shadow.shadowUri]);
+
+        await PhpBridge.shutdown(state);
+    });
+
     it('skips backend resync when only non-php regions change', async () => {
         workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-signature-'));
         let syncCount = 0;
@@ -194,6 +331,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
                 syncCount++;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MutableRef } from 'effect';
 import { Laravel } from '../../src/laravel/index';
+import { LaravelContext } from '../../src/laravel/context';
 import { Project } from '../../src/laravel/project';
 import { Views } from '../../src/laravel/views';
 import { Components } from '../../src/laravel/components';
@@ -58,5 +59,23 @@ describe('Laravel lifecycle', () => {
         expect(componentsRefreshSpy).toHaveBeenCalledTimes(1);
         expect(directivesRefreshSpy).toHaveBeenCalledTimes(1);
         expect(MutableRef.get(Container.get().laravelInitPromise)).toBeNull();
+    });
+
+    it('syncs refresh result from current dataset load states', () => {
+        const state = LaravelContext.createState(project);
+        state.views.loadState = LaravelContext.createReadyLoadState();
+        state.components.loadState = LaravelContext.createFailedLoadState('components failed');
+        state.directives.loadState = LaravelContext.createReadyLoadState();
+        LaravelContext.set(state);
+
+        const result = Laravel.syncRefreshResultFromState();
+
+        expect(result).toEqual({
+            views: 'ok',
+            components: 'failed',
+            directives: 'ok',
+            errors: ['components failed'],
+        });
+        expect(Laravel.getLastRefreshResult()).toEqual(result);
     });
 });

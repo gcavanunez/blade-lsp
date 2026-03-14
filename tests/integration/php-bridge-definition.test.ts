@@ -20,6 +20,7 @@ describe('Embedded PHP bridge definition (Integration)', () => {
                 start: async () => {},
                 waitForReady: async () => true,
                 onReady: () => {},
+                close: async () => {},
                 reopen: async () => {},
                 openOrUpdate: async () => {},
                 hover: async () => null,

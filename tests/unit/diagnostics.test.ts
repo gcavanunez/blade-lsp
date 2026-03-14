@@ -436,7 +436,7 @@ describe('Diagnostics', () => {
 
             it('returns empty while Laravel views are not loaded yet', () => {
                 const state = LaravelContext.use();
-                state.views.lastUpdated = 0;
+                state.views.loadState = LaravelContext.createIdleLoadState();
 
                 const source = "@include('nonexistent.view')";
                 const diags = Diagnostics.getUndefinedViewDiagnostics(source);
@@ -555,7 +555,7 @@ describe('Diagnostics', () => {
 
             it('returns empty while Laravel components are not loaded yet', () => {
                 const state = LaravelContext.use();
-                state.components.lastUpdated = 0;
+                state.components.loadState = LaravelContext.createIdleLoadState();
 
                 const source = '<x-nonexistent />';
                 const diags = Diagnostics.getUndefinedComponentDiagnostics(source);

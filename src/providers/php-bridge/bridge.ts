@@ -33,9 +33,15 @@ export namespace PhpBridge {
         settings: Server.Settings;
         logger: Logger;
         store: PhpBridgeStore.Store;
-        backend: PhpBridgeBackend.Client | null;
+        backendLifecycle: BackendLifecycle;
         shadowVersion: number;
     }
+
+    type BackendLifecycle =
+        | { kind: 'idle' }
+        | { kind: 'starting'; promise: Promise<PhpBridgeBackend.Client | null> }
+        | { kind: 'ready'; client: PhpBridgeBackend.Client }
+        | { kind: 'stopping'; promise: Promise<void> };
 
     type BackendFactory = (config: PhpBridgeBackend.BackendConfig) => PhpBridgeBackend.Client;
 
@@ -51,7 +57,7 @@ export namespace PhpBridge {
             settings,
             logger,
             store: PhpBridgeStore.create(),
-            backend: null,
+            backendLifecycle: { kind: 'idle' },
             shadowVersion: 0,
         };
     }
@@ -111,48 +117,66 @@ export namespace PhpBridge {
     }
 
     export async function ensureBackend(state: State): Promise<PhpBridgeBackend.Client | null> {
-        if (state.backend) {
-            return state.backend;
-        }
+        while (true) {
+            const lifecycle = state.backendLifecycle;
 
-        const config = resolveBackendConfig(state.settings, state.workspaceRoot);
-        if (!config) {
-            return null;
-        }
+            switch (lifecycle.kind) {
+                case 'ready':
+                    return lifecycle.client;
+                case 'starting':
+                    return await lifecycle.promise;
+                case 'stopping':
+                    await lifecycle.promise;
+                    continue;
+                case 'idle': {
+                    const config = resolveBackendConfig(state.settings, state.workspaceRoot);
+                    if (!config) {
+                        return null;
+                    }
 
-        const backend = backendFactory({
-            ...config,
-            logger: state.logger,
-        });
-        try {
-            await backend.start();
-            state.backend = backend;
-            state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
+                    const startPromise = (async () => {
+                        const backend = backendFactory({
+                            ...config,
+                            logger: state.logger,
+                        });
 
-            // After the indexer finishes, re-sync all open shadow documents so
-            // the backend re-analyzes them with a complete index.  Without this,
-            // files opened during indexing get stale analysis that never updates.
-            backend.onReady(() => {
-                state.logger.log('[php-bridge] backend indexer ready — re-syncing open documents');
-                for (const entry of state.store.all()) {
-                    state.shadowVersion += 1;
-                    // Use reopen (didClose + didOpen) instead of openOrUpdate
-                    // (didChange).  Some backends (intelephense) don't fully
-                    // re-analyze files on didChange if they were originally
-                    // opened before the workspace index was built.
-                    backend.reopen({
-                        uri: entry.shadow.shadowUri,
-                        version: state.shadowVersion,
-                        text: entry.shadow.content,
-                    });
-                    state.store.markBackendSynced(entry.bladeUri, state.shadowVersion);
+                        try {
+                            await backend.start();
+                            state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
+
+                            // After the indexer finishes, re-sync all open shadow
+                            // documents so the backend re-analyzes them with a
+                            // complete index.
+                            backend.onReady(() => {
+                                state.logger.log('[php-bridge] backend indexer ready — re-syncing open documents');
+                                for (const entry of state.store.all()) {
+                                    state.shadowVersion += 1;
+                                    backend.reopen({
+                                        uri: entry.shadow.shadowUri,
+                                        version: state.shadowVersion,
+                                        text: entry.shadow.content,
+                                    });
+                                    state.store.markBackendSynced(entry.bladeUri, state.shadowVersion);
+                                }
+                            });
+
+                            return backend;
+                        } catch (error) {
+                            state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
+                            return null;
+                        }
+                    })();
+
+                    state.backendLifecycle = { kind: 'starting', promise: startPromise };
+
+                    const backend = await startPromise;
+                    if (state.backendLifecycle.kind === 'starting' && state.backendLifecycle.promise === startPromise) {
+                        state.backendLifecycle = backend ? { kind: 'ready', client: backend } : { kind: 'idle' };
+                    }
+
+                    return backend;
                 }
-            });
-
-            return backend;
-        } catch (error) {
-            state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
-            return null;
+            }
         }
     }
 
@@ -163,18 +187,23 @@ export namespace PhpBridge {
     ): Promise<PhpBridgeStore.BridgeDocumentState> {
         const source = document.getText();
         const current = state.store.get(document.uri);
+        const backendEnabled = isEnabled(state.settings);
         if (current && current.bladeVersion === document.version && current.source === source) {
             if (!activePosition) {
-                return current;
-            }
-
-            const activeRegion = PhpBridgeRegions.getRegionAtPosition(
-                source,
-                current.extraction.regions,
-                activePosition,
-            );
-            if ((activeRegion?.id ?? null) === current.activeRegionId) {
-                return current;
+                if (!backendEnabled || current.backendSyncedVersion !== null) {
+                    return current;
+                }
+            } else {
+                const activeRegion = PhpBridgeRegions.getRegionAtPosition(
+                    source,
+                    current.extraction.regions,
+                    activePosition,
+                );
+                if ((activeRegion?.id ?? null) === current.activeRegionId) {
+                    if (!backendEnabled || current.backendSyncedVersion !== null) {
+                        return current;
+                    }
+                }
             }
         }
 
@@ -189,7 +218,8 @@ export namespace PhpBridge {
         });
         const previous = state.store.get(document.uri);
         const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow, activeRegionId);
-        const shouldResyncBackend = !previous || phpChanged;
+        const shouldResyncBackend =
+            backendEnabled && (!previous || phpChanged || documentState.backendSyncedVersion === null);
 
         state.logger.log(
             `[php-bridge] sync ${document.uri} bladeVersion=${document.version} phpChanged=${String(phpChanged)} regions=${extraction.regions.length} activeRegion=${activeRegionId ?? 'none'}`,
@@ -214,12 +244,63 @@ export namespace PhpBridge {
     }
 
     export async function shutdown(state: State): Promise<void> {
-        if (state.backend) {
-            await state.backend.shutdown();
+        while (true) {
+            const lifecycle = state.backendLifecycle;
+
+            switch (lifecycle.kind) {
+                case 'idle':
+                    state.store.clear();
+                    return;
+                case 'stopping':
+                    await lifecycle.promise;
+                    state.store.clear();
+                    return;
+                case 'starting':
+                case 'ready': {
+                    const stopPromise = (async () => {
+                        try {
+                            const backend = lifecycle.kind === 'starting' ? await lifecycle.promise : lifecycle.client;
+                            if (backend) {
+                                await backend.shutdown();
+                            }
+                        } finally {
+                            state.backendLifecycle = { kind: 'idle' };
+                        }
+                    })();
+
+                    state.backendLifecycle = { kind: 'stopping', promise: stopPromise };
+                    await stopPromise;
+                    state.store.clear();
+                    return;
+                }
+            }
+        }
+    }
+
+    export async function closeDocument(state: State, bladeUri: string): Promise<void> {
+        const entry = state.store.get(bladeUri);
+        if (!entry) {
+            return;
         }
 
-        state.backend = null;
-        state.store.clear();
+        state.store.clear(bladeUri);
+
+        const shadowUri = entry.shadow.shadowUri;
+        switch (state.backendLifecycle.kind) {
+            case 'idle':
+            case 'stopping':
+                return;
+            case 'ready':
+                await state.backendLifecycle.client.close(shadowUri);
+                return;
+            case 'starting': {
+                const backend = await state.backendLifecycle.promise;
+                if (backend) {
+                    await backend.close(shadowUri);
+                }
+                return;
+            }
+        }
     }
 
     export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
