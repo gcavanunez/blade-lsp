@@ -202,7 +202,7 @@ export namespace Diagnostics {
     const BLOCK_DIRECTIVE_PAIRS: Map<string, string> = iife(() => {
         const pairs = new Map<string, string>();
         for (const d of BladeDirectives.all) {
-            if (d.hasEndTag && d.endTag) {
+            if (d.hasEndTag) {
                 // '@if' -> '@endif'
                 pairs.set(d.name, d.endTag);
             }

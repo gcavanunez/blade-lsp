@@ -3,14 +3,24 @@
  */
 
 export namespace BladeDirectives {
-    export interface Directive {
+    interface BaseDirective {
         name: string;
         description: string;
         snippet?: string;
-        hasEndTag?: boolean;
-        endTag?: string;
         parameters?: string;
     }
+
+    export interface BlockDirective extends BaseDirective {
+        hasEndTag: true;
+        endTag: string;
+    }
+
+    export interface InlineDirective extends BaseDirective {
+        hasEndTag?: false;
+        endTag?: never;
+    }
+
+    export type Directive = BlockDirective | InlineDirective;
 
     export const all: Directive[] = [
         // Conditionals
