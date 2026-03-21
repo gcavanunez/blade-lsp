@@ -8,13 +8,24 @@
 
 export type FrameworkType = 'laravel' | 'jigsaw';
 
-export interface ViewItem {
+export type JigsawViewType = 'page' | 'component' | 'layout' | 'partial';
+
+interface BaseViewItem {
     key: string; // 'layouts.app' or 'mail::message'
     path: string; // Relative path from project root
     isVendor: boolean; // From vendor package
-    type?: string; // Jigsaw: 'page' | 'component' | 'layout' | 'partial'
-    livewire?: LivewireInfo; // Livewire component info if applicable
+    type?: JigsawViewType;
 }
+
+export interface StandardViewItem extends BaseViewItem {
+    livewire?: undefined;
+}
+
+export interface LivewireViewItem extends BaseViewItem {
+    livewire: LivewireInfo;
+}
+
+export type ViewItem = StandardViewItem | LivewireViewItem;
 
 /**
  * Raw output from blade-components.php.
@@ -69,9 +80,19 @@ export interface LivewireInfo {
     files: string[];
 }
 
-export interface LivewireProp {
+interface BaseLivewireProp {
     name: string;
     type: string;
-    hasDefaultValue: boolean;
+}
+
+export interface DefaultedLivewireProp extends BaseLivewireProp {
+    hasDefaultValue: true;
     defaultValue: unknown;
 }
+
+export interface RequiredLivewireProp extends BaseLivewireProp {
+    hasDefaultValue: false;
+    defaultValue?: never;
+}
+
+export type LivewireProp = DefaultedLivewireProp | RequiredLivewireProp;
