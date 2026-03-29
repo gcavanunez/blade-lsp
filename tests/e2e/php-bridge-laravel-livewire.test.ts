@@ -7,7 +7,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Lexer } from '../../src/parser/lexer';
 import { PhpBridgeBackend } from '../../src/providers/php-bridge/backend';
-import { PhpBridge } from '../../src/providers/php-bridge/bridge';
 import { PhpBridgeRegions } from '../../src/providers/php-bridge/regions';
 import { PhpBridgeShadowDocument } from '../../src/providers/php-bridge/shadow-document';
 import { PhpBridgeMapping } from '../../src/providers/php-bridge/mapping';
@@ -120,7 +119,7 @@ new class extends Component {
 new class {
     public function mount(): void
     {
-        \App\Mode
+        \\App\\Mode
     }
 };
 `;

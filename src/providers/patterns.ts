@@ -67,11 +67,11 @@ interface DirectiveParameterMatcher {
 const DIRECTIVE_PARAMETER_MATCHERS: DirectiveParameterMatcher[] = [
     ...FIRST_ARGUMENT_PARAMETER_DIRECTIVES.map((name) => ({
         name,
-        pattern: new RegExp(`@${name}\\s*\\(\\s*['\"]?[\\w.-]*$`),
+        pattern: new RegExp(`@${name}\\s*\\(\\s*['"]?[\\w.-]*$`),
     })),
     ...SECOND_ARGUMENT_PARAMETER_DIRECTIVES.map((name) => ({
         name,
-        pattern: new RegExp(`@${name}\\s*\\([^,]+,\\s*['\"]?[\\w.-]*$`),
+        pattern: new RegExp(`@${name}\\s*\\([^,]+,\\s*['"]?[\\w.-]*$`),
     })),
 ];
 
