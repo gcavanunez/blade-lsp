@@ -1,0 +1,115 @@
+name: E2E Tests
+
+on:
+    workflow_dispatch:
+    schedule:
+        # Weekly on Monday at 6 AM UTC
+        - cron: '0 6 * * 1'
+
+jobs:
+    blade-components:
+        name: Blade Components
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.3'
+
+            - run: npm ci
+            - run: npm run build
+
+            - name: Install Laravel installer
+              run: |
+                  composer global require laravel/installer
+                  echo "$(composer global config bin-dir --absolute)" >> $GITHUB_PATH
+
+            - name: Run Blade Component E2E tests
+              run: npx vitest run tests/e2e/blade-component-completions.test.ts
+              env:
+                  BLADE_COMPONENT_RUN_E2E: 'true'
+
+    jigsaw:
+        name: Jigsaw
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.3'
+
+            - run: npm ci
+            - run: npm run build
+
+            - name: Run Jigsaw E2E tests
+              run: npx vitest run tests/e2e/jigsaw-completions.test.ts
+              env:
+                  JIGSAW_RUN_E2E: 'true'
+
+    php-bridge:
+        name: PHP Bridge (${{ matrix.backend }})
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                backend: [phpactor, intelephense]
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+
+            - uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.3'
+
+            - run: npm ci
+            - run: npm run build
+
+            - name: Install Laravel installer
+              run: |
+                  composer global require laravel/installer
+                  echo "$(composer global config bin-dir --absolute)" >> $GITHUB_PATH
+
+            # phpactor and laravel/installer have conflicting symfony/console
+            # requirements, so phpactor is installed via composer create-project
+            # into its own directory instead of composer global require.
+            - name: Install phpactor
+              if: matrix.backend == 'phpactor'
+              run: |
+                  composer create-project phpactor/phpactor "${{ runner.temp }}/phpactor" --stability=dev --no-interaction
+                  echo "EMBEDDED_PHP_LSP_COMMAND_JSON=[\"${{ runner.temp }}/phpactor/bin/phpactor\",\"language-server\"]" >> "$GITHUB_ENV"
+
+            - name: Install intelephense
+              if: matrix.backend == 'intelephense'
+              run: |
+                  npm install -g intelephense
+                  echo 'EMBEDDED_PHP_LSP_COMMAND_JSON=["intelephense","--stdio"]' >> "$GITHUB_ENV"
+
+            - name: Run PHP Bridge Backend E2E tests
+              run: npx vitest run tests/e2e/php-bridge-backend.test.ts
+              env:
+                  EMBEDDED_PHP_LSP_BACKEND: ${{ matrix.backend }}
+
+            - name: Run PHP Bridge Laravel Livewire E2E tests
+              run: npx vitest run tests/e2e/php-bridge-laravel-livewire.test.ts
+              env:
+                  EMBEDDED_PHP_LSP_BACKEND: ${{ matrix.backend }}
+                  EMBEDDED_PHP_BRIDGE_RUN_LARAVEL_E2E: 'true'
