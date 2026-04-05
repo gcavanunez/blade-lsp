@@ -5,16 +5,13 @@ import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
-import type { ComponentProp, CustomDirective } from '../laravel/types';
+import type { ComponentItem, ComponentProp, CustomDirective } from '../laravel/types';
 
 export namespace Hovers {
     /**
      * Look up a specific prop by name from either a raw @props string or a structured array.
      */
-    function findPropInfo(
-        props: import('../laravel/types').ComponentItem['props'],
-        propName: string,
-    ): ComponentProp | null {
+    function findPropInfo(props: ComponentItem['props'], propName: string): ComponentProp | null {
         if (!props) return null;
 
         if (typeof props === 'string') {
@@ -32,7 +29,7 @@ export namespace Hovers {
      * Format a component's props into a markdown section.
      * Handles both string (@props raw) and array (structured) formats.
      */
-    function formatComponentPropsSection(props: import('../laravel/types').ComponentItem['props']): string {
+    function formatComponentPropsSection(props: ComponentItem['props']): string {
         if (!props) return '';
 
         if (typeof props === 'string') {

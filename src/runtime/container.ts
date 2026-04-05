@@ -9,6 +9,8 @@
  */
 
 import { Layer, ManagedRuntime, MutableRef } from 'effect';
+import z from 'zod';
+import { NamedError } from '../utils/error';
 import { createConnection, TextDocuments, ProposedFeatures } from 'vscode-languageserver/node';
 import type { Connection } from 'vscode-languageserver/node';
 import type { TextDocuments as TextDocumentsType } from 'vscode-languageserver/node';
@@ -39,6 +41,11 @@ import {
 import type { ParserApi, ProgressApi } from './services';
 
 export namespace Container {
+    export const NotInitializedError = NamedError.create(
+        'ContainerNotInitializedError',
+        z.object({ message: z.string() }),
+    );
+
     export interface Services {
         readonly connection: Connection;
         readonly documents: TextDocumentsType<TextDocument>;
@@ -67,7 +74,9 @@ export namespace Container {
      */
     export function get(): Services {
         if (!container) {
-            throw new Error('Service container not initialized. Call Container.init() first.');
+            throw new NotInitializedError({
+                message: 'Service container not initialized. Call Container.init() first.',
+            });
         }
         return container;
     }

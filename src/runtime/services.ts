@@ -23,8 +23,6 @@ import type { Laravel } from '../laravel/index';
 import type { Server } from '../server';
 import type { Log } from '../utils/log';
 
-export { MutableRef } from 'effect';
-
 /**
  * The LSP connection singleton.
  */

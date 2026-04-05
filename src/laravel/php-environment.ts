@@ -11,9 +11,9 @@
  * file paths because the container filesystem differs from the host.
  */
 
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Log } from '../utils/log';
 
 export namespace PhpEnvironment {

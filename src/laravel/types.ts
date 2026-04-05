@@ -11,18 +11,18 @@ export type FrameworkType = 'laravel' | 'jigsaw';
 export type JigsawViewType = 'page' | 'component' | 'layout' | 'partial';
 
 interface BaseViewItem {
-    key: string; // 'layouts.app' or 'mail::message'
-    path: string; // Relative path from project root
-    isVendor: boolean; // From vendor package
-    type?: JigsawViewType;
+    readonly key: string; // 'layouts.app' or 'mail::message'
+    readonly path: string; // Relative path from project root
+    readonly isVendor: boolean; // From vendor package
+    readonly type?: JigsawViewType;
 }
 
 export interface StandardViewItem extends BaseViewItem {
-    livewire?: undefined;
+    readonly livewire?: undefined;
 }
 
 export interface LivewireViewItem extends BaseViewItem {
-    livewire: LivewireInfo;
+    readonly livewire: LivewireInfo;
 }
 
 export type ViewItem = StandardViewItem | LivewireViewItem;
@@ -32,20 +32,20 @@ export type ViewItem = StandardViewItem | LivewireViewItem;
  * Components are keyed by their component key string.
  */
 export interface ComponentsRawResult {
-    components: Record<string, RawComponentData>;
-    prefixes: string[];
+    readonly components: Record<string, RawComponentData>;
+    readonly prefixes: readonly string[];
 }
 
 export interface RawComponentData {
-    isVendor: boolean;
-    paths: string[];
-    props: ComponentProp[] | string; // Array of props or @props() string
+    readonly isVendor: boolean;
+    readonly paths: readonly string[];
+    readonly props: readonly ComponentProp[] | string; // Array of props or @props() string
 }
 
 export interface ComponentProp {
-    name: string;
-    type: string;
-    default: unknown;
+    readonly name: string;
+    readonly type: string;
+    readonly default: unknown;
 }
 
 /**
@@ -53,46 +53,46 @@ export interface ComponentProp {
  * Derived from RawComponentData with key added.
  */
 export interface ComponentItem {
-    key: string; // 'button', 'alert', 'flux::button'
-    path: string; // First path from paths array
-    paths: string[]; // All paths
-    isVendor: boolean;
-    props: ComponentProp[] | string;
+    readonly key: string; // 'button', 'alert', 'flux::button'
+    readonly path: string; // First path from paths array
+    readonly paths: readonly string[]; // All paths
+    readonly isVendor: boolean;
+    readonly props: readonly ComponentProp[] | string;
 }
 
 export interface ComponentsResult {
-    components: ComponentItem[];
-    prefixes: string[];
+    readonly components: readonly ComponentItem[];
+    readonly prefixes: readonly string[];
 }
 
 export interface CustomDirective {
-    name: string; // 'datetime', 'money'
-    hasParams: boolean; // Whether it accepts parameters
+    readonly name: string; // 'datetime', 'money'
+    readonly hasParams: boolean; // Whether it accepts parameters
 }
 
 export interface SectionInfo {
-    yields: string[]; // @yield names in layout
-    stacks: string[]; // @stack names in layout
+    readonly yields: readonly string[]; // @yield names in layout
+    readonly stacks: readonly string[]; // @stack names in layout
 }
 
 export interface LivewireInfo {
-    props: LivewireProp[];
-    files: string[];
+    readonly props: readonly LivewireProp[];
+    readonly files: readonly string[];
 }
 
 interface BaseLivewireProp {
-    name: string;
-    type: string;
+    readonly name: string;
+    readonly type: string;
 }
 
 export interface DefaultedLivewireProp extends BaseLivewireProp {
-    hasDefaultValue: true;
-    defaultValue: unknown;
+    readonly hasDefaultValue: true;
+    readonly defaultValue: unknown;
 }
 
 export interface RequiredLivewireProp extends BaseLivewireProp {
-    hasDefaultValue: false;
-    defaultValue?: never;
+    readonly hasDefaultValue: false;
+    readonly defaultValue?: never;
 }
 
 export type LivewireProp = DefaultedLivewireProp | RequiredLivewireProp;

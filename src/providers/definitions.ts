@@ -6,6 +6,7 @@ import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import { PhpPreambleSymbols } from './php-preamble-symbols';
+import { isLivewireActionAttribute } from './patterns';
 import { Hovers } from './hovers';
 
 export namespace Definitions {
@@ -81,16 +82,7 @@ export namespace Definitions {
             return property ? toSameFileLocation(uri, property.line, property.column, property.length) : null;
         }
 
-        const isWireAction = [
-            'wire:submit',
-            'wire:click',
-            'wire:change',
-            'wire:input',
-            'wire:keydown',
-            'wire:keyup',
-            'wire:blur',
-            'wire:init',
-        ].some((prefix) => context.name === prefix || context.name.startsWith(`${prefix}.`));
+        const isWireAction = isLivewireActionAttribute(context.name);
         if (!isWireAction) return null;
 
         const method = PhpPreambleSymbols.findLivewireMethod(source, context.value);
