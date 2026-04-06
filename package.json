@@ -18,6 +18,7 @@
         "typecheck": "tsc --noEmit",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
+        "bench": "vitest bench",
         "test": "vitest run",
         "test:e2e:php-bridge": "vitest run tests/e2e/*.test.ts",
         "test:e2e:jigsaw": "vitest run tests/e2e/jigsaw-completions.test.ts",
