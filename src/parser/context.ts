@@ -1,6 +1,7 @@
 import { ParserTypes } from './types';
 import { ParserQueryBank } from './query-bank';
 import { isPositionWithinNode, isStrictlyNarrowerRange } from './utils';
+import { LineIndex } from '../utils/line-index';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
@@ -156,8 +157,7 @@ export namespace ParserContext {
         queryCaptures?: QueryCaptures,
     ): CompletionContext {
         const node = findNodeAtPosition(tree, row, column);
-        const lines = source.split('\n');
-        const currentLine = lines[row] || '';
+        const currentLine = new LineIndex(source).getLineText(row);
         const textBeforeCursor = currentLine.slice(0, column);
 
         const directiveMatch = textBeforeCursor.match(/@(\w*)$/);

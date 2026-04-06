@@ -1,3 +1,5 @@
+import { LineIndex } from '../utils/line-index';
+
 export namespace Lexer {
     export interface DirectiveToken {
         kind: 'directive';
@@ -15,7 +17,7 @@ export namespace Lexer {
     }
 
     export interface LexedSource {
-        lines: string[];
+        lineIndex: LineIndex;
         directiveTokens: DirectiveToken[];
         phpRanges: OffsetRange[];
     }
@@ -331,7 +333,7 @@ export namespace Lexer {
         const { directiveTokens, phpRanges } = scan(source);
 
         return {
-            lines: source.split('\n'),
+            lineIndex: new LineIndex(source),
             directiveTokens,
             phpRanges,
         };

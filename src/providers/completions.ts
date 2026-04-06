@@ -17,6 +17,7 @@ import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import type { ViewItem, ComponentItem, CustomDirective } from '../laravel/types';
 import { PhpPreambleSymbols } from './php-preamble-symbols';
+import { LineIndex } from '../utils/line-index';
 
 export namespace Completions {
     const COMPLETION_RESOLVE_KINDS = ['view', 'component', 'livewire'] as const;
@@ -562,7 +563,7 @@ export namespace Completions {
     }
 
     function createBladePreview(content: string): string | null {
-        const lines = content.split('\n');
+        const lines = new LineIndex(content).lines;
         let firstNonEmpty = 0;
         while (firstNonEmpty < lines.length && lines[firstNonEmpty].trim() === '') {
             firstNonEmpty++;

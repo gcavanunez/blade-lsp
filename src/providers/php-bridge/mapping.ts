@@ -1,4 +1,5 @@
 import { Position, Range } from 'vscode-languageserver/node';
+import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeShadowDocument } from './shadow-document';
 
 export namespace PhpBridgeMapping {
@@ -12,32 +13,41 @@ export namespace PhpBridgeMapping {
         | { kind: 'mapped'; range: Range; regionId: string }
         | { kind: 'synthetic' | 'unmappable' };
 
+    /**
+     * Convert a byte offset to a Position.
+     *
+     * When a `LineIndex` is available, prefer calling `lineIndex.offsetToPosition()`
+     * directly. This overload exists for call sites that only have a raw string
+     * (e.g., `regions.ts` during extraction).
+     */
     export function offsetToPosition(source: string, offset: number): Position {
         const safeOffset = Math.max(0, Math.min(offset, source.length));
-        const before = source.slice(0, safeOffset);
-        const parts = before.split('\n');
-
-        return Position.create(parts.length - 1, parts[parts.length - 1]?.length ?? 0);
+        // Fast path: build a temporary LineIndex. For hot paths, callers should
+        // pre-build and reuse a LineIndex instead of calling this function.
+        const idx = new LineIndex(source);
+        return idx.offsetToPosition(safeOffset);
     }
 
+    /**
+     * Convert a Position to a byte offset.
+     *
+     * When a `LineIndex` is available, prefer calling `lineIndex.positionToOffset()`
+     * directly. This overload exists for call sites that only have a raw string.
+     */
     export function positionToOffset(source: string, position: Position): number {
-        const lines = source.split('\n');
-        let offset = 0;
-        const targetLine = Math.max(0, Math.min(position.line, lines.length - 1));
-
-        for (let line = 0; line < targetLine; line++) {
-            offset += lines[line].length + 1;
-        }
-
-        return offset + Math.max(0, Math.min(position.character, lines[targetLine]?.length ?? 0));
+        const idx = new LineIndex(source);
+        return idx.positionToOffset(position);
     }
 
     export function bladePositionToShadowPosition(
         bladeSource: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         position: Position,
+        bladeLineIndex?: LineIndex,
+        shadowLineIndex?: LineIndex,
     ): PositionMappingResult {
-        const bladeOffset = positionToOffset(bladeSource, position);
+        const bladeIdx = bladeLineIndex ?? new LineIndex(bladeSource);
+        const bladeOffset = bladeIdx.positionToOffset(position);
         const region = shadow.regions.find(
             (item) => bladeOffset >= item.bladeContentOffsetStart && bladeOffset <= item.bladeContentOffsetEnd,
         );
@@ -47,10 +57,11 @@ export namespace PhpBridgeMapping {
         }
 
         const shadowOffset = region.shadowContentOffsetStart + (bladeOffset - region.bladeContentOffsetStart);
+        const shadowIdx = shadowLineIndex ?? new LineIndex(shadow.content);
         return {
             kind: 'mapped',
             regionId: region.id,
-            position: offsetToPosition(shadow.content, shadowOffset),
+            position: shadowIdx.offsetToPosition(shadowOffset),
         };
     }
 
@@ -58,18 +69,22 @@ export namespace PhpBridgeMapping {
         bladeSource: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         position: Position,
+        bladeLineIndex?: LineIndex,
+        shadowLineIndex?: LineIndex,
     ): PositionMappingResult {
-        const shadowOffset = positionToOffset(shadow.content, position);
+        const shadowIdx = shadowLineIndex ?? new LineIndex(shadow.content);
+        const shadowOffset = shadowIdx.positionToOffset(position);
         const region = shadow.regions.find(
             (item) => shadowOffset >= item.shadowContentOffsetStart && shadowOffset <= item.shadowContentOffsetEnd,
         );
 
         if (region) {
             const bladeOffset = region.bladeContentOffsetStart + (shadowOffset - region.shadowContentOffsetStart);
+            const bladeIdx = bladeLineIndex ?? new LineIndex(bladeSource);
             return {
                 kind: 'mapped',
                 regionId: region.id,
-                position: offsetToPosition(bladeSource, bladeOffset),
+                position: bladeIdx.offsetToPosition(bladeOffset),
             };
         }
 
@@ -81,9 +96,15 @@ export namespace PhpBridgeMapping {
         bladeSource: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         range: Range,
+        bladeLineIndex?: LineIndex,
+        shadowLineIndex?: LineIndex,
     ): RangeMappingResult {
-        const start = shadowPositionToBladePosition(bladeSource, shadow, range.start);
-        const end = shadowPositionToBladePosition(bladeSource, shadow, range.end);
+        // Build LineIndexes once for the whole range mapping
+        const bladeIdx = bladeLineIndex ?? new LineIndex(bladeSource);
+        const shadowIdx = shadowLineIndex ?? new LineIndex(shadow.content);
+
+        const start = shadowPositionToBladePosition(bladeSource, shadow, range.start, bladeIdx, shadowIdx);
+        const end = shadowPositionToBladePosition(bladeSource, shadow, range.end, bladeIdx, shadowIdx);
 
         if (start.kind !== 'mapped' || end.kind !== 'mapped') {
             return { kind: start.kind === 'synthetic' || end.kind === 'synthetic' ? 'synthetic' : 'unmappable' };
@@ -104,9 +125,14 @@ export namespace PhpBridgeMapping {
         bladeSource: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         range: Range,
+        bladeLineIndex?: LineIndex,
+        shadowLineIndex?: LineIndex,
     ): RangeMappingResult {
-        const start = bladePositionToShadowPosition(bladeSource, shadow, range.start);
-        const end = bladePositionToShadowPosition(bladeSource, shadow, range.end);
+        const bladeIdx = bladeLineIndex ?? new LineIndex(bladeSource);
+        const shadowIdx = shadowLineIndex ?? new LineIndex(shadow.content);
+
+        const start = bladePositionToShadowPosition(bladeSource, shadow, range.start, bladeIdx, shadowIdx);
+        const end = bladePositionToShadowPosition(bladeSource, shadow, range.end, bladeIdx, shadowIdx);
 
         if (start.kind !== 'mapped' || end.kind !== 'mapped') {
             return { kind: 'unmappable' };

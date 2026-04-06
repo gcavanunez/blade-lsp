@@ -1,5 +1,6 @@
 import { CompletionItem, CompletionItemKind, MarkupKind } from 'vscode-languageserver/node';
 import { Lexer } from '../parser/lexer';
+import { LineIndex } from '../utils/line-index';
 
 export namespace PhpPreambleSymbols {
     export type SymbolSource = 'assignment' | 'folio-param' | 'view-with' | 'livewire-prop';
@@ -24,12 +25,9 @@ export namespace PhpPreambleSymbols {
     }
 
     function getLineAndColumn(source: string, offset: number): { line: number; column: number } {
-        const before = source.slice(0, offset);
-        const lines = before.split('\n');
-        return {
-            line: lines.length - 1,
-            column: lines[lines.length - 1]?.length ?? 0,
-        };
+        const idx = new LineIndex(source);
+        const pos = idx.offsetToPosition(offset);
+        return { line: pos.line, column: pos.character };
     }
 
     function addSymbol(symbols: Map<string, TemplateSymbol>, symbol: TemplateSymbol): void {
@@ -213,7 +211,7 @@ export namespace PhpPreambleSymbols {
         fullSource: string,
         symbols: Map<string, TemplateSymbol>,
     ): void {
-        const lines = text.split('\n');
+        const lines = new LineIndex(text).lines;
         let depth = 0;
         let lineOffset = 0;
 

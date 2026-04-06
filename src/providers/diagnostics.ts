@@ -20,6 +20,7 @@ import { Components } from '../laravel/components';
 import { BladeDirectives } from '../directives';
 import { Lexer } from '../parser/lexer';
 import { Shared } from './shared';
+import { LineIndex } from '../utils/line-index';
 
 export namespace Diagnostics {
     export const Code = {
@@ -116,10 +117,10 @@ export namespace Diagnostics {
 
         const diagnostics: Diagnostic[] = [];
         const maskedSource = Lexer.maskPhpContent(source);
-        const lines = maskedSource.split('\n');
+        const maskedIdx = new LineIndex(maskedSource);
 
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            collectUndefinedViewsOnLine(lineNum, lines[lineNum], diagnostics);
+        for (let lineNum = 0; lineNum < maskedIdx.lineCount; lineNum++) {
+            collectUndefinedViewsOnLine(lineNum, maskedIdx.getLineText(lineNum), diagnostics);
         }
 
         return diagnostics;
@@ -173,10 +174,10 @@ export namespace Diagnostics {
         }
 
         const maskedSource = Lexer.maskPhpContent(source);
-        const lines = maskedSource.split('\n');
+        const maskedIdx = new LineIndex(maskedSource);
 
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-            const line = lines[lineNum];
+        for (let lineNum = 0; lineNum < maskedIdx.lineCount; lineNum++) {
+            const line = maskedIdx.getLineText(lineNum);
             const componentPattern = /<(?!\/)(?:(x-[\w.-]+(?:::[\w.-]+)?)|(livewire:[\w.:-]+)|([\w]+:[\w.-]+))/g;
 
             for (const { match } of collectRegexMatches(line, componentPattern)) {
@@ -347,7 +348,7 @@ export namespace Diagnostics {
             const name = token.name;
             if (!BLOCK_DIRECTIVE_PAIRS.has(name) && !CLOSING_TO_OPENING.has(name)) continue;
 
-            const line = lexedSource.lines[token.line] ?? '';
+            const line = lexedSource.lineIndex.getLineText(token.line);
             const afterDirective = line.slice(token.colEnd);
             if (isInlineDirective(name, afterDirective)) continue;
 
@@ -456,7 +457,7 @@ export namespace Diagnostics {
         for (const token of lexedSource.directiveTokens) {
             if (token.name !== '@method') continue;
 
-            const line = lexedSource.lines[token.line] ?? '';
+            const line = lexedSource.lineIndex.getLineText(token.line);
             const invocation = getMethodInvocationInfo(line, token.colEnd);
             if (!invocation) continue;
 

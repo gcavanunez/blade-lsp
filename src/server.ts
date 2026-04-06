@@ -45,6 +45,7 @@ import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
 import { Shared } from './providers/shared';
+import { LineIndex } from './utils/line-index';
 import {
     getDirectiveParameterName,
     getSlotCompletionSyntax,
@@ -467,7 +468,8 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const position = params.position;
             const source = document.getText();
-            const currentLine = source.split('\n')[position.line] || '';
+            const lineIndex = new LineIndex(source);
+            const currentLine = lineIndex.getLineText(position.line);
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {
                 const bridgeItems = await PhpBridge.getCompletion(phpBridge, document, position, params.context);
@@ -564,7 +566,8 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const position = params.position;
             const source = document.getText();
-            const lineText = source.split('\n')[position.line] || '';
+            const lineIndex = new LineIndex(source);
+            const lineText = lineIndex.getLineText(position.line);
 
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {
@@ -688,8 +691,8 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const source = document.getText();
             const position = params.position;
-            const lines = source.split('\n');
-            const currentLine = lines[position.line] || '';
+            const lineIndex = new LineIndex(source);
+            const currentLine = lineIndex.getLineText(position.line);
 
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {

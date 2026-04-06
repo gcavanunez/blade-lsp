@@ -11,6 +11,7 @@ import {
     createAttributePattern,
     getViewReferencePattern,
 } from './patterns';
+import { LineIndex } from '../utils/line-index';
 
 export namespace Shared {
     export interface CapturedMatch {
@@ -223,15 +224,15 @@ export namespace Shared {
     }
 
     export function getComponentPropContext(source: string, row: number, column: number): ComponentPropContext | null {
-        const lines = source.split('\n');
-        const currentLine = lines[row] || '';
+        const idx = new LineIndex(source);
+        const currentLine = idx.getLineText(row);
         const textBeforeCursor = currentLine.slice(0, column);
 
         let lineIndex = row;
 
         // Multi-line component tags are common; scan a few lines upward for the opener.
         while (lineIndex >= 0 && lineIndex >= row - 10) {
-            const lineText = lineIndex === row ? textBeforeCursor : lines[lineIndex];
+            const lineText = lineIndex === row ? textBeforeCursor : idx.getLineText(lineIndex);
 
             if (lineIndex !== row && hasUnpairedClosingBracket(lineText)) {
                 break;
@@ -293,18 +294,18 @@ export namespace Shared {
         endLine: number,
         endCol: number,
     ): string[] {
-        const lines = source.split('\n');
+        const idx = new LineIndex(source);
         let text = '';
 
         for (let i = startLine; i <= endLine; i++) {
             if (i === startLine && i === endLine) {
-                text += lines[i].slice(startCol, endCol);
+                text += idx.getLineText(i).slice(startCol, endCol);
             } else if (i === startLine) {
-                text += lines[i].slice(startCol) + '\n';
+                text += idx.getLineText(i).slice(startCol) + '\n';
             } else if (i === endLine) {
-                text += lines[i].slice(0, endCol);
+                text += idx.getLineText(i).slice(0, endCol);
             } else {
-                text += lines[i] + '\n';
+                text += idx.getLineText(i) + '\n';
             }
         }
 
@@ -347,14 +348,14 @@ export namespace Shared {
     }
 
     export function findParentComponent(source: string, currentLine: number): string | null {
-        const lines = source.split('\n');
+        const idx = new LineIndex(source);
         let depth = 0;
 
         // Self-closing component tags do not affect nesting depth for parent lookup.
         const selfClosingPattern = /<(x-(?!slot\b)[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)(?:\s[^>]*)?\s*\/>/g;
 
         for (let i = currentLine; i >= 0; i--) {
-            const line = lines[i];
+            const line = idx.getLineText(i);
 
             const stripped = line.replace(selfClosingPattern, '');
 

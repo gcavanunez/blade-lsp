@@ -1,58 +1,106 @@
 /**
- * Baseline benchmarks for line-splitting operations.
+ * Benchmarks comparing split('\n') vs LineIndex for line operations.
  *
- * Measures the cost of `source.split('\n')` at various template sizes.
- * After PR 1 (LineIndex), add comparison benchmarks here to quantify the improvement.
+ * Includes both the old baseline (split) and the new approach (LineIndex)
+ * so the improvement is visible in a single `vitest bench` run.
  */
 
 import { bench, describe } from 'vitest';
+import { LineIndex } from '../../src/utils/line-index';
 import { SMALL_TEMPLATE, MEDIUM_TEMPLATE, LARGE_TEMPLATE } from '../fixtures';
 
-describe("split('\\n') — full array allocation", () => {
-    bench('100 lines', () => {
+// ─── Construction cost ──────────────────────────────────────────────────────
+
+describe('construction cost — split vs LineIndex', () => {
+    bench('split(\\n) — 100 lines', () => {
         SMALL_TEMPLATE.split('\n');
     });
 
-    bench('500 lines', () => {
+    bench('LineIndex  — 100 lines', () => {
+        new LineIndex(SMALL_TEMPLATE);
+    });
+
+    bench('split(\\n) — 500 lines', () => {
         MEDIUM_TEMPLATE.split('\n');
     });
 
-    bench('2000 lines', () => {
+    bench('LineIndex  — 500 lines', () => {
+        new LineIndex(MEDIUM_TEMPLATE);
+    });
+
+    bench('split(\\n) — 2000 lines', () => {
         LARGE_TEMPLATE.split('\n');
+    });
+
+    bench('LineIndex  — 2000 lines', () => {
+        new LineIndex(LARGE_TEMPLATE);
     });
 });
 
-describe("split('\\n') + line access — simulates provider pattern", () => {
+// ─── Single line access ─────────────────────────────────────────────────────
+
+describe('single line access — split[n] vs LineIndex.getLineText(n)', () => {
     const line50 = 50;
     const line250 = 250;
     const line1000 = 1000;
 
-    bench('100 lines — access line 50', () => {
-        const lines = SMALL_TEMPLATE.split('\n');
-        void lines[line50];
+    // Pre-built LineIndexes (simulates caching per document version)
+    const smallIdx = new LineIndex(SMALL_TEMPLATE);
+    const mediumIdx = new LineIndex(MEDIUM_TEMPLATE);
+    const largeIdx = new LineIndex(LARGE_TEMPLATE);
+
+    bench('split + index — 100 lines', () => {
+        void SMALL_TEMPLATE.split('\n')[line50];
     });
 
-    bench('500 lines — access line 250', () => {
-        const lines = MEDIUM_TEMPLATE.split('\n');
-        void lines[line250];
+    bench('LineIndex.getLineText — 100 lines', () => {
+        void smallIdx.getLineText(line50);
     });
 
-    bench('2000 lines — access line 1000', () => {
-        const lines = LARGE_TEMPLATE.split('\n');
-        void lines[line1000];
+    bench('split + index — 500 lines', () => {
+        void MEDIUM_TEMPLATE.split('\n')[line250];
+    });
+
+    bench('LineIndex.getLineText — 500 lines', () => {
+        void mediumIdx.getLineText(line250);
+    });
+
+    bench('split + index — 2000 lines', () => {
+        void LARGE_TEMPLATE.split('\n')[line1000];
+    });
+
+    bench('LineIndex.getLineText — 2000 lines', () => {
+        void largeIdx.getLineText(line1000);
     });
 });
 
-describe("split('\\n') repeated — simulates per-request hot path", () => {
-    bench('500 lines x5 splits (typical handler chain)', () => {
+// ─── Repeated access (handler chain simulation) ─────────────────────────────
+
+describe('5x line access — split each time vs single LineIndex', () => {
+    const mediumIdx = new LineIndex(MEDIUM_TEMPLATE);
+    const largeIdx = new LineIndex(LARGE_TEMPLATE);
+
+    bench('split x5 — 500 lines', () => {
         for (let i = 0; i < 5; i++) {
-            MEDIUM_TEMPLATE.split('\n');
+            void MEDIUM_TEMPLATE.split('\n')[i * 50];
         }
     });
 
-    bench('2000 lines x5 splits (typical handler chain)', () => {
+    bench('LineIndex x5 — 500 lines', () => {
         for (let i = 0; i < 5; i++) {
-            LARGE_TEMPLATE.split('\n');
+            void mediumIdx.getLineText(i * 50);
+        }
+    });
+
+    bench('split x5 — 2000 lines', () => {
+        for (let i = 0; i < 5; i++) {
+            void LARGE_TEMPLATE.split('\n')[i * 200];
+        }
+    });
+
+    bench('LineIndex x5 — 2000 lines', () => {
+        for (let i = 0; i < 5; i++) {
+            void largeIdx.getLineText(i * 200);
         }
     });
 });
