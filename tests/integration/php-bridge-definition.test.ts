@@ -48,6 +48,9 @@ describe('Embedded PHP bridge definition (Integration)', () => {
                 },
                 completion: async () => null,
                 resolveCompletion: async () => null,
+                references: async () => null,
+                prepareRename: async () => null,
+                rename: async () => null,
                 shutdown: async () => {},
             }),
         );

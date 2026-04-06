@@ -111,6 +111,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         };
 
@@ -168,6 +171,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         };
 
@@ -210,6 +216,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 
@@ -258,6 +267,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 
@@ -302,6 +314,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 
@@ -346,6 +361,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 

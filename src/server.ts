@@ -278,6 +278,10 @@ export namespace Server {
                     },
                     hoverProvider: true,
                     definitionProvider: true,
+                    referencesProvider: true,
+                    renameProvider: {
+                        prepareProvider: true,
+                    },
                     documentSymbolProvider: true,
                     documentLinkProvider: {
                         resolveProvider: false,
@@ -753,6 +757,42 @@ export namespace Server {
             const slotDefinition = Definitions.getSlotDefinition(currentLine, position.line, position.character, tree);
             if (slotDefinition) {
                 return slotDefinition;
+            }
+
+            return null;
+        });
+
+        conn.onReferences(async (params) => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return null;
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                return await PhpBridge.getReferences(phpBridge, document, params.position);
+            }
+
+            return null;
+        });
+
+        conn.onPrepareRename(async (params) => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return null;
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                return await PhpBridge.doPrepareRename(phpBridge, document, params.position);
+            }
+
+            return null;
+        });
+
+        conn.onRenameRequest(async (params) => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return null;
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                return await PhpBridge.doRename(phpBridge, document, params.position, params.newName);
             }
 
             return null;

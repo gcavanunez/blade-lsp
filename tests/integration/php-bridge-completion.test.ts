@@ -58,6 +58,9 @@ describe('Embedded PHP bridge completion (Integration)', () => {
                         ],
                     } satisfies CompletionItem;
                 },
+                references: async () => null,
+                prepareRename: async () => null,
+                rename: async () => null,
                 shutdown: async () => {},
             }),
         );

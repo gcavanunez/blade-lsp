@@ -36,6 +36,9 @@ describe('Embedded PHP bridge hover (Integration)', () => {
                 definition: async () => null,
                 completion: async () => null,
                 resolveCompletion: async () => null,
+                references: async () => null,
+                prepareRename: async () => null,
+                rename: async () => null,
                 shutdown: async () => {},
             }),
         );

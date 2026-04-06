@@ -16,6 +16,8 @@ import {
     type Hover,
     type Location,
     type Position,
+    type Range,
+    type WorkspaceEdit,
 } from 'vscode-languageserver/node';
 
 export namespace PhpBridgeBackend {
@@ -79,6 +81,9 @@ export namespace PhpBridgeBackend {
             context?: CompletionContext,
         ): Promise<CompletionItem[] | CompletionList | null>;
         resolveCompletion(item: CompletionItem): Promise<CompletionItem | null>;
+        references(uri: string, position: Position): Promise<Location[] | null>;
+        prepareRename(uri: string, position: Position): Promise<Range | null>;
+        rename(uri: string, position: Position, newName: string): Promise<WorkspaceEdit | null>;
         shutdown(): Promise<void>;
     }
 
@@ -820,6 +825,41 @@ export namespace PhpBridgeBackend {
                     })}`,
                 );
                 return result;
+            },
+
+            async references(uri, position) {
+                const session = await ensureStarted();
+                return (await session.connection.sendRequest('textDocument/references', {
+                    textDocument: { uri },
+                    position,
+                    context: { includeDeclaration: true },
+                })) as Location[] | null;
+            },
+
+            async prepareRename(uri, position) {
+                const session = await ensureStarted();
+                try {
+                    const result = await session.connection.sendRequest('textDocument/prepareRename', {
+                        textDocument: { uri },
+                        position,
+                    });
+                    if (!result) return null;
+                    // Response can be Range | { range: Range; placeholder: string }
+                    if ('start' in (result as object)) return result as Range;
+                    if ('range' in (result as object)) return (result as { range: Range }).range;
+                    return null;
+                } catch {
+                    return null;
+                }
+            },
+
+            async rename(uri, position, newName) {
+                const session = await ensureStarted();
+                return (await session.connection.sendRequest('textDocument/rename', {
+                    textDocument: { uri },
+                    position,
+                    newName,
+                })) as WorkspaceEdit | null;
             },
 
             async shutdown() {

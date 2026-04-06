@@ -4,12 +4,14 @@ import {
     CompletionTriggerKind,
     InsertReplaceEdit,
     Position,
+    Range,
     TextEdit,
     type CompletionItem,
     type CompletionContext,
     type Diagnostic,
     type Hover,
     type Location,
+    type WorkspaceEdit,
 } from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Server } from '../../server';
@@ -468,6 +470,151 @@ export namespace PhpBridge {
             return Array.isArray(result) ? remapped : (remapped[0] ?? null);
         } catch (error) {
             state.logger.error(`Embedded PHP bridge definition failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function getReferences(
+        state: State,
+        document: TextDocument,
+        position: Position,
+    ): Promise<Location[] | null> {
+        try {
+            const entry = await syncDocument(state, document, position);
+            const source = entry.source;
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return null;
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.references) return null;
+
+            const backend = await ensureBackend(state);
+            if (!backend) return null;
+
+            const result = await backend.references(entry.shadow.shadowUri, mapped.position);
+            if (!result || result.length === 0) return null;
+
+            const remapped = result.flatMap((location) => {
+                if (location.uri !== entry.shadow.shadowUri) {
+                    return [location]; // external file — pass through unchanged
+                }
+
+                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                    source,
+                    entry.shadow,
+                    location.range,
+                    entry.bladeLineIndex,
+                );
+                if (mappedRange.kind !== 'mapped') return [];
+
+                return [{ uri: document.uri, range: mappedRange.range } satisfies Location];
+            });
+
+            return remapped.length > 0 ? remapped : null;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge references failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function doPrepareRename(
+        state: State,
+        document: TextDocument,
+        position: Position,
+    ): Promise<Range | null> {
+        try {
+            const entry = await syncDocument(state, document, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                entry.source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return null;
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.rename) return null;
+
+            const backend = await ensureBackend(state);
+            if (!backend) return null;
+
+            const result = await backend.prepareRename(entry.shadow.shadowUri, mapped.position);
+            if (!result) return null;
+
+            const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                entry.source,
+                entry.shadow,
+                result,
+                entry.bladeLineIndex,
+            );
+            if (mappedRange.kind !== 'mapped') return null;
+
+            return mappedRange.range;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge prepareRename failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function doRename(
+        state: State,
+        document: TextDocument,
+        position: Position,
+        newName: string,
+    ): Promise<WorkspaceEdit | null> {
+        try {
+            const entry = await syncDocument(state, document, position);
+            const source = entry.source;
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return null;
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.rename) return null;
+
+            const backend = await ensureBackend(state);
+            if (!backend) return null;
+
+            const result = await backend.rename(entry.shadow.shadowUri, mapped.position, newName);
+            if (!result?.changes) return null;
+
+            // Remap all text edits: shadow URI edits -> blade coordinates,
+            // external file edits pass through unchanged.
+            const remappedChanges: Record<string, TextEdit[]> = {};
+            for (const [uri, edits] of Object.entries(result.changes)) {
+                if (uri !== entry.shadow.shadowUri) {
+                    remappedChanges[uri] = edits;
+                    continue;
+                }
+
+                const bladeEdits = edits.flatMap((edit) => {
+                    const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                        source,
+                        entry.shadow,
+                        edit.range,
+                        entry.bladeLineIndex,
+                    );
+                    if (mappedRange.kind !== 'mapped') return [];
+                    return [{ newText: edit.newText, range: mappedRange.range } satisfies TextEdit];
+                });
+
+                if (bladeEdits.length > 0) {
+                    remappedChanges[document.uri] = [...(remappedChanges[document.uri] ?? []), ...bladeEdits];
+                }
+            }
+
+            return Object.keys(remappedChanges).length > 0 ? { changes: remappedChanges } : null;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge rename failed: ${String(error)}`);
             return null;
         }
     }
