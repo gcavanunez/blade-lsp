@@ -12,6 +12,7 @@ import {
 } from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Server } from '../../server';
+import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeBackend } from './backend';
 import { PhpBridgeMapping } from './mapping';
 import { PhpBridgeRegions } from './regions';
@@ -197,6 +198,7 @@ export namespace PhpBridge {
                     source,
                     current.extraction.regions,
                     activePosition,
+                    current.bladeLineIndex,
                 );
                 if ((activeRegion?.id ?? null) === current.activeRegionId) {
                     if (!backendEnabled || current.backendSyncedVersion !== null) {
@@ -208,7 +210,12 @@ export namespace PhpBridge {
 
         const extraction = PhpBridgeRegions.extract(source);
         const activeRegion = activePosition
-            ? PhpBridgeRegions.getRegionAtPosition(source, extraction.regions, activePosition)
+            ? PhpBridgeRegions.getRegionAtPosition(
+                  source,
+                  extraction.regions,
+                  activePosition,
+                  extraction.lexed.lineIndex,
+              )
             : null;
         const activeRegionId = activeRegion?.id ?? null;
         const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
@@ -305,7 +312,12 @@ export namespace PhpBridge {
     export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
         try {
             const entry = await syncDocument(state, document, position);
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(entry.source, entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                entry.source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
             if (mapped.kind !== 'mapped') {
                 state.logger.log(
                     `[php-bridge] hover fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
@@ -333,7 +345,12 @@ export namespace PhpBridge {
         try {
             const entry = await syncDocument(state, document, position);
             const source = entry.source;
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
             if (mapped.kind !== 'mapped') {
                 state.logger.log(
                     `[php-bridge] definition fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
@@ -357,7 +374,12 @@ export namespace PhpBridge {
                     return [location];
                 }
 
-                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(source, entry.shadow, location.range);
+                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                    source,
+                    entry.shadow,
+                    location.range,
+                    entry.bladeLineIndex,
+                );
                 if (mappedRange.kind !== 'mapped') {
                     return [];
                 }
@@ -385,6 +407,7 @@ export namespace PhpBridge {
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         edit: TextEdit | InsertReplaceEdit | undefined,
+        bladeLineIndex?: LineIndex,
     ): TextEdit | null {
         if (!edit) {
             return null;
@@ -395,7 +418,7 @@ export namespace PhpBridge {
         // to a single range by preferring the replace range.
         const range = InsertReplaceEdit.is(edit) ? edit.replace : edit.range;
 
-        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, range);
+        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, range, bladeLineIndex);
         if (mapped.kind !== 'mapped') {
             return null;
         }
@@ -410,8 +433,9 @@ export namespace PhpBridge {
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         edit: TextEdit,
+        bladeLineIndex?: LineIndex,
     ): TextEdit | null {
-        const mapped = remapTextEdit(source, shadow, edit);
+        const mapped = remapTextEdit(source, shadow, edit, bladeLineIndex);
         if (mapped) {
             return mapped;
         }
@@ -421,14 +445,15 @@ export namespace PhpBridge {
             return null;
         }
 
-        const shadowStart = PhpBridgeMapping.positionToOffset(shadow.content, edit.range.start);
-        const shadowEnd = PhpBridgeMapping.positionToOffset(shadow.content, edit.range.end);
+        const shadowStart = shadow.lineIndex.positionToOffset(edit.range.start);
+        const shadowEnd = shadow.lineIndex.positionToOffset(edit.range.end);
         const isInsertion = shadowStart === shadowEnd;
         if (!isInsertion || shadowStart > firstRegion.shadowContentOffsetStart) {
             return null;
         }
 
-        const bladeInsertPosition = PhpBridgeMapping.offsetToPosition(source, firstRegion.bladeContentOffsetStart);
+        const bladeIdx = bladeLineIndex ?? new LineIndex(source);
+        const bladeInsertPosition = bladeIdx.offsetToPosition(firstRegion.bladeContentOffsetStart);
         return {
             newText: edit.newText,
             range: {
@@ -442,17 +467,23 @@ export namespace PhpBridge {
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         item: CompletionItem,
+        bladeLineIndex?: LineIndex,
     ): CompletionItem | null {
         const textEdit =
             'textEdit' in item
-                ? remapTextEdit(source, shadow, item.textEdit as TextEdit | InsertReplaceEdit | undefined)
+                ? remapTextEdit(
+                      source,
+                      shadow,
+                      item.textEdit as TextEdit | InsertReplaceEdit | undefined,
+                      bladeLineIndex,
+                  )
                 : null;
         if ('textEdit' in item && item.textEdit && !textEdit) {
             return null;
         }
 
         const additionalTextEdits = item.additionalTextEdits
-            ?.map((edit) => remapAdditionalTextEdit(source, shadow, edit))
+            ?.map((edit) => remapAdditionalTextEdit(source, shadow, edit, bladeLineIndex))
             .filter((edit): edit is TextEdit => !!edit);
         if (
             item.additionalTextEdits &&
@@ -513,7 +544,12 @@ export namespace PhpBridge {
         try {
             const entry = await syncDocument(state, document, position);
             const source = entry.source;
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
             if (mapped.kind !== 'mapped') {
                 state.logger.log(
                     `[php-bridge] completion fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
@@ -551,7 +587,7 @@ export namespace PhpBridge {
             );
 
             const remapped = resolvedItems
-                .map((item) => remapCompletionItem(source, entry.shadow, item))
+                .map((item) => remapCompletionItem(source, entry.shadow, item, entry.bladeLineIndex))
                 .filter((item): item is CompletionItem => !!item);
 
             return sortBridgeCompletionItems(remapped);
@@ -598,7 +634,12 @@ export namespace PhpBridge {
                 return resolved;
             }
 
-            const remapped = remapCompletionItem(documentState.source, documentState.shadow, resolved);
+            const remapped = remapCompletionItem(
+                documentState.source,
+                documentState.shadow,
+                resolved,
+                documentState.bladeLineIndex,
+            );
             return remapped ?? item;
         } catch (error) {
             state.logger.error(`Embedded PHP bridge completion resolve failed: ${String(error)}`);

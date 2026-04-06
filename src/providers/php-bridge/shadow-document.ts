@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeRegions } from './regions';
 
 export namespace PhpBridgeShadowDocument {
@@ -15,6 +16,7 @@ export namespace PhpBridgeShadowDocument {
         shadowPath: string;
         shadowUri: string;
         content: string;
+        lineIndex: LineIndex;
         regions: ShadowRegion[];
         activeRegionId: string | null;
     }
@@ -151,11 +153,13 @@ export namespace PhpBridgeShadowDocument {
             }
         }
 
+        const content = parts.join('');
         return {
             bladeUri,
             shadowPath,
             shadowUri: pathToUri(shadowPath),
-            content: parts.join(''),
+            content,
+            lineIndex: new LineIndex(content),
             regions,
             activeRegionId: options.activeRegionId ?? null,
         };
