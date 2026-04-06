@@ -20,6 +20,7 @@ describe('Embedded PHP bridge hover (Integration)', () => {
                 start: async () => {},
                 waitForReady: async () => true,
                 onReady: () => {},
+                onDiagnostics: () => {},
                 close: async () => {},
                 reopen: async () => {},
                 openOrUpdate: async () => {},

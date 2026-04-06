@@ -21,6 +21,7 @@ describe('Embedded PHP bridge completion (Integration)', () => {
                 start: async () => {},
                 waitForReady: async () => true,
                 onReady: () => {},
+                onDiagnostics: () => {},
                 close: async () => {},
                 reopen: async () => {},
                 openOrUpdate: async () => {},

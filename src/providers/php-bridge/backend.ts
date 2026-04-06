@@ -12,6 +12,7 @@ import {
     type CompletionContext,
     type CompletionItem,
     type CompletionList,
+    type Diagnostic,
     type Hover,
     type Location,
     type Position,
@@ -53,10 +54,17 @@ export namespace PhpBridgeBackend {
         };
     }
 
+    export interface DiagnosticsParams {
+        uri: string;
+        diagnostics: Diagnostic[];
+    }
+
     export interface Client {
         start(): Promise<void>;
         waitForReady(timeoutMs?: number): Promise<boolean>;
         onReady(callback: () => void): void;
+        /** Subscribe to diagnostics published by the backend for shadow URIs. */
+        onDiagnostics(callback: (params: DiagnosticsParams) => void): void;
         close(uri: string): Promise<void>;
         openOrUpdate(document: ShadowDocumentTransport): Promise<void>;
         /** Close and re-open a document so the backend fully re-analyzes it.
@@ -173,6 +181,7 @@ export namespace PhpBridgeBackend {
     export function createLspClient(config: BackendConfig): Client {
         let clientState: ClientState = { kind: 'idle' };
         const pendingReadyCallbacks: ReadyCallback[] = [];
+        const diagnosticsCallbacks: Array<(params: DiagnosticsParams) => void> = [];
 
         function isReadyState(readiness: ReadinessState): boolean {
             return readiness.kind === 'ready' || readiness.kind === 'degraded';
@@ -417,6 +426,15 @@ export namespace PhpBridgeBackend {
                     );
                     return null;
                 });
+                // Forward diagnostics from the backend to registered callbacks.
+                connection.onNotification(
+                    'textDocument/publishDiagnostics',
+                    (params: { uri: string; diagnostics: Diagnostic[] }) => {
+                        for (const cb of diagnosticsCallbacks) {
+                            cb(params);
+                        }
+                    },
+                );
                 // Catch-all for unhandled notifications.  Detects indexer crashes
                 // so we can treat them as degraded-ready rather than hanging forever.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -589,6 +607,10 @@ export namespace PhpBridgeBackend {
         return {
             async start() {
                 await ensureStarted();
+            },
+
+            onDiagnostics(callback: (params: DiagnosticsParams) => void) {
+                diagnosticsCallbacks.push(callback);
             },
 
             onReady(callback: () => void) {

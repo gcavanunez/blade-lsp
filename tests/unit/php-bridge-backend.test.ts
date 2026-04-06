@@ -101,6 +101,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async (document) => {
@@ -159,6 +160,7 @@ describe('PhpBridge backend skeleton', () => {
             },
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {},
@@ -198,6 +200,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
@@ -245,6 +248,7 @@ describe('PhpBridge backend skeleton', () => {
             },
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
@@ -288,6 +292,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async (uri) => {
                 closedUris.push(uri);
             },
@@ -331,6 +336,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {

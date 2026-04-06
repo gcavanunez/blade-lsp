@@ -158,7 +158,7 @@ export namespace Server {
         return tree;
     }
 
-    function collectDocumentDiagnostics(document: TextDocument): Record<DiagnosticStore.Kind, Diagnostic[]> {
+    function collectDocumentDiagnostics(document: TextDocument): Partial<Record<DiagnosticStore.Kind, Diagnostic[]>> {
         const source = document.getText();
         const tree = parseDocument(document);
 
@@ -218,6 +218,14 @@ export namespace Server {
                 phpBridgeState = PhpBridge.createState(workspaceRoot, settings, {
                     log: (message) => conn.console.log(message),
                     error: (message) => conn.console.error(message),
+                });
+
+                // Subscribe to remapped PHP diagnostics from the bridge
+                PhpBridge.onDiagnostics(phpBridgeState, (bladeUri, phpDiagnostics) => {
+                    const merged = diagnosticStore.update(bladeUri, { php: phpDiagnostics });
+                    if (merged) {
+                        conn.sendDiagnostics({ uri: bladeUri, diagnostics: merged });
+                    }
                 });
             }
 

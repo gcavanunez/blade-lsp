@@ -7,6 +7,7 @@ import {
     TextEdit,
     type CompletionItem,
     type CompletionContext,
+    type Diagnostic,
     type Hover,
     type Location,
 } from 'vscode-languageserver/node';
@@ -28,6 +29,8 @@ export namespace PhpBridge {
         error(message: string): void;
     }
 
+    export type DiagnosticsCallback = (bladeUri: string, diagnostics: Diagnostic[]) => void;
+
     export interface State {
         workspaceRoot: string;
         settings: Server.Settings;
@@ -35,6 +38,7 @@ export namespace PhpBridge {
         store: PhpBridgeStore.Store;
         backendLifecycle: BackendLifecycle;
         shadowVersion: number;
+        diagnosticsCallbacks: DiagnosticsCallback[];
     }
 
     type BackendLifecycle =
@@ -59,7 +63,13 @@ export namespace PhpBridge {
             store: PhpBridgeStore.create(),
             backendLifecycle: { kind: 'idle' },
             shadowVersion: 0,
+            diagnosticsCallbacks: [],
         };
+    }
+
+    /** Subscribe to remapped PHP diagnostics for blade documents. */
+    export function onDiagnostics(state: State, callback: DiagnosticsCallback): void {
+        state.diagnosticsCallbacks.push(callback);
     }
 
     export function isEnabled(settings: Server.Settings): boolean {
@@ -158,6 +168,11 @@ export namespace PhpBridge {
                                     });
                                     state.store.markBackendSynced(entry.bladeUri, state.shadowVersion);
                                 }
+                            });
+
+                            // Forward remapped PHP diagnostics to subscribers.
+                            backend.onDiagnostics((params) => {
+                                remapAndPublishDiagnostics(state, params.uri, params.diagnostics);
                             });
 
                             return backend;
@@ -306,6 +321,46 @@ export namespace PhpBridge {
                 }
                 return;
             }
+        }
+    }
+
+    /**
+     * Remap diagnostics from a shadow URI back to the blade document,
+     * filtering out diagnostics in regions with `features.diagnostics === false`.
+     */
+    function remapAndPublishDiagnostics(state: State, shadowUri: string, diagnostics: Diagnostic[]): void {
+        // Find which blade document this shadow URI belongs to
+        const entry = state.store.all().find((e) => e.shadow.shadowUri === shadowUri);
+        if (!entry) return;
+
+        const remapped = diagnostics.flatMap((diag) => {
+            const mapped = PhpBridgeMapping.shadowRangeToBladeRange(
+                entry.source,
+                entry.shadow,
+                diag.range,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return [];
+
+            // Check feature flags — drop diagnostics for regions where diagnostics are disabled
+            const region = entry.shadow.regions.find((r) => r.id === mapped.regionId);
+            if (!region?.features.diagnostics) return [];
+
+            return [
+                {
+                    ...diag,
+                    range: mapped.range,
+                    source: diag.source ? `php(${diag.source})` : 'php',
+                } satisfies Diagnostic,
+            ];
+        });
+
+        state.logger.log(
+            `[php-bridge] diagnostics for ${entry.bladeUri}: ${diagnostics.length} raw -> ${remapped.length} remapped`,
+        );
+
+        for (const cb of state.diagnosticsCallbacks) {
+            cb(entry.bladeUri, remapped);
         }
     }
 
