@@ -309,6 +309,14 @@ export namespace PhpBridge {
         }
     }
 
+    /** Look up a ShadowRegion by ID. */
+    function getRegionById(
+        shadow: PhpBridgeShadowDocument.ShadowDocument,
+        regionId: string,
+    ): PhpBridgeShadowDocument.ShadowRegion | undefined {
+        return shadow.regions.find((r) => r.id === regionId);
+    }
+
     export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
         try {
             const entry = await syncDocument(state, document, position);
@@ -324,6 +332,9 @@ export namespace PhpBridge {
                 );
                 return null;
             }
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.hover) return null;
 
             const backend = await ensureBackend(state);
             if (!backend) {
@@ -357,6 +368,9 @@ export namespace PhpBridge {
                 );
                 return null;
             }
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.definition) return null;
 
             const backend = await ensureBackend(state);
             if (!backend) {
@@ -556,6 +570,9 @@ export namespace PhpBridge {
                 );
                 return null;
             }
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.completion) return null;
 
             const backend = await ensureBackend(state);
             if (!backend) {

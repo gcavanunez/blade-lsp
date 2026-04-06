@@ -3,12 +3,26 @@ import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeRegions } from './regions';
 
 export namespace PhpBridgeShadowDocument {
+    /**
+     * Controls which LSP features are forwarded through the PHP bridge
+     * for a given region. Inspired by Vue/Volar's `CodeInformation`.
+     */
+    export interface RegionFeatures {
+        completion: boolean;
+        hover: boolean;
+        definition: boolean;
+        diagnostics: boolean;
+        references: boolean;
+        rename: boolean;
+    }
+
     export interface ShadowRegion {
         id: string;
         bladeContentOffsetStart: number;
         bladeContentOffsetEnd: number;
         shadowContentOffsetStart: number;
         shadowContentOffsetEnd: number;
+        features: RegionFeatures;
     }
 
     export interface ShadowDocument {
@@ -46,6 +60,51 @@ export namespace PhpBridgeShadowDocument {
      */
     function hasAnonymousClass(content: string): boolean {
         return /new\s+((?:#\[[^\]]+\]\s*)*)class\b/.test(content);
+    }
+
+    // ─── Feature flag presets ───────────────────────────────────────────
+
+    /** Full PHP block (`<?php ... ?>`) or `@php ... @endphp` block: all features enabled. */
+    const ALL_FEATURES: RegionFeatures = {
+        completion: true,
+        hover: true,
+        definition: true,
+        diagnostics: true,
+        references: true,
+        rename: true,
+    };
+
+    /** Inline `@php($expr)` expression: interactive features only (diagnostics are noisy for partials). */
+    const INLINE_FEATURES: RegionFeatures = {
+        completion: true,
+        hover: true,
+        definition: true,
+        diagnostics: false,
+        references: false,
+        rename: false,
+    };
+
+    /**
+     * Post-Volt-class scoped wrapper: diagnostics disabled because the synthetic
+     * `function __blade_lsp_scope_N()` wrapper confuses backends.
+     */
+    const SCOPED_FEATURES: RegionFeatures = {
+        completion: true,
+        hover: true,
+        definition: true,
+        diagnostics: false,
+        references: true,
+        rename: true,
+    };
+
+    /**
+     * Determine whether a blade-directive region is an inline expression
+     * like `@php($x = 1)` vs a block like `@php ... @endphp`.
+     *
+     * Inline expressions are single-line and don't contain newlines.
+     */
+    function isInlineExpression(content: string): boolean {
+        return !content.includes('\n');
     }
 
     function slugifyBladePath(relativePath: string): string {
@@ -129,12 +188,29 @@ export namespace PhpBridgeShadowDocument {
             parts.push(content);
             currentOffset += content.length;
 
+            // Determine feature flags based on region context:
+            // - Scoped wrappers (post-Volt-class): no diagnostics (synthetic wrapper confuses backends)
+            // - php-tag (<?php ... ?>): all features
+            // - blade-directive block (@php ... @endphp): all features
+            // - blade-directive inline (@php($expr)): interactive only (no diagnostics for partials)
+            let features: RegionFeatures;
+            if (needsScope) {
+                features = SCOPED_FEATURES;
+            } else if (region.kind === 'php-tag') {
+                features = ALL_FEATURES;
+            } else if (isInlineExpression(content)) {
+                features = INLINE_FEATURES;
+            } else {
+                features = ALL_FEATURES;
+            }
+
             regions.push({
                 id: region.id,
                 bladeContentOffsetStart: region.contentOffsetStart,
                 bladeContentOffsetEnd: region.contentOffsetEnd,
                 shadowContentOffsetStart,
                 shadowContentOffsetEnd: currentOffset,
+                features,
             });
 
             if (wrapperSuffix) {
