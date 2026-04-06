@@ -235,10 +235,26 @@ export namespace PhpBridge {
               )
             : null;
         const activeRegionId = activeRegion?.id ?? null;
-        const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
-            activeRegionId: activeRegionId ?? undefined,
-            shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
-        });
+
+        // Try incremental shadow update if we have a previous state
+        let shadow: PhpBridgeShadowDocument.ShadowDocument;
+        const incrementalResult =
+            current && current.extraction
+                ? PhpBridgeShadowDocument.tryIncrementalUpdate(current.shadow, current.extraction, extraction, source)
+                : null;
+
+        if (incrementalResult) {
+            shadow = {
+                ...incrementalResult,
+                activeRegionId: activeRegionId ?? null,
+            };
+            state.logger.log(`[php-bridge] incremental shadow update for ${document.uri}`);
+        } else {
+            shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
+                activeRegionId: activeRegionId ?? undefined,
+                shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
+            });
+        }
         const previous = state.store.get(document.uri);
         const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow, activeRegionId);
         const shouldResyncBackend =
