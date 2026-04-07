@@ -13,12 +13,6 @@ export namespace PhpBridgeMapping {
         | { kind: 'mapped'; range: Range; regionId: string }
         | { kind: 'synthetic' | 'unmappable' };
 
-    // ─── Binary search for region lookup ────────────────────────────────
-
-    /**
-     * Find the region containing `offset` by blade content offsets.
-     * O(log n) binary search — regions are guaranteed sorted by offset.
-     */
     export function findRegionByBladeOffset(
         regions: PhpBridgeShadowDocument.ShadowRegion[],
         offset: number,
@@ -39,10 +33,6 @@ export namespace PhpBridgeMapping {
         return undefined;
     }
 
-    /**
-     * Find the region containing `offset` by shadow content offsets.
-     * O(log n) binary search — regions are guaranteed sorted by offset.
-     */
     export function findRegionByShadowOffset(
         regions: PhpBridgeShadowDocument.ShadowRegion[],
         offset: number,
@@ -63,33 +53,16 @@ export namespace PhpBridgeMapping {
         return undefined;
     }
 
-    // ─── Convenience string-based helpers ───────────────────────────────
-
-    /**
-     * Convert a byte offset to a Position.
-     *
-     * When a `LineIndex` is available, prefer calling `lineIndex.offsetToPosition()`
-     * directly. This overload exists for call sites that only have a raw string
-     * (e.g., `regions.ts` during extraction).
-     */
     export function offsetToPosition(source: string, offset: number): Position {
         const safeOffset = Math.max(0, Math.min(offset, source.length));
         const idx = new LineIndex(source);
         return idx.offsetToPosition(safeOffset);
     }
 
-    /**
-     * Convert a Position to a byte offset.
-     *
-     * When a `LineIndex` is available, prefer calling `lineIndex.positionToOffset()`
-     * directly. This overload exists for call sites that only have a raw string.
-     */
     export function positionToOffset(source: string, position: Position): number {
         const idx = new LineIndex(source);
         return idx.positionToOffset(position);
     }
-
-    // ─── Core mapping functions ─────────────────────────────────────────
 
     export function bladePositionToShadowPosition(
         bladeSource: string,

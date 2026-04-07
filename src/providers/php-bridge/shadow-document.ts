@@ -3,10 +3,6 @@ import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeRegions } from './regions';
 
 export namespace PhpBridgeShadowDocument {
-    /**
-     * Controls which LSP features are forwarded through the PHP bridge
-     * for a given region. Inspired by Vue/Volar's `CodeInformation`.
-     */
     export interface RegionFeatures {
         completion: boolean;
         hover: boolean;
@@ -62,9 +58,6 @@ export namespace PhpBridgeShadowDocument {
         return /new\s+((?:#\[[^\]]+\]\s*)*)class\b/.test(content);
     }
 
-    // ─── Feature flag presets ───────────────────────────────────────────
-
-    /** Full PHP block (`<?php ... ?>`) or `@php ... @endphp` block: all features enabled. */
     const ALL_FEATURES: RegionFeatures = {
         completion: true,
         hover: true,
@@ -74,7 +67,6 @@ export namespace PhpBridgeShadowDocument {
         rename: true,
     };
 
-    /** Inline `@php($expr)` expression: interactive features only (diagnostics are noisy for partials). */
     const INLINE_FEATURES: RegionFeatures = {
         completion: true,
         hover: true,
@@ -84,10 +76,6 @@ export namespace PhpBridgeShadowDocument {
         rename: false,
     };
 
-    /**
-     * Post-Volt-class scoped wrapper: diagnostics disabled because the synthetic
-     * `function __blade_lsp_scope_N()` wrapper confuses backends.
-     */
     const SCOPED_FEATURES: RegionFeatures = {
         completion: true,
         hover: true,
@@ -97,12 +85,6 @@ export namespace PhpBridgeShadowDocument {
         rename: true,
     };
 
-    /**
-     * Determine whether a blade-directive region is an inline expression
-     * like `@php($x = 1)` vs a block like `@php ... @endphp`.
-     *
-     * Inline expressions are single-line and don't contain newlines.
-     */
     function isInlineExpression(content: string): boolean {
         return !content.includes('\n');
     }
@@ -118,14 +100,8 @@ export namespace PhpBridgeShadowDocument {
     }
 
     /**
-     * Attempt an incremental update of a shadow document when only a single
-     * region's content has changed (same region count, same region structure).
-     *
-     * Returns the updated shadow document, or `null` if incremental update
-     * is not possible (falls back to full rebuild).
-     *
-     * This avoids re-building the full shadow document on every keystroke
-     * when the user is editing within a single PHP region.
+     * Try to patch a shadow document when only a single region's content changed.
+     * Returns `null` when incremental update is not possible (full rebuild needed).
      */
     export function tryIncrementalUpdate(
         previousShadow: ShadowDocument,
@@ -136,28 +112,20 @@ export namespace PhpBridgeShadowDocument {
         const prevRegions = previousExtraction.regions;
         const newRegions = newExtraction.regions;
 
-        // Must have the same number of regions
         if (prevRegions.length !== newRegions.length) return null;
         if (prevRegions.length === 0) return null;
 
-        // Find which region(s) changed content
         let changedIndex = -1;
         for (let i = 0; i < prevRegions.length; i++) {
             if (prevRegions[i].content !== newRegions[i].content) {
-                if (changedIndex !== -1) {
-                    // Multiple regions changed — cannot incrementally update
-                    return null;
-                }
+                if (changedIndex !== -1) return null;
                 changedIndex = i;
             }
-            // Region kind must stay the same
             if (prevRegions[i].kind !== newRegions[i].kind) return null;
         }
 
         if (changedIndex === -1) {
-            // No region content changed — shadow content is identical,
-            // but blade offsets may have shifted (e.g. HTML changed around the PHP).
-            // Update blade offsets to match the new extraction.
+            // No PHP content changed — just update blade offsets
             const updatedRegions = previousShadow.regions.map((sr, i) => ({
                 ...sr,
                 bladeContentOffsetStart: newRegions[i].contentOffsetStart,
@@ -174,16 +142,12 @@ export namespace PhpBridgeShadowDocument {
         const prevShadowRegion = previousShadow.regions[changedIndex];
         if (!prevShadowRegion) return null;
 
-        // Compute the content length delta
         const contentDelta = changedNew.content.length - changedPrev.content.length;
-
-        // Splice the shadow content: replace the old region content with the new
         const newContent =
             previousShadow.content.slice(0, prevShadowRegion.shadowContentOffsetStart) +
             changedNew.content +
             previousShadow.content.slice(prevShadowRegion.shadowContentOffsetEnd);
 
-        // Update shadow regions: patch the changed region and shift subsequent offsets
         const newShadowRegions = previousShadow.regions.map((sr, i) => {
             if (i === changedIndex) {
                 return {
@@ -202,7 +166,6 @@ export namespace PhpBridgeShadowDocument {
                     shadowContentOffsetEnd: sr.shadowContentOffsetEnd + contentDelta,
                 };
             }
-            // Regions before the changed one: blade offsets may have shifted
             return {
                 ...sr,
                 bladeContentOffsetStart: newRegions[i].contentOffsetStart,
@@ -289,11 +252,6 @@ export namespace PhpBridgeShadowDocument {
             parts.push(content);
             currentOffset += content.length;
 
-            // Determine feature flags based on region context:
-            // - Scoped wrappers (post-Volt-class): no diagnostics (synthetic wrapper confuses backends)
-            // - php-tag (<?php ... ?>): all features
-            // - blade-directive block (@php ... @endphp): all features
-            // - blade-directive inline (@php($expr)): interactive only (no diagnostics for partials)
             let features: RegionFeatures;
             if (needsScope) {
                 features = SCOPED_FEATURES;

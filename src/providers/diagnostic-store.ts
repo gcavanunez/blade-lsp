@@ -12,7 +12,6 @@ export namespace DiagnosticStore {
     }
 
     export interface Store {
-        /** Update one or more diagnostic buckets. Only provided keys are overwritten. */
         update(uri: string, diagnostics: Partial<Record<Kind, Diagnostic[]>>): Diagnostic[] | null;
         delete(uri: string): void;
     }

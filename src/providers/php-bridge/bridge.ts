@@ -69,7 +69,6 @@ export namespace PhpBridge {
         };
     }
 
-    /** Subscribe to remapped PHP diagnostics for blade documents. */
     export function onDiagnostics(state: State, callback: DiagnosticsCallback): void {
         state.diagnosticsCallbacks.push(callback);
     }
@@ -172,7 +171,6 @@ export namespace PhpBridge {
                                 }
                             });
 
-                            // Forward remapped PHP diagnostics to subscribers.
                             backend.onDiagnostics((params) => {
                                 remapAndPublishDiagnostics(state, params.uri, params.diagnostics);
                             });
@@ -236,7 +234,6 @@ export namespace PhpBridge {
             : null;
         const activeRegionId = activeRegion?.id ?? null;
 
-        // Try incremental shadow update if we have a previous state
         let shadow: PhpBridgeShadowDocument.ShadowDocument;
         const incrementalResult =
             current && current.extraction
@@ -342,12 +339,7 @@ export namespace PhpBridge {
         }
     }
 
-    /**
-     * Remap diagnostics from a shadow URI back to the blade document,
-     * filtering out diagnostics in regions with `features.diagnostics === false`.
-     */
     function remapAndPublishDiagnostics(state: State, shadowUri: string, diagnostics: Diagnostic[]): void {
-        // Find which blade document this shadow URI belongs to
         const entry = state.store.all().find((e) => e.shadow.shadowUri === shadowUri);
         if (!entry) return;
 
@@ -360,7 +352,6 @@ export namespace PhpBridge {
             );
             if (mapped.kind !== 'mapped') return [];
 
-            // Check feature flags — drop diagnostics for regions where diagnostics are disabled
             const region = entry.shadow.regions.find((r) => r.id === mapped.regionId);
             if (!region?.features.diagnostics) return [];
 
@@ -382,7 +373,6 @@ export namespace PhpBridge {
         }
     }
 
-    /** Look up a ShadowRegion by ID. */
     function getRegionById(
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         regionId: string,
@@ -517,7 +507,7 @@ export namespace PhpBridge {
 
             const remapped = result.flatMap((location) => {
                 if (location.uri !== entry.shadow.shadowUri) {
-                    return [location]; // external file — pass through unchanged
+                    return [location];
                 }
 
                 const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
@@ -603,8 +593,6 @@ export namespace PhpBridge {
             const result = await backend.rename(entry.shadow.shadowUri, mapped.position, newName);
             if (!result?.changes) return null;
 
-            // Remap all text edits: shadow URI edits -> blade coordinates,
-            // external file edits pass through unchanged.
             const remappedChanges: Record<string, TextEdit[]> = {};
             for (const [uri, edits] of Object.entries(result.changes)) {
                 if (uri !== entry.shadow.shadowUri) {

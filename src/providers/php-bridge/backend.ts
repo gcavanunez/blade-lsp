@@ -65,7 +65,6 @@ export namespace PhpBridgeBackend {
         start(): Promise<void>;
         waitForReady(timeoutMs?: number): Promise<boolean>;
         onReady(callback: () => void): void;
-        /** Subscribe to diagnostics published by the backend for shadow URIs. */
         onDiagnostics(callback: (params: DiagnosticsParams) => void): void;
         close(uri: string): Promise<void>;
         openOrUpdate(document: ShadowDocumentTransport): Promise<void>;
@@ -431,7 +430,6 @@ export namespace PhpBridgeBackend {
                     );
                     return null;
                 });
-                // Forward diagnostics from the backend to registered callbacks.
                 connection.onNotification(
                     'textDocument/publishDiagnostics',
                     (params: { uri: string; diagnostics: Diagnostic[] }) => {

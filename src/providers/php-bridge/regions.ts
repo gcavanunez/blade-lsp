@@ -77,10 +77,6 @@ export namespace PhpBridgeRegions {
         return { lexed, regions, signature: getSignature(regions) };
     }
 
-    /**
-     * Find the region containing `offset` by content offsets.
-     * O(log n) binary search — regions are sorted by offset.
-     */
     export function getRegionAtOffset(regions: Region[], offset: number): Region | null {
         let lo = 0;
         let hi = regions.length - 1;

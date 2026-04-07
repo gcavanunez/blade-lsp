@@ -220,7 +220,6 @@ export namespace Server {
                     error: (message) => conn.console.error(message),
                 });
 
-                // Subscribe to remapped PHP diagnostics from the bridge
                 PhpBridge.onDiagnostics(phpBridgeState, (bladeUri, phpDiagnostics) => {
                     const merged = diagnosticStore.update(bladeUri, { php: phpDiagnostics });
                     if (merged) {
