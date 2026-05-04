@@ -94,18 +94,16 @@ export namespace Server {
         phpactor?: PhpactorBridgeConfig;
     }
 
-    const SettingsSchema = z
-        .object({
-            phpCommand: z.array(z.string()).optional(),
-            phpEnvironment: z.string().optional(),
-            enableLaravelIntegration: z.boolean().optional(),
-            enableEmbeddedPhpBridge: z.boolean().optional(),
-            embeddedPhpBackend: z.string().optional(),
-            embeddedPhpLspCommand: z.array(z.string()).optional(),
-            intelephense: z.record(z.string(), z.unknown()).optional(),
-            phpactor: z.record(z.string(), z.unknown()).optional(),
-        })
-        .passthrough();
+    const SettingsSchema = z.looseObject({
+        phpCommand: z.array(z.string()).optional(),
+        phpEnvironment: z.string().optional(),
+        enableLaravelIntegration: z.boolean().optional(),
+        enableEmbeddedPhpBridge: z.boolean().optional(),
+        embeddedPhpBackend: z.string().optional(),
+        embeddedPhpLspCommand: z.array(z.string()).optional(),
+        intelephense: z.record(z.string(), z.unknown()).optional(),
+        phpactor: z.record(z.string(), z.unknown()).optional(),
+    });
 
     function parseSettings(input: unknown): Settings {
         if (!input || typeof input !== 'object') return {};

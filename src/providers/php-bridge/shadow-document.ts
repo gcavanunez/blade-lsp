@@ -107,7 +107,7 @@ export namespace PhpBridgeShadowDocument {
         previousShadow: ShadowDocument,
         previousExtraction: PhpBridgeRegions.RegionExtraction,
         newExtraction: PhpBridgeRegions.RegionExtraction,
-        newSource: string,
+        _newSource: string,
     ): ShadowDocument | null {
         const prevRegions = previousExtraction.regions;
         const newRegions = newExtraction.regions;
