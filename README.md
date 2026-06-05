@@ -87,7 +87,7 @@ vim.lsp.config('blade_lsp', {
     -- regions inside Blade files.
     enableEmbeddedPhpBridge = false,
 
-    -- "intelephense"|"phpactor"|nil (default: "intelephense")
+    -- "intelephense"|"phpactor"|"phpantom"|nil (default: "intelephense")
     -- Selects the downstream PHP backend used by the embedded bridge.
     embeddedPhpBackend = 'phpactor',
 
@@ -119,16 +119,25 @@ vim.lsp.config('blade_lsp', {
         ['language_server_psalm.enabled'] = false,
       },
     },
+
+    -- PHPantom runs over stdio with no required initialization options.
+    -- If it is not on PATH, point this at the built binary, for example:
+    -- embeddedPhpBackend = 'phpantom',
+    -- embeddedPhpLspCommand = { '/home/you/phpantom_lsp/target/release/phpantom_lsp' },
+    phpantom = {
+      initializationOptions = {},
+    },
   },
 })
 ```
 
 ### Embedded PHP Bridge Notes
 
-- The embedded PHP bridge currently works best with **`phpactor`** as the downstream backend.
-- `phpactor` is the recommended backend today for practical class completion/import flows such as:
+- The embedded PHP bridge supports **`phpactor`**, **`intelephense`**, and **`phpantom`** as downstream PHP backends.
+- `phpactor` has been the most exercised backend for practical class completion/import flows such as:
     - `User` -> `User (App)` -> `use App\Models\User;`
 - `intelephense` support remains available, but is currently more experimental/weaker in this embedded bridge mode.
+- `phpantom` uses the existing shadow-PHP bridge path today. PHPantom also has native Blade support, which could be used by a future native backend mode that bypasses shadow files.
 - The currently supported happy path is bare class completion in Blade PHP regions; namespaced completion forms like `\App\Models\U` are still being explored.
 
 ## Credits

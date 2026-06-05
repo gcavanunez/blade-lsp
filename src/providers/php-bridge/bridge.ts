@@ -85,7 +85,9 @@ export namespace PhpBridge {
             return null;
         }
 
-        const backendName = settings.embeddedPhpBackend ?? 'intelephense';
+        const backendName = PhpBridgeBackend.isBackendName(settings.embeddedPhpBackend)
+            ? settings.embeddedPhpBackend
+            : 'intelephense';
         const command = settings.embeddedPhpLspCommand ?? PhpBridgeBackend.resolveDefaultCommand(backendName);
         if (!command || command.length === 0) {
             return null;
@@ -106,24 +108,34 @@ export namespace PhpBridge {
             },
         };
 
+        const backendOptions =
+            backendName === 'intelephense'
+                ? {
+                      initializationOptions: {
+                          ...defaultIntelephenseInit,
+                          ...(settings.intelephense?.initializationOptions ?? {}),
+                      },
+                      settings: {
+                          ...defaultIntelephenseSettings,
+                          ...(settings.intelephense?.settings ?? {}),
+                      },
+                  }
+                : backendName === 'phpactor'
+                  ? {
+                        initializationOptions: settings.phpactor?.initializationOptions,
+                        settings: settings.phpactor?.settings,
+                    }
+                  : {
+                        initializationOptions: settings.phpantom?.initializationOptions,
+                        settings: settings.phpantom?.settings,
+                    };
+
         return {
             backendName,
             command,
             workspaceRoot,
-            initializationOptions:
-                backendName === 'intelephense'
-                    ? {
-                          ...defaultIntelephenseInit,
-                          ...(settings.intelephense?.initializationOptions ?? {}),
-                      }
-                    : (settings.phpactor?.initializationOptions ?? undefined),
-            settings:
-                backendName === 'intelephense'
-                    ? {
-                          ...defaultIntelephenseSettings,
-                          ...(settings.intelephense?.settings ?? {}),
-                      }
-                    : (settings.phpactor?.settings ?? undefined),
+            initializationOptions: backendOptions.initializationOptions,
+            settings: backendOptions.settings,
         };
     }
 

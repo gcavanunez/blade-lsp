@@ -14,7 +14,8 @@ import { createClient, type Client } from '../utils/client';
 
 const execFileAsync = promisify(execFile);
 const backendCommandJson = process.env.EMBEDDED_PHP_LSP_COMMAND_JSON;
-const backendName = (process.env.EMBEDDED_PHP_LSP_BACKEND as 'intelephense' | 'phpactor' | undefined) ?? 'intelephense';
+const backendName =
+    (process.env.EMBEDDED_PHP_LSP_BACKEND as PhpBridgeBackend.BackendName | undefined) ?? 'intelephense';
 const runLaravelE2E = process.env.EMBEDDED_PHP_BRIDGE_RUN_LARAVEL_E2E === 'true';
 const keepLaravelE2EApp = process.env.KEEP_PHP_BRIDGE_E2E_APP === 'true';
 const laravelInstaller = process.env.LARAVEL_INSTALLER_PATH ?? 'laravel';
