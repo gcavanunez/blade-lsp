@@ -7,6 +7,7 @@ export namespace DiagnosticStore {
         syntax: Diagnostic[];
         semantic: Diagnostic[];
         merged: Diagnostic[];
+        published: boolean;
     }
 
     export interface Store {
@@ -89,18 +90,20 @@ export namespace DiagnosticStore {
                     syntax: [],
                     semantic: [],
                     merged: [],
+                    published: false,
                 };
 
                 bucket.syntax = diagnostics.syntax;
                 bucket.semantic = diagnostics.semantic;
 
                 const merged = merge(bucket);
-                if (diagnosticsEqual(bucket.merged, merged)) {
+                if (bucket.published && diagnosticsEqual(bucket.merged, merged)) {
                     buckets.set(uri, bucket);
                     return null;
                 }
 
                 bucket.merged = merged;
+                bucket.published = true;
                 buckets.set(uri, bucket);
                 return merged;
             },

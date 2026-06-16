@@ -24,6 +24,17 @@ describe('DiagnosticStore', () => {
         expect(merged).toEqual([makeDiagnostic('syntax', 1), makeDiagnostic('semantic', 2, 'blade/undefined-view')]);
     });
 
+    it('returns empty diagnostics on first empty update', () => {
+        const store = DiagnosticStore.create();
+
+        const merged = store.update('file:///empty.blade.php', {
+            syntax: [],
+            semantic: [],
+        });
+
+        expect(merged).toEqual([]);
+    });
+
     it('returns null when diagnostics are unchanged', () => {
         const store = DiagnosticStore.create();
 
