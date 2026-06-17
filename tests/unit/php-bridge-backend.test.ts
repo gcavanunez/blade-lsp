@@ -52,6 +52,55 @@ describe('PhpBridge backend skeleton', () => {
         });
     });
 
+    it('resolves PHPantom backend config from embedded bridge settings', () => {
+        const config = PhpBridge.resolveBackendConfig(
+            {
+                enableEmbeddedPhpBridge: true,
+                embeddedPhpBackend: 'phpantom',
+                embeddedPhpLspCommand: ['phpantom_lsp'],
+                phpantom: {
+                    initializationOptions: {
+                        experimental: true,
+                    },
+                    settings: {
+                        phpantom: {
+                            diagnostics: true,
+                        },
+                    },
+                },
+            },
+            '/workspace',
+        );
+
+        expect(config).toEqual({
+            backendName: 'phpantom',
+            command: ['phpantom_lsp'],
+            workspaceRoot: '/workspace',
+            initializationOptions: {
+                experimental: true,
+            },
+            settings: {
+                phpantom: {
+                    diagnostics: true,
+                },
+            },
+        });
+    });
+
+    it('falls back to intelephense for unsupported backend names', () => {
+        const config = PhpBridge.resolveBackendConfig(
+            {
+                enableEmbeddedPhpBridge: true,
+                embeddedPhpBackend: 'unknown' as PhpBridgeBackend.BackendName,
+                embeddedPhpLspCommand: ['custom-php-lsp'],
+            },
+            '/workspace',
+        );
+
+        expect(config?.backendName).toBe('intelephense');
+        expect(config?.command).toEqual(['custom-php-lsp']);
+    });
+
     it('provides default intelephense storage settings for embedded bridge backend', () => {
         const config = PhpBridge.resolveBackendConfig(
             {

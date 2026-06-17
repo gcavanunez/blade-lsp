@@ -6,10 +6,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Position } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { PhpBridge } from '../../src/providers/php-bridge/bridge';
+import { PhpBridgeBackend } from '../../src/providers/php-bridge/backend';
 import { PhpBridgeMapping } from '../../src/providers/php-bridge/mapping';
 
 const commandJson = process.env.EMBEDDED_PHP_LSP_COMMAND_JSON;
-const backendName = (process.env.EMBEDDED_PHP_LSP_BACKEND as 'intelephense' | 'phpactor' | undefined) ?? 'intelephense';
+const backendName =
+    (process.env.EMBEDDED_PHP_LSP_BACKEND as PhpBridgeBackend.BackendName | undefined) ?? 'intelephense';
 const describeIfConfigured = commandJson ? describe : describe.skip;
 
 function parseCommand(): string[] {

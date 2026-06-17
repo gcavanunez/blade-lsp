@@ -25,7 +25,26 @@ export namespace PhpBridgeBackend {
     type ProgressToken = string | number;
     type ReadyCallback = () => void;
 
-    export type BackendName = 'intelephense' | 'phpactor';
+    export type BackendName = 'intelephense' | 'phpactor' | 'phpantom';
+
+    const BACKEND_NAMES = ['intelephense', 'phpactor', 'phpantom'] as const satisfies readonly BackendName[];
+
+    export function isBackendName(value: unknown): value is BackendName {
+        return typeof value === 'string' && BACKEND_NAMES.includes(value as BackendName);
+    }
+
+    export interface BackendSettings extends Record<string, unknown> {
+        intelephense?: {
+            globalStoragePath?: string;
+            storagePath?: string;
+            client?: {
+                autoCloseDocCommentDoSuggest?: boolean;
+            };
+            files?: {
+                maxSize?: number;
+            };
+        };
+    }
 
     export interface ShadowDocumentTransport {
         uri: string;
@@ -38,18 +57,7 @@ export namespace PhpBridgeBackend {
         command: string[];
         workspaceRoot: string;
         initializationOptions?: Record<string, unknown>;
-        settings?: {
-            intelephense?: {
-                globalStoragePath?: string;
-                storagePath?: string;
-                client?: {
-                    autoCloseDocCommentDoSuggest?: boolean;
-                };
-                files?: {
-                    maxSize?: number;
-                };
-            };
-        };
+        settings?: BackendSettings;
         logger?: {
             log(message: string): void;
             error(message: string): void;
@@ -114,8 +122,12 @@ export namespace PhpBridgeBackend {
     }
 
     export function resolveDefaultCommand(backendName: BackendName): string[] {
-        const binary = backendName === 'phpactor' ? 'phpactor' : 'intelephense';
-        const args = backendName === 'phpactor' ? ['language-server'] : ['--stdio'];
+        const defaults: Record<BackendName, string[]> = {
+            intelephense: ['intelephense', '--stdio'],
+            phpactor: ['phpactor', 'language-server'],
+            phpantom: ['phpantom_lsp'],
+        };
+        const [binary, ...args] = defaults[backendName];
 
         // Check Mason bin path first — Mason installs LSP servers here via nvim
         const masonBin = path.join(os.homedir(), '.local', 'share', 'nvim', 'mason', 'bin', binary);

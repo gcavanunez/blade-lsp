@@ -15,12 +15,12 @@ E2E tests create real framework projects in temp directories and exercise the fu
 
 ### Prerequisites
 
-| Suite                       | Requires                                             |
-| --------------------------- | ---------------------------------------------------- |
-| Blade Components            | `laravel` CLI (or set `LARAVEL_INSTALLER_PATH`), PHP |
-| Jigsaw                      | `composer` on `$PATH`, PHP                           |
-| PHP Bridge Backend          | A PHP LSP binary (phpactor or intelephense)          |
-| PHP Bridge Laravel Livewire | `laravel` CLI, PHP, a PHP LSP binary                 |
+| Suite                       | Requires                                               |
+| --------------------------- | ------------------------------------------------------ |
+| Blade Components            | `laravel` CLI (or set `LARAVEL_INSTALLER_PATH`), PHP   |
+| Jigsaw                      | `composer` on `$PATH`, PHP                             |
+| PHP Bridge Backend          | A PHP LSP binary (phpactor, intelephense, or PHPantom) |
+| PHP Bridge Laravel Livewire | `laravel` CLI, PHP, a PHP LSP binary                   |
 
 ### Blade Component Completions (Flux & Livewire)
 
@@ -59,7 +59,7 @@ JIGSAW_RUN_E2E=true \
 
 ### PHP Bridge Backend
 
-Tests the embedded PHP bridge against a real phpactor or intelephense backend (no Laravel project required).
+Tests the embedded PHP bridge against a real phpactor, intelephense, or PHPantom backend (no Laravel project required).
 
 ```bash
 EMBEDDED_PHP_LSP_COMMAND_JSON='["/path/to/phpactor","language-server"]' \
@@ -70,7 +70,7 @@ EMBEDDED_PHP_LSP_BACKEND=phpactor \
 | Variable                        | Default          | Description                                                                        |
 | ------------------------------- | ---------------- | ---------------------------------------------------------------------------------- |
 | `EMBEDDED_PHP_LSP_COMMAND_JSON` | _(unset = skip)_ | JSON string array of the backend command (e.g. `'["phpactor","language-server"]'`) |
-| `EMBEDDED_PHP_LSP_BACKEND`      | `intelephense`   | Which backend: `phpactor` or `intelephense`                                        |
+| `EMBEDDED_PHP_LSP_BACKEND`      | `intelephense`   | Which backend: `phpactor`, `intelephense`, or `phpantom`                           |
 
 ### PHP Bridge Laravel Livewire
 
@@ -86,7 +86,7 @@ EMBEDDED_PHP_BRIDGE_RUN_LARAVEL_E2E=true \
 | Variable                                        | Default          | Description                                                                                 |
 | ----------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
 | `EMBEDDED_PHP_LSP_COMMAND_JSON`                 | _(unset = skip)_ | JSON string array of the backend command                                                    |
-| `EMBEDDED_PHP_LSP_BACKEND`                      | `intelephense`   | Which backend: `phpactor` or `intelephense`                                                 |
+| `EMBEDDED_PHP_LSP_BACKEND`                      | `intelephense`   | Which backend: `phpactor`, `intelephense`, or `phpantom`                                    |
 | `EMBEDDED_PHP_BRIDGE_RUN_LARAVEL_E2E`           | _(unset = skip)_ | Set to `true` to enable (both this AND `EMBEDDED_PHP_LSP_COMMAND_JSON` must be set)         |
 | `KEEP_PHP_BRIDGE_E2E_APP`                       | `false`          | Keep the temp project for inspection                                                        |
 | `LARAVEL_INSTALLER_PATH`                        | `laravel`        | Path to the Laravel installer CLI                                                           |
@@ -136,6 +136,19 @@ Then use:
 EMBEDDED_PHP_LSP_COMMAND_JSON='["intelephense","--stdio"]'
 ```
 
+**PHPantom**:
+
+```bash
+cargo install phpantom_lsp --locked
+```
+
+Then use:
+
+```bash
+EMBEDDED_PHP_LSP_COMMAND_JSON='["phpantom_lsp"]'
+EMBEDDED_PHP_LSP_BACKEND=phpantom
+```
+
 **Laravel CLI** (needed for blade-component and php-bridge-laravel-livewire tests):
 
 ```bash
@@ -160,6 +173,7 @@ PHP language servers are installed without Mason:
 
 - **phpactor**: `composer create-project` into an isolated directory (conflicts with `laravel/installer` in global composer due to `symfony/console` version mismatch)
 - **intelephense**: `npm install -g intelephense`
+- **PHPantom**: `cargo install phpantom_lsp --locked` for local/manual backend runs
 - **Laravel CLI**: `composer global require laravel/installer`
 
 The workflow can be triggered manually from the Actions tab or runs automatically every Monday at 6 AM UTC.

@@ -81,6 +81,11 @@ export namespace Server {
         settings?: Record<string, unknown>;
     }
 
+    export interface PhpantomBridgeConfig {
+        initializationOptions?: Record<string, unknown>;
+        settings?: Record<string, unknown>;
+    }
+
     export interface Settings {
         /** Command array to execute PHP (defaults to auto-detect if not provided) */
         phpCommand?: string[];
@@ -92,6 +97,7 @@ export namespace Server {
         embeddedPhpLspCommand?: string[];
         intelephense?: IntelephenseBridgeConfig;
         phpactor?: PhpactorBridgeConfig;
+        phpantom?: PhpantomBridgeConfig;
     }
 
     const SettingsSchema = z.looseObject({
@@ -103,6 +109,7 @@ export namespace Server {
         embeddedPhpLspCommand: z.array(z.string()).optional(),
         intelephense: z.record(z.string(), z.unknown()).optional(),
         phpactor: z.record(z.string(), z.unknown()).optional(),
+        phpantom: z.record(z.string(), z.unknown()).optional(),
     });
 
     function parseSettings(input: unknown): Settings {
