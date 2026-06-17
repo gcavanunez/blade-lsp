@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { Position, type Hover } from 'vscode-languageserver/node';
+import { Position, type Hover, type Location } from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Server } from '../../server';
 import { PhpBridgeBackend } from './backend';
@@ -146,6 +146,59 @@ export namespace PhpBridge {
             return await backend.hover(entry.shadow.shadowUri, mapped.position);
         } catch (error) {
             state.logger.error(`Embedded PHP bridge hover failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function getDefinition(
+        state: State,
+        document: TextDocument,
+        position: Position,
+    ): Promise<Location | Location[] | null> {
+        try {
+            const entry = await syncDocument(state, document);
+            const source = document.getText();
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
+            if (mapped.kind !== 'mapped') {
+                return null;
+            }
+
+            const backend = await ensureBackend(state);
+            if (!backend) {
+                return null;
+            }
+
+            const result = await backend.definition(entry.shadow.shadowUri, mapped.position);
+            if (!result) {
+                return null;
+            }
+
+            const locations = Array.isArray(result) ? result : [result];
+            const remapped = locations.flatMap((location) => {
+                if (location.uri !== entry.shadow.shadowUri) {
+                    return [location];
+                }
+
+                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(source, entry.shadow, location.range);
+                if (mappedRange.kind !== 'mapped') {
+                    return [];
+                }
+
+                return [
+                    {
+                        uri: document.uri,
+                        range: mappedRange.range,
+                    } satisfies Location,
+                ];
+            });
+
+            if (remapped.length === 0) {
+                return null;
+            }
+
+            return Array.isArray(result) ? remapped : (remapped[0] ?? null);
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge definition failed: ${String(error)}`);
             return null;
         }
     }
