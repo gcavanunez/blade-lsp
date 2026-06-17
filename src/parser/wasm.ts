@@ -5,7 +5,7 @@
  * No native compilation required -- this is the default for npm distribution.
  */
 
-import * as path from 'path';
+import * as path from 'node:path';
 import { ParserTypes } from './types';
 
 type WasmLanguage = {

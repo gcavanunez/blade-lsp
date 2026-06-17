@@ -63,25 +63,13 @@ export namespace Components {
         return LaravelContext.use().components.items;
     }
 
-    export function find(key: string): ComponentItem | undefined {
-        return getItems().find((c) => c.key === key);
-    }
-
     /**
-     * Find a component by tag name (e.g., 'x-button', 'flux:button').
+     * Resolve a component from a tag name (e.g., 'x-button', 'flux:button').
      * Derives the key from the tag and looks it up.
      */
-    export function findByTag(tag: string): ComponentItem | undefined {
-        const key = tagToKey(tag);
-        return find(key);
-    }
-
-    /**
-     * Resolve a component from a tag-like identifier.
-     * Supports x- tags and namespaced tags.
-     */
     export function resolve(tag: string): ComponentItem | undefined {
-        return findByTag(tag);
+        const key = tagToKey(tag);
+        return getItems().find((c) => c.key === key);
     }
 
     /**

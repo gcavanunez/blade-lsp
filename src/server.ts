@@ -31,7 +31,7 @@ import { Directives } from './laravel/directives';
 import { Views } from './laravel/views';
 import { Components } from './laravel/components';
 import { PhpEnvironment } from './laravel/php-environment';
-import { FormatErrorForLog } from './utils/format-error';
+import { ErrorFormat } from './utils/format-error';
 import { Progress } from './utils/progress';
 import { Completions } from './providers/completions';
 import { Hovers } from './providers/hovers';
@@ -40,6 +40,7 @@ import { DocumentLinks } from './providers/document-links';
 import { DocumentSymbols } from './providers/document-symbols';
 import { PhpPreambleSymbols } from './providers/php-preamble-symbols';
 import { PhpBridge } from './providers/php-bridge/bridge';
+import { PhpBridgeBackend } from './providers/php-bridge/backend';
 import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
@@ -48,11 +49,13 @@ import {
     getDirectiveParameterName,
     getSlotCompletionSyntax,
     isComponentTagCompletionTrigger,
+    isLivewireActionAttribute,
     isLivewireTagCompletionTrigger,
 } from './providers/patterns';
 import { Watcher } from './watcher';
 import { Container } from './runtime/container';
 import { MutableRef } from 'effect';
+import z from 'zod';
 
 export namespace Server {
     export interface IntelephenseBridgeConfig {
@@ -84,10 +87,29 @@ export namespace Server {
         phpEnvironment?: PhpEnvironment.Name;
         enableLaravelIntegration?: boolean;
         enableEmbeddedPhpBridge?: boolean;
-        embeddedPhpBackend?: 'intelephense' | 'phpactor';
+        embeddedPhpBackend?: PhpBridgeBackend.BackendName;
         embeddedPhpLspCommand?: string[];
         intelephense?: IntelephenseBridgeConfig;
         phpactor?: PhpactorBridgeConfig;
+    }
+
+    const SettingsSchema = z
+        .object({
+            phpCommand: z.array(z.string()).optional(),
+            phpEnvironment: z.string().optional(),
+            enableLaravelIntegration: z.boolean().optional(),
+            enableEmbeddedPhpBridge: z.boolean().optional(),
+            embeddedPhpBackend: z.string().optional(),
+            embeddedPhpLspCommand: z.array(z.string()).optional(),
+            intelephense: z.record(z.string(), z.unknown()).optional(),
+            phpactor: z.record(z.string(), z.unknown()).optional(),
+        })
+        .passthrough();
+
+    function parseSettings(input: unknown): Settings {
+        if (!input || typeof input !== 'object') return {};
+        const result = SettingsSchema.safeParse(input);
+        return result.success ? (result.data as Settings) : {};
     }
 
     export function getWorkspaceRoot(): string | null {
@@ -158,14 +180,14 @@ export namespace Server {
         };
     }
 
-    const SEVERITY_MAP: Record<string, DiagnosticSeverity> = {
+    const SEVERITY_MAP: Record<BladeParser.DiagnosticInfo['severity'], DiagnosticSeverity> = {
         error: DiagnosticSeverity.Error,
         warning: DiagnosticSeverity.Warning,
         info: DiagnosticSeverity.Information,
     };
 
-    function mapDiagnosticSeverity(severity: string): DiagnosticSeverity {
-        return SEVERITY_MAP[severity] ?? DiagnosticSeverity.Information;
+    function mapDiagnosticSeverity(severity: BladeParser.DiagnosticInfo['severity']): DiagnosticSeverity {
+        return SEVERITY_MAP[severity];
     }
 
     const build = (externalConn?: Connection) => {
@@ -219,7 +241,7 @@ export namespace Server {
 
             MutableRef.set(c.workspaceRoot, params.workspaceFolders?.at(0)?.uri?.replace('file://', '') ?? null);
 
-            const settings = (params.initializationOptions as Settings) ?? {};
+            const settings = parseSettings(params.initializationOptions);
             MutableRef.set(c.settings, settings);
             conn.console.log(`Settings received: ${JSON.stringify(settings)}`);
 
@@ -235,7 +257,7 @@ export namespace Server {
                 await BladeParser.initialize();
                 conn.console.log('Tree-sitter Blade parser initialized');
             } catch (error) {
-                conn.console.error(`Failed to initialize parser: ${FormatErrorForLog(error)}`);
+                conn.console.error(`Failed to initialize parser: ${ErrorFormat.forLog(error)}`);
             }
 
             return {
@@ -371,7 +393,7 @@ export namespace Server {
                             trackProgress('Views reloaded');
                         })
                         .catch((err) => {
-                            conn.console.error(`File watcher: views refresh failed: ${FormatErrorForLog(err)}`);
+                            conn.console.error(`File watcher: views refresh failed: ${ErrorFormat.forLog(err)}`);
                             trackProgress('Views failed');
                         }),
                 );
@@ -384,7 +406,7 @@ export namespace Server {
                             trackProgress('Components reloaded');
                         })
                         .catch((err) => {
-                            conn.console.error(`File watcher: components refresh failed: ${FormatErrorForLog(err)}`);
+                            conn.console.error(`File watcher: components refresh failed: ${ErrorFormat.forLog(err)}`);
                             trackProgress('Components failed');
                         }),
                 );
@@ -397,7 +419,7 @@ export namespace Server {
                             trackProgress('Directives reloaded');
                         })
                         .catch((err) => {
-                            conn.console.error(`File watcher: directives refresh failed: ${FormatErrorForLog(err)}`);
+                            conn.console.error(`File watcher: directives refresh failed: ${ErrorFormat.forLog(err)}`);
                             trackProgress('Directives failed');
                         }),
                 );
@@ -433,7 +455,7 @@ export namespace Server {
 
             if (phpBridgeState) {
                 void PhpBridge.closeDocument(phpBridgeState, event.document.uri).catch((error) => {
-                    conn.console.error(`Embedded PHP bridge close failed: ${FormatErrorForLog(error)}`);
+                    conn.console.error(`Embedded PHP bridge close failed: ${ErrorFormat.forLog(error)}`);
                 });
             }
         });
@@ -622,19 +644,7 @@ export namespace Server {
                     }
                 }
 
-                const isWireAction = [
-                    'wire:submit',
-                    'wire:click',
-                    'wire:change',
-                    'wire:input',
-                    'wire:keydown',
-                    'wire:keyup',
-                    'wire:blur',
-                    'wire:init',
-                ].some(
-                    (prefix) =>
-                        attributeValueContext.name === prefix || attributeValueContext.name.startsWith(`${prefix}.`),
-                );
+                const isWireAction = isLivewireActionAttribute(attributeValueContext.name);
                 if (isWireAction) {
                     const method = PhpPreambleSymbols.findLivewireMethod(source, attributeValueContext.value);
                     if (method) {

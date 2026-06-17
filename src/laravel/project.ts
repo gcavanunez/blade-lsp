@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Log } from '../utils/log';
 import { PhpEnvironment } from './php-environment';
 import type { FrameworkType } from './types';
@@ -86,7 +86,11 @@ export namespace Project {
             if (!hasLaravel) {
                 return null;
             }
-        } catch {
+        } catch (err) {
+            log.info('Failed to parse composer.json for Laravel detection', {
+                path: composerPath,
+                error: err instanceof Error ? err.message : String(err),
+            });
             return null;
         }
 
@@ -148,7 +152,11 @@ export namespace Project {
             if (!hasJigsaw) {
                 return null;
             }
-        } catch {
+        } catch (err) {
+            log.info('Failed to parse composer.json for Jigsaw detection', {
+                path: composerPath,
+                error: err instanceof Error ? err.message : String(err),
+            });
             return null;
         }
 

@@ -1,3 +1,18 @@
+export const LIVEWIRE_ACTION_PREFIXES = [
+    'wire:submit',
+    'wire:click',
+    'wire:change',
+    'wire:input',
+    'wire:keydown',
+    'wire:keyup',
+    'wire:blur',
+    'wire:init',
+] as const;
+
+export function isLivewireActionAttribute(name: string): boolean {
+    return LIVEWIRE_ACTION_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+}
+
 export const VIEW_REFERENCE_DIRECTIVES = [
     'extends',
     'include',
@@ -67,11 +82,11 @@ interface DirectiveParameterMatcher {
 const DIRECTIVE_PARAMETER_MATCHERS: DirectiveParameterMatcher[] = [
     ...FIRST_ARGUMENT_PARAMETER_DIRECTIVES.map((name) => ({
         name,
-        pattern: new RegExp(`@${name}\\s*\\(\\s*['\"]?[\\w.-]*$`),
+        pattern: new RegExp(`@${name}\\s*\\(\\s*['"]?[\\w.-]*$`),
     })),
     ...SECOND_ARGUMENT_PARAMETER_DIRECTIVES.map((name) => ({
         name,
-        pattern: new RegExp(`@${name}\\s*\\([^,]+,\\s*['\"]?[\\w.-]*$`),
+        pattern: new RegExp(`@${name}\\s*\\([^,]+,\\s*['"]?[\\w.-]*$`),
     })),
 ];
 

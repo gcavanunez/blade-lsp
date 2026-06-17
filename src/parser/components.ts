@@ -1,5 +1,6 @@
 import { ParserTypes } from './types';
 import { ParserQueryBank } from './query-bank';
+import { isPositionWithinNode, isStrictlyNarrowerRange } from './utils';
 
 type SyntaxNode = ParserTypes.SyntaxNode;
 type Tree = ParserTypes.Tree;
@@ -7,33 +8,6 @@ type QueryCapture = ParserTypes.QueryCapture;
 
 type FindNodeAtPosition = (tree: Tree, row: number, column: number) => SyntaxNode | null;
 type QueryCaptures = (tree: Tree, querySource: string) => QueryCapture[];
-
-function isPositionWithinNode(node: SyntaxNode, row: number, column: number): boolean {
-    const start = node.startPosition;
-    const end = node.endPosition;
-
-    if (row < start.row || row > end.row) return false;
-    if (row === start.row && column < start.column) return false;
-    if (row === end.row && column > end.column) return false;
-
-    return true;
-}
-
-function isStrictlyNarrowerRange(a: SyntaxNode, b: SyntaxNode): boolean {
-    if (a.startPosition.row !== b.startPosition.row) {
-        return a.startPosition.row > b.startPosition.row;
-    }
-
-    if (a.startPosition.column !== b.startPosition.column) {
-        return a.startPosition.column > b.startPosition.column;
-    }
-
-    if (a.endPosition.row !== b.endPosition.row) {
-        return a.endPosition.row < b.endPosition.row;
-    }
-
-    return a.endPosition.column < b.endPosition.column;
-}
 
 function isValidComponentName(tagName: string): boolean {
     return (

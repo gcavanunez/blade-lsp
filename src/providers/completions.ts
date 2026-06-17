@@ -9,21 +9,19 @@ import {
 } from 'vscode-languageserver/node';
 import { Shared } from './shared';
 import { ProjectFile } from './project-file';
-import { COMPONENT_PARTIAL_MATCH_PATTERN, LIVEWIRE_PARTIAL_MATCH_PATTERN } from './patterns';
+import { COMPONENT_PARTIAL_MATCH_PATTERN, LIVEWIRE_ACTION_PREFIXES, LIVEWIRE_PARTIAL_MATCH_PATTERN } from './patterns';
 import { BladeDirectives } from '../directives';
 import { BladeParser } from '../parser';
 import { Laravel } from '../laravel/index';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import type { ViewItem, ComponentItem, CustomDirective } from '../laravel/types';
-import { Components as ComponentsNs } from '../laravel/components';
 import { PhpPreambleSymbols } from './php-preamble-symbols';
 
 export namespace Completions {
-    export type ParsedProp = Shared.ParsedProp;
-    export const parsePropsString = Shared.parsePropsString;
-
-    type CompletionResolveKind = 'view' | 'component' | 'livewire';
+    const COMPLETION_RESOLVE_KINDS = ['view', 'component', 'livewire'] as const;
+    type CompletionResolveKind = (typeof COMPLETION_RESOLVE_KINDS)[number];
+    const validResolveKinds: ReadonlySet<string> = new Set(COMPLETION_RESOLVE_KINDS);
 
     interface CompletionResolveData {
         kind: CompletionResolveKind;
@@ -41,16 +39,6 @@ export namespace Completions {
     }
 
     const LIVEWIRE_MODEL_PREFIXES = ['wire:model'];
-    const LIVEWIRE_ACTION_PREFIXES = [
-        'wire:submit',
-        'wire:click',
-        'wire:change',
-        'wire:input',
-        'wire:keydown',
-        'wire:keyup',
-        'wire:blur',
-        'wire:init',
-    ];
 
     const DEFAULT_SECTION_NAMES = ['content', 'title', 'scripts', 'styles'] as const;
     const DEFAULT_STACK_NAMES = ['scripts', 'styles'] as const;
@@ -113,14 +101,14 @@ export namespace Completions {
         const components = Components.getItems();
 
         for (const component of components) {
-            const fullTag = ComponentsNs.keyToTag(component.key);
+            const fullTag = Components.keyToTag(component.key);
 
             if (fullTag.startsWith(partialName)) {
                 items.push(createComponentCompletionItem(component, replaceRange, fullTag));
             } else {
                 // Try short-form namespaced tag (e.g., 'flux:button' for key 'flux::button').
                 // Users can write <flux:button> instead of <x-flux::button>.
-                const shortTag = ComponentsNs.keyToShortTag(component.key);
+                const shortTag = Components.keyToShortTag(component.key);
                 if (shortTag && shortTag.startsWith(partialName)) {
                     items.push(createComponentCompletionItem(component, replaceRange, shortTag));
                 }
@@ -203,7 +191,7 @@ export namespace Completions {
         replaceRange: Range,
         fullTagOverride?: string,
     ): CompletionItem {
-        const fullTag = fullTagOverride ?? ComponentsNs.keyToTag(component.key);
+        const fullTag = fullTagOverride ?? Components.keyToTag(component.key);
         let documentation = `**${fullTag}**\n\n`;
         documentation += `Path: \`${component.path}\`\n`;
 
@@ -546,7 +534,8 @@ export namespace Completions {
 
         const payload = data as Partial<CompletionResolveData>;
         return (
-            (payload.kind === 'view' || payload.kind === 'component' || payload.kind === 'livewire') &&
+            typeof payload.kind === 'string' &&
+            validResolveKinds.has(payload.kind) &&
             typeof payload.key === 'string' &&
             typeof payload.path === 'string'
         );
@@ -701,7 +690,7 @@ export namespace Completions {
             detail: `Named slot in ${component.key}`,
             documentation: {
                 kind: MarkupKind.Markdown,
-                value: `Slot \`${slot.name}\` from component \`${ComponentsNs.keyToTag(component.key)}\``,
+                value: `Slot \`${slot.name}\` from component \`${Components.keyToTag(component.key)}\``,
             },
             insertText,
             insertTextFormat: InsertTextFormat.Snippet,

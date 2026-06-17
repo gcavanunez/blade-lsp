@@ -6,7 +6,6 @@ import {
     Position,
     TextEdit,
     type CompletionItem,
-    type CompletionList,
     type CompletionContext,
     type Hover,
     type Location,

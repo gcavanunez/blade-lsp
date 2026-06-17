@@ -410,7 +410,7 @@ export namespace PhpBridgeBackend {
                 );
                 // Catch-all for any unhandled requests from the backend (e.g.
                 // window/showMessageRequest).  Return null so the backend doesn't hang.
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (connection as any).onRequest((method: string, params: unknown) => {
                     config.logger?.log(
                         `[php-bridge:${config.backendName}] unhandled request: ${method} ${JSON.stringify(params)?.slice(0, 300)}`,
@@ -419,7 +419,7 @@ export namespace PhpBridgeBackend {
                 });
                 // Catch-all for unhandled notifications.  Detects indexer crashes
                 // so we can treat them as degraded-ready rather than hanging forever.
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (connection as any).onNotification((method: string, params: unknown) => {
                     if (
                         method === 'window/showMessage' &&
@@ -813,8 +813,7 @@ export namespace PhpBridgeBackend {
                             return;
                         case 'starting':
                         case 'running': {
-                            let stopPromise: Promise<void>;
-                            stopPromise = (async () => {
+                            const stopPromise: Promise<void> = (async () => {
                                 try {
                                     const session =
                                         current.kind === 'starting'

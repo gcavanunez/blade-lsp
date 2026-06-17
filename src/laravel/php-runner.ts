@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from 'child_process';
-import * as crypto from 'crypto';
-import * as path from 'path';
-import * as fs from 'fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import * as crypto from 'node:crypto';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 import z from 'zod';
 import { Effect, Schedule } from 'effect';
 import { NamedError } from '../utils/error';
@@ -313,7 +313,18 @@ export namespace PhpRunner {
                 try {
                     resume(Effect.succeed(parseOutput<T>(stdout, stderr, markers)));
                 } catch (error) {
-                    resume(Effect.fail(error as ExecuteError));
+                    if (error instanceof NamedError) {
+                        resume(Effect.fail(error as ExecuteError));
+                    } else {
+                        resume(
+                            Effect.fail(
+                                new SpawnError({
+                                    command: project.phpCommand.join(' '),
+                                    message: error instanceof Error ? error.message : String(error),
+                                }),
+                            ),
+                        );
+                    }
                 }
             });
 
@@ -353,7 +364,15 @@ export namespace PhpRunner {
 
             const relativeScriptPath = yield* Effect.try({
                 try: () => writePhpScript(project.root, phpCode, scriptName),
-                catch: (error) => error as InstanceType<typeof VendorDirError | typeof WriteError>,
+                catch: (error) => {
+                    if (error instanceof NamedError) {
+                        return error as InstanceType<typeof VendorDirError | typeof WriteError>;
+                    }
+                    return new WriteError({
+                        path: project.root,
+                        message: error instanceof Error ? error.message : String(error),
+                    });
+                },
             });
 
             return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT, config.outputMarkers);

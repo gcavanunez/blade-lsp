@@ -1,5 +1,6 @@
 import { Position } from 'vscode-languageserver/node';
 import { Lexer } from '../../parser/lexer';
+import { PhpBridgeMapping } from './mapping';
 
 export namespace PhpBridgeRegions {
     export type RegionKind = 'php-tag' | 'blade-directive';
@@ -22,25 +23,7 @@ export namespace PhpBridgeRegions {
         signature: string;
     }
 
-    function offsetToPosition(source: string, offset: number): Position {
-        const safeOffset = Math.max(0, Math.min(offset, source.length));
-        const before = source.slice(0, safeOffset);
-        const parts = before.split('\n');
-
-        return Position.create(parts.length - 1, parts[parts.length - 1]?.length ?? 0);
-    }
-
-    function positionToOffset(source: string, position: Position): number {
-        const lines = source.split('\n');
-        let offset = 0;
-        const targetLine = Math.max(0, Math.min(position.line, lines.length - 1));
-
-        for (let line = 0; line < targetLine; line++) {
-            offset += lines[line].length + 1;
-        }
-
-        return offset + Math.max(0, Math.min(position.character, lines[targetLine]?.length ?? 0));
-    }
+    const { offsetToPosition, positionToOffset } = PhpBridgeMapping;
 
     function getPhpTagContentOffsets(
         source: string,

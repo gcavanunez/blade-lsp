@@ -29,7 +29,7 @@ export namespace LaravelContext {
         project: Project.AnyProject;
         views: DatasetState<ViewItem>;
         components: DatasetState<ComponentItem> & {
-            prefixes: string[];
+            prefixes: readonly string[];
         };
         directives: DatasetState<CustomDirective>;
     }

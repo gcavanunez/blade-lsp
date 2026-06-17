@@ -16,7 +16,7 @@ import { Views } from './views';
 import { Components } from './components';
 import { Directives } from './directives';
 import { MutableRef } from 'effect';
-import { FormatErrorForLog } from '../utils/format-error';
+import { ErrorFormat } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
 export namespace Laravel {
@@ -86,6 +86,12 @@ export namespace Laravel {
                     status: 'ok',
                     errors: [],
                 };
+            default: {
+                const _exhaustive: never = loadState;
+                throw new NamedError.Unknown({
+                    message: `Unexpected load state: ${(_exhaustive as LaravelContext.LoadState).status}`,
+                });
+            }
         }
     }
 
@@ -207,17 +213,17 @@ export namespace Laravel {
         if (viewResult.status === 'rejected') {
             log.error('Views refresh failed', { error: viewResult.reason });
             result.views = 'failed';
-            result.errors.push(FormatErrorForLog(viewResult.reason));
+            result.errors.push(ErrorFormat.forLog(viewResult.reason));
         }
         if (componentResult.status === 'rejected') {
             log.error('Components refresh failed', { error: componentResult.reason });
             result.components = 'failed';
-            result.errors.push(FormatErrorForLog(componentResult.reason));
+            result.errors.push(ErrorFormat.forLog(componentResult.reason));
         }
         if (directiveResult.status === 'rejected') {
             log.error('Directives refresh failed', { error: directiveResult.reason });
             result.directives = 'failed';
-            result.errors.push(FormatErrorForLog(directiveResult.reason));
+            result.errors.push(ErrorFormat.forLog(directiveResult.reason));
         }
 
         const storedResult = setLastRefreshResult(result);

@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { CompletionItem, CompletionList, Position } from 'vscode-languageserver/node';
+import type { CompletionItem, Position } from 'vscode-languageserver/node';
 import { createClient, type Client } from '../utils/client';
 import { PhpBridge } from '../../src/providers/php-bridge/bridge';
 import type { PhpBridgeBackend } from '../../src/providers/php-bridge/backend';
