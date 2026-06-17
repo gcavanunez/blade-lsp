@@ -9,9 +9,15 @@ export namespace Lexer {
         offsetEnd: number;
     }
 
+    export interface OffsetRange {
+        offsetStart: number;
+        offsetEnd: number;
+    }
+
     export interface LexedSource {
         lines: string[];
         directiveTokens: DirectiveToken[];
+        phpRanges: OffsetRange[];
     }
 
     function isDirectiveStartChar(ch: string | undefined): boolean {
@@ -26,8 +32,13 @@ export namespace Lexer {
         return !!ch && /[A-Za-z/!?]/.test(ch);
     }
 
-    export function collectDirectiveTokens(source: string): DirectiveToken[] {
+    function isInlinePhpDirectiveInvocation(source: string, offsetAfterDirective: number): boolean {
+        return /^\s*\(/.test(source.slice(offsetAfterDirective));
+    }
+
+    function scan(source: string): { directiveTokens: DirectiveToken[]; phpRanges: OffsetRange[] } {
         const tokens: DirectiveToken[] = [];
+        const phpRanges: OffsetRange[] = [];
 
         let i = 0;
         let line = 0;
@@ -37,6 +48,15 @@ export namespace Lexer {
         let inTagQuote: 'single' | 'double' | null = null;
         let inBladeComment = false;
         let inHtmlComment = false;
+
+        let inPhpTag = false;
+        let phpTagStart = -1;
+        let phpTagQuote: 'single' | 'double' | null = null;
+        let inPhpTagLineComment = false;
+        let inPhpTagBlockComment = false;
+
+        let inBladePhpBlock = false;
+        let bladePhpBlockStart = -1;
 
         function advance(count: number): void {
             for (let n = 0; n < count && i < source.length; n++) {
@@ -73,6 +93,83 @@ export namespace Lexer {
                 continue;
             }
 
+            if (inPhpTag) {
+                const ch = source[i];
+                const prev = i > 0 ? source[i - 1] : '';
+
+                if (inPhpTagLineComment) {
+                    if (ch === '\n') {
+                        inPhpTagLineComment = false;
+                    }
+                    advance(1);
+                    continue;
+                }
+
+                if (inPhpTagBlockComment) {
+                    if (source.startsWith('*/', i)) {
+                        inPhpTagBlockComment = false;
+                        advance(2);
+                        continue;
+                    }
+
+                    advance(1);
+                    continue;
+                }
+
+                if (phpTagQuote === 'single') {
+                    if (ch === "'" && prev !== '\\') {
+                        phpTagQuote = null;
+                    }
+                    advance(1);
+                    continue;
+                }
+
+                if (phpTagQuote === 'double') {
+                    if (ch === '"' && prev !== '\\') {
+                        phpTagQuote = null;
+                    }
+                    advance(1);
+                    continue;
+                }
+
+                if (source.startsWith('?>', i)) {
+                    inPhpTag = false;
+                    advance(2);
+                    if (phpTagStart >= 0) {
+                        phpRanges.push({ offsetStart: phpTagStart, offsetEnd: i });
+                    }
+                    phpTagStart = -1;
+                    continue;
+                }
+
+                if (source.startsWith('/*', i)) {
+                    inPhpTagBlockComment = true;
+                    advance(2);
+                    continue;
+                }
+
+                if (source.startsWith('//', i) || ch === '#') {
+                    inPhpTagLineComment = true;
+                    advance(1);
+                    continue;
+                }
+
+                if (ch === "'") {
+                    phpTagQuote = 'single';
+                    advance(1);
+                    continue;
+                }
+
+                if (ch === '"') {
+                    phpTagQuote = 'double';
+                    advance(1);
+                    continue;
+                }
+
+                advance(1);
+                continue;
+            }
+
             const ch = source[i];
 
             if (source.startsWith('{{--', i)) {
@@ -84,6 +181,16 @@ export namespace Lexer {
             if (source.startsWith('<!--', i)) {
                 inHtmlComment = true;
                 advance(4);
+                continue;
+            }
+
+            if (source.startsWith('<?', i)) {
+                inPhpTag = true;
+                phpTagStart = i;
+                phpTagQuote = null;
+                inPhpTagLineComment = false;
+                inPhpTagBlockComment = false;
+                advance(2);
                 continue;
             }
 
@@ -142,7 +249,7 @@ export namespace Lexer {
                 const name = source.slice(start, j);
                 const length = j - i;
 
-                tokens.push({
+                const token: DirectiveToken = {
                     kind: 'directive',
                     name,
                     line: startLine,
@@ -150,7 +257,31 @@ export namespace Lexer {
                     colEnd: startCol + length,
                     offsetStart: start,
                     offsetEnd: j,
-                });
+                };
+
+                if (inBladePhpBlock) {
+                    if (name === '@endphp') {
+                        if (bladePhpBlockStart >= 0 && bladePhpBlockStart <= token.offsetStart) {
+                            phpRanges.push({
+                                offsetStart: bladePhpBlockStart,
+                                offsetEnd: token.offsetStart,
+                            });
+                        }
+                        inBladePhpBlock = false;
+                        bladePhpBlockStart = -1;
+                        tokens.push(token);
+                    }
+
+                    advance(length);
+                    continue;
+                }
+
+                tokens.push(token);
+
+                if (name === '@php' && !isInlinePhpDirectiveInvocation(source, token.offsetEnd)) {
+                    inBladePhpBlock = true;
+                    bladePhpBlockStart = token.offsetEnd;
+                }
 
                 advance(length);
                 continue;
@@ -159,13 +290,50 @@ export namespace Lexer {
             advance(1);
         }
 
-        return tokens;
+        if (inPhpTag && phpTagStart >= 0) {
+            phpRanges.push({ offsetStart: phpTagStart, offsetEnd: source.length });
+        }
+
+        if (inBladePhpBlock && bladePhpBlockStart >= 0) {
+            phpRanges.push({ offsetStart: bladePhpBlockStart, offsetEnd: source.length });
+        }
+
+        return { directiveTokens: tokens, phpRanges };
+    }
+
+    export function collectDirectiveTokens(source: string): DirectiveToken[] {
+        return scan(source).directiveTokens;
+    }
+
+    function applyPhpMask(source: string, ranges: OffsetRange[]): string {
+        if (ranges.length === 0) return source;
+
+        const chars = source.split('');
+        for (const range of ranges) {
+            const start = Math.max(0, range.offsetStart);
+            const end = Math.min(source.length, range.offsetEnd);
+            for (let i = start; i < end; i++) {
+                if (chars[i] !== '\n' && chars[i] !== '\r') {
+                    chars[i] = ' ';
+                }
+            }
+        }
+
+        return chars.join('');
+    }
+
+    export function maskPhpContent(source: string): string {
+        const { phpRanges } = scan(source);
+        return applyPhpMask(source, phpRanges);
     }
 
     export function lexSource(source: string): LexedSource {
+        const { directiveTokens, phpRanges } = scan(source);
+
         return {
             lines: source.split('\n'),
-            directiveTokens: collectDirectiveTokens(source),
+            directiveTokens,
+            phpRanges,
         };
     }
 }

@@ -28,6 +28,7 @@ import {
     type Location,
     type CodeAction,
     type Diagnostic,
+    type Range,
     type PublishDiagnosticsParams,
 } from 'vscode-languageserver/node';
 import type { ProtocolConnection } from 'vscode-languageclient';
@@ -62,7 +63,7 @@ export interface ClientDocument {
     /** Send a definition request at the given position */
     definition(line: number, character: number): Promise<Location | Location[] | null>;
     /** Request code actions for current diagnostics */
-    codeActions(diagnostics?: Diagnostic[]): Promise<CodeAction[]>;
+    codeActions(options?: { diagnostics?: Diagnostic[]; range?: Range; only?: string[] }): Promise<CodeAction[]>;
     /** Get the latest diagnostics for this document */
     diagnostics(): Promise<Diagnostic[]>;
     /** Update the document content */
@@ -231,16 +232,25 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                 })) as Location | Location[] | null;
             },
 
-            async codeActions(diagnostics?: Diagnostic[]): Promise<CodeAction[]> {
-                const contextDiagnostics = diagnostics ?? (await this.diagnostics());
-                const result = await rpc.sendRequest(CodeActionRequest.type, {
-                    textDocument: { uri },
-                    range: {
+            async codeActions(options?: {
+                diagnostics?: Diagnostic[];
+                range?: Range;
+                only?: string[];
+            }): Promise<CodeAction[]> {
+                const contextDiagnostics = options?.diagnostics ?? (await this.diagnostics());
+                const range =
+                    options?.range ??
+                    ({
                         start: { line: 0, character: 0 },
                         end: { line: 0, character: 0 },
-                    },
+                    } satisfies Range);
+
+                const result = await rpc.sendRequest(CodeActionRequest.type, {
+                    textDocument: { uri },
+                    range,
                     context: {
                         diagnostics: contextDiagnostics,
+                        only: options?.only,
                     },
                 });
 

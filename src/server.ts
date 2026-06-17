@@ -5,6 +5,7 @@ import {
     TextDocumentSyncKind,
     CompletionItem,
     CodeAction,
+    CodeActionKind,
     CodeActionParams,
     Hover,
     Diagnostic,
@@ -189,7 +190,13 @@ export namespace Server {
                     },
                     hoverProvider: true,
                     definitionProvider: true,
-                    codeActionProvider: true,
+                    codeActionProvider: {
+                        codeActionKinds: [
+                            CodeActionKind.QuickFix,
+                            CodeActionKind.Refactor,
+                            CodeActionKind.RefactorExtract,
+                        ],
+                    },
                 },
             };
         });
@@ -544,10 +551,12 @@ export namespace Server {
             if (!document) return [];
 
             const workspaceRoot = MutableRef.get(Container.get().workspaceRoot);
-            return CodeActions.getScaffoldActions({
+            return CodeActions.getActions({
                 document,
                 diagnostics: params.context.diagnostics,
                 workspaceRoot,
+                range: params.range,
+                only: params.context.only,
             });
         });
 
