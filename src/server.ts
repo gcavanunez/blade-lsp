@@ -406,7 +406,7 @@ export namespace Server {
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
 
-        conn.onCompletion((params: TextDocumentPositionParams): CompletionItem[] => {
+        conn.onCompletion(async (params: TextDocumentPositionParams): Promise<CompletionItem[]> => {
             const document = docs.get(params.textDocument.uri);
             if (!document) return [];
 
@@ -414,6 +414,14 @@ export namespace Server {
             const position = params.position;
             const source = document.getText();
             const currentLine = source.split('\n')[position.line] || '';
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                const bridgeItems = await PhpBridge.getCompletion(phpBridge, document, position);
+                if (bridgeItems) {
+                    return bridgeItems;
+                }
+            }
+
             const context = BladeParser.getCompletionContext(tree, source, position.line, position.character);
             const wireAttributeItems = Completions.getWireAttributeCompletions(source, currentLine, position);
             if (wireAttributeItems.length > 0) {
