@@ -118,4 +118,51 @@ describe('PhpBridge backend skeleton', () => {
 
         await PhpBridge.shutdown(state);
     });
+
+    it('skips backend resync when only non-php regions change', async () => {
+        workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-bridge-signature-'));
+        let syncCount = 0;
+
+        PhpBridge.setBackendFactoryForTests(() => ({
+            start: async () => {},
+            openOrUpdate: async () => {
+                syncCount++;
+            },
+            hover: async () => null,
+            definition: async () => null,
+            completion: async () => null,
+            shutdown: async () => {},
+        }));
+
+        const state = PhpBridge.createState(
+            workspaceRoot,
+            { enableEmbeddedPhpBridge: true },
+            { log: () => {}, error: () => {} },
+        );
+
+        const firstDocument = TextDocument.create(
+            `file://${workspaceRoot}/resources/views/example.blade.php`,
+            'blade',
+            1,
+            '<div class="one">Hello</div>\n<?php $foo = 1; ?>',
+        );
+        const secondDocument = TextDocument.create(
+            firstDocument.uri,
+            'blade',
+            2,
+            '<main>Updated</main>\n<div class="two">Hello</div>\n<?php $foo = 1; ?>',
+        );
+
+        const first = await PhpBridge.syncDocument(state, firstDocument);
+        const second = await PhpBridge.syncDocument(state, secondDocument);
+
+        expect(first.signature).toBe(second.signature);
+        expect(first.shadow.shadowUri).toBe(second.shadow.shadowUri);
+        expect(first.shadow.regions[0]?.bladeContentOffsetStart).not.toBe(
+            second.shadow.regions[0]?.bladeContentOffsetStart,
+        );
+        expect(syncCount).toBe(1);
+
+        await PhpBridge.shutdown(state);
+    });
 });
