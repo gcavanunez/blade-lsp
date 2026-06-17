@@ -13,7 +13,7 @@ type WasmLanguage = {
 };
 
 type WasmParserInstance = {
-    parse(source: string): ParserTypes.Tree;
+    parse(source: string, previousTree?: unknown): ParserTypes.Tree;
     setLanguage(language: unknown): void;
 };
 
@@ -93,12 +93,12 @@ export namespace WasmBackend {
                 parser.setLanguage(language);
             },
 
-            parse(source: string): ParserTypes.Tree {
+            parse(source: string, previousTree?: ParserTypes.Tree): ParserTypes.Tree {
                 if (!parser) {
                     throw new Error('WasmBackend not initialized. Call initialize() first.');
                 }
 
-                const tree = parser.parse(source);
+                const tree = parser.parse(source, previousTree as unknown);
 
                 // web-tree-sitter nodes are structurally compatible with ParserTypes.
                 // hasError and isMissing are getter properties in web-tree-sitter,

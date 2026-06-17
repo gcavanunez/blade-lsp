@@ -43,7 +43,7 @@ export class DocumentsService extends Context.Tag('DocumentsService')<
  */
 export interface ParserApi {
     initialize(): Promise<void>;
-    parse(source: string): BladeParser.Tree;
+    parse(source: string, previousTree?: BladeParser.Tree): BladeParser.Tree;
 }
 
 export class ParserService extends Context.Tag('ParserService')<ParserService, ParserApi>() {}
@@ -89,6 +89,14 @@ export class WorkspaceRootService extends Context.Tag('WorkspaceRootService')<
 export class TreeCacheService extends Context.Tag('TreeCacheService')<
     TreeCacheService,
     Map<string, BladeParser.Tree>
+>() {}
+
+/**
+ * Last parsed document source per URI.
+ */
+export class DocumentSourceCacheService extends Context.Tag('DocumentSourceCacheService')<
+    DocumentSourceCacheService,
+    Map<string, string>
 >() {}
 
 /**

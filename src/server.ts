@@ -18,6 +18,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { BladeParser } from './parser';
+import { ParserIncremental } from './parser/incremental';
 import { BladeDirectives } from './directives';
 import { Laravel } from './laravel/index';
 import { Directives } from './laravel/directives';
@@ -75,8 +76,24 @@ export namespace Server {
     }
 
     function parseDocument(document: TextDocument): BladeParser.Tree {
-        const tree = BladeParser.parse(document.getText());
-        Container.get().treeCache.set(document.uri, tree);
+        const container = Container.get();
+        const source = document.getText();
+        const previousTree = container.treeCache.get(document.uri);
+        const previousSource = container.documentSourceCache.get(document.uri);
+
+        let tree: BladeParser.Tree;
+        if (previousTree && previousSource !== undefined) {
+            const edit = ParserIncremental.computeEdit(previousSource, source);
+            if (edit) {
+                ParserIncremental.applyEdit(previousTree, edit);
+            }
+            tree = BladeParser.parse(source, previousTree);
+        } else {
+            tree = BladeParser.parse(source);
+        }
+
+        container.treeCache.set(document.uri, tree);
+        container.documentSourceCache.set(document.uri, source);
         return tree;
     }
 
@@ -115,7 +132,12 @@ export namespace Server {
 
     const build = (externalConn?: Connection) => {
         Container.build(externalConn);
-        const { connection: conn, documents: docs, treeCache: cache } = Container.get();
+        const {
+            connection: conn,
+            documents: docs,
+            treeCache: cache,
+            documentSourceCache: sourceCache,
+        } = Container.get();
         const diagnosticStore = DiagnosticStore.create();
 
         function publishDiagnosticsForDocument(document: TextDocument): void {
@@ -336,6 +358,7 @@ export namespace Server {
 
         docs.onDidClose((event) => {
             cache.delete(event.document.uri);
+            sourceCache.delete(event.document.uri);
             diagnosticStore.delete(event.document.uri);
             conn.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
