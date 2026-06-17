@@ -49,4 +49,23 @@ new class extends Component {
         );
         expect(symbols.find((item) => item.name === '$local')).toBeUndefined();
     });
+
+    it('extracts Livewire action methods', () => {
+        const source = `<?php
+new class extends Component {
+    public function save(): void {}
+    public function publish() {}
+    protected function hidden() {}
+};
+?>`;
+
+        const methods = PhpPreambleSymbols.getMethods(source);
+        expect(methods).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ name: 'save', returnType: 'void', source: 'livewire-method' }),
+                expect.objectContaining({ name: 'publish', source: 'livewire-method' }),
+            ]),
+        );
+        expect(methods.find((item) => item.name === 'hidden')).toBeUndefined();
+    });
 });

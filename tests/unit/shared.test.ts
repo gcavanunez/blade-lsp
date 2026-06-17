@@ -72,4 +72,26 @@ describe('Shared', () => {
             expect(result!.existingProps).toContain('items');
         });
     });
+
+    describe('getAttributeValueContextAtColumn', () => {
+        it('returns wire:model value context', () => {
+            const line = '<input wire:model="title">';
+            const context = Shared.getAttributeValueContextAtColumn(line, 20);
+
+            expect(context).toEqual({
+                name: 'wire:model',
+                value: 'title',
+                valueStart: 19,
+                valueEnd: 24,
+            });
+        });
+
+        it('returns wire action value context with modifier', () => {
+            const line = '<form wire:submit.prevent="save">';
+            const context = Shared.getAttributeValueContextAtColumn(line, 29);
+
+            expect(context?.name).toBe('wire:submit.prevent');
+            expect(context?.value).toBe('save');
+        });
+    });
 });

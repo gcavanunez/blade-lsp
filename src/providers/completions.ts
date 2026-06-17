@@ -17,6 +17,7 @@ import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
 import type { ViewItem, ComponentItem, CustomDirective } from '../laravel/types';
 import { Components as ComponentsNs } from '../laravel/components';
+import { PhpPreambleSymbols } from './php-preamble-symbols';
 
 export namespace Completions {
     export type ParsedProp = Shared.ParsedProp;
@@ -38,6 +39,18 @@ export namespace Completions {
         sections: string[];
         stacks: string[];
     }
+
+    const LIVEWIRE_MODEL_PREFIXES = ['wire:model'];
+    const LIVEWIRE_ACTION_PREFIXES = [
+        'wire:submit',
+        'wire:click',
+        'wire:change',
+        'wire:input',
+        'wire:keydown',
+        'wire:keyup',
+        'wire:blur',
+        'wire:init',
+    ];
 
     const DEFAULT_SECTION_NAMES = ['content', 'title', 'scripts', 'styles'] as const;
     const DEFAULT_STACK_NAMES = ['scripts', 'styles'] as const;
@@ -272,6 +285,37 @@ export namespace Completions {
             insertText: helper.snippet,
             insertTextFormat: InsertTextFormat.Snippet,
         }));
+    }
+
+    function isWireModelAttribute(name: string): boolean {
+        return LIVEWIRE_MODEL_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+    }
+
+    function isWireActionAttribute(name: string): boolean {
+        return LIVEWIRE_ACTION_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`));
+    }
+
+    export function getWireAttributeCompletions(source: string, line: string, position: Position): CompletionItem[] {
+        const context = Shared.getAttributeValueContextAtColumn(line, position.character);
+        if (!context) return [];
+
+        const range = Range.create(position.line, context.valueStart, position.line, context.valueEnd);
+
+        if (isWireModelAttribute(context.name)) {
+            return PhpPreambleSymbols.toLivewirePropertyItems(source).map((item) => ({
+                ...item,
+                textEdit: TextEdit.replace(range, item.label),
+            }));
+        }
+
+        if (isWireActionAttribute(context.name)) {
+            return PhpPreambleSymbols.toLivewireMethodItems(source).map((item) => ({
+                ...item,
+                textEdit: TextEdit.replace(range, item.label),
+            }));
+        }
+
+        return [];
     }
 
     function createValueItem(label: string, detail: string): CompletionItem {
