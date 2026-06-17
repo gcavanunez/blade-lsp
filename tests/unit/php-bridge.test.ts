@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Position, Range } from 'vscode-languageserver/node';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Lexer } from '../../src/parser/lexer';
 import { PhpBridgeRegions } from '../../src/providers/php-bridge/regions';
 import { PhpBridgeShadowDocument } from '../../src/providers/php-bridge/shadow-document';
@@ -102,7 +103,7 @@ $foo = bar();
         expect(invalid.kind).toBe('synthetic');
     });
 
-    it('stores shadow documents by blade uri and version', () => {
+    it('stores persistent bridge document state per blade uri', () => {
         const extraction = PhpBridgeRegions.extract(source);
         const shadow = PhpBridgeShadowDocument.build(
             '/workspace',
@@ -110,20 +111,24 @@ $foo = bar();
             extraction,
         );
         const store = PhpBridgeStore.create();
+        const document = TextDocument.create(shadow.bladeUri, 'blade', 3, source);
 
-        store.set({
-            bladeUri: shadow.bladeUri,
-            version: 3,
-            source,
-            signature: extraction.signature,
-            shadow,
-        });
+        const applied = store.apply(document, extraction, shadow);
 
-        expect(store.get(shadow.bladeUri, 2, source)).toBeNull();
-        expect(store.get(shadow.bladeUri, 3, 'changed')).toBeNull();
-        expect(store.get(shadow.bladeUri, 3, source)?.shadow.shadowUri).toBe(shadow.shadowUri);
+        expect(applied.phpChanged).toBe(true);
+        expect(store.get(shadow.bladeUri)?.bladeVersion).toBe(3);
+        expect(store.get(shadow.bladeUri)?.extraction.signature).toBe(extraction.signature);
+
+        store.markBackendSynced(shadow.bladeUri, 7);
+        expect(store.get(shadow.bladeUri)?.backendSyncedVersion).toBe(7);
+
+        const reapplied = store.apply(TextDocument.create(shadow.bladeUri, 'blade', 4, source), extraction, shadow);
+        expect(reapplied.phpChanged).toBe(false);
+        expect(reapplied.state.backendSyncedVersion).toBe(7);
+
+        expect(store.get('file:///workspace/other.blade.php')).toBeNull();
 
         store.clear(shadow.bladeUri);
-        expect(store.get(shadow.bladeUri, 3, source)).toBeNull();
+        expect(store.get(shadow.bladeUri)).toBeNull();
     });
 });
