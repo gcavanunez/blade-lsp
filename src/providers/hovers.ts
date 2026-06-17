@@ -56,7 +56,7 @@ export namespace Hovers {
     export function formatDirective(directive: BladeDirectives.Directive): string {
         let content = `## ${directive.name}\n\n${directive.description}\n\n`;
         if (directive.parameters) content += `**Parameters:** \`${directive.parameters}\`\n\n`;
-        if (directive.hasEndTag && directive.endTag) content += `**End tag:** \`${directive.endTag}\`\n\n`;
+        if (directive.hasEndTag) content += `**End tag:** \`${directive.endTag}\`\n\n`;
         if (directive.snippet) {
             content += '**Example:**\n```blade\n';
             // Strip snippet placeholders (${1:text}, $1) for readable docs output.

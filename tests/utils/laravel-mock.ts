@@ -110,7 +110,7 @@ export const DEFAULT_LIVEWIRE_VIEWS: ViewItem[] = [
         livewire: {
             props: [
                 { name: 'count', type: 'int', hasDefaultValue: true, defaultValue: 0 },
-                { name: 'label', type: 'string', hasDefaultValue: false, defaultValue: null },
+                { name: 'label', type: 'string', hasDefaultValue: false },
             ],
             files: ['app/Livewire/Counter.php', 'resources/views/livewire/counter.blade.php'],
         },
