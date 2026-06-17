@@ -1,8 +1,10 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { Position, type Hover } from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Server } from '../../server';
 import { PhpBridgeBackend } from './backend';
+import { PhpBridgeMapping } from './mapping';
 import { PhpBridgeRegions } from './regions';
 import { PhpBridgeShadowDocument } from './shadow-document';
 import { PhpBridgeStore } from './store';
@@ -87,12 +89,13 @@ export namespace PhpBridge {
     }
 
     export async function syncDocument(state: State, document: TextDocument): Promise<PhpBridgeStore.Entry> {
-        const cached = state.store.get(document.uri, document.version);
+        const source = document.getText();
+        const cached = state.store.get(document.uri, document.version, source);
         if (cached) {
             return cached;
         }
 
-        const extraction = PhpBridgeRegions.extract(document.getText());
+        const extraction = PhpBridgeRegions.extract(source);
         const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction);
 
         await mkdir(path.dirname(shadow.shadowPath), { recursive: true });
@@ -101,6 +104,7 @@ export namespace PhpBridge {
         const entry: PhpBridgeStore.Entry = {
             bladeUri: document.uri,
             version: document.version,
+            source,
             shadow,
         };
         state.store.set(entry);
@@ -124,5 +128,25 @@ export namespace PhpBridge {
 
         state.backend = null;
         state.store.clear();
+    }
+
+    export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
+        try {
+            const entry = await syncDocument(state, document);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(document.getText(), entry.shadow, position);
+            if (mapped.kind !== 'mapped') {
+                return null;
+            }
+
+            const backend = await ensureBackend(state);
+            if (!backend) {
+                return null;
+            }
+
+            return await backend.hover(entry.shadow.shadowUri, mapped.position);
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge hover failed: ${String(error)}`);
+            return null;
+        }
     }
 }
