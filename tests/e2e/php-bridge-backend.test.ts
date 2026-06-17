@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Position } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -26,6 +27,7 @@ function parseCommand(): string[] {
 
 describeIfConfigured('Embedded PHP bridge backend viability (E2E)', () => {
     let workspaceRoot = '';
+    const logs: string[] = [];
 
     beforeAll(async () => {
         workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'blade-lsp-php-bridge-e2e-'));
@@ -79,8 +81,8 @@ class Post
                 embeddedPhpLspCommand: parseCommand(),
             },
             {
-                log: () => {},
-                error: () => {},
+                log: (message) => logs.push(message),
+                error: (message) => logs.push(`ERROR ${message}`),
             },
         );
 
@@ -103,6 +105,11 @@ $post = new Post();
             const entryV1 = await PhpBridge.syncDocument(state, documentV1);
             const backend = await PhpBridge.ensureBackend(state);
             expect(backend).not.toBeNull();
+            if (backend) {
+                await backend.waitForReady();
+            }
+            logs.push(`SHADOW_URI ${entryV1.shadow.shadowUri}`);
+            logs.push(`SHADOW_CONTENT\n${entryV1.shadow.content}`);
 
             const classRef = PhpBridgeMapping.bladePositionToShadowPosition(
                 sourceV1,
@@ -110,13 +117,23 @@ $post = new Post();
                 Position.create(3, 13),
             );
             expect(classRef.kind).toBe('mapped');
+            logs.push(`MAPPED_CLASS_REF ${JSON.stringify(classRef)}`);
 
             if (backend && classRef.kind === 'mapped') {
-                const definition = await backend.definition(entryV1.shadow.shadowUri, classRef.position);
+                let definition = await backend.definition(entryV1.shadow.shadowUri, classRef.position);
+                for (
+                    let attempt = 0;
+                    attempt < 5 && (!definition || (Array.isArray(definition) && definition.length === 0));
+                    attempt++
+                ) {
+                    await delay(1000);
+                    definition = await backend.definition(entryV1.shadow.shadowUri, classRef.position);
+                    logs.push(`DEFINITION_RETRY_${attempt + 1} ${JSON.stringify(definition)}`);
+                }
                 expect(definition).not.toBeNull();
 
                 const firstLocation = Array.isArray(definition) ? definition[0] : definition;
-                expect(firstLocation?.uri).toContain('/app/Models/Post.php');
+                expect(firstLocation?.uri, logs.join('\n')).toContain('/app/Models/Post.php');
             }
 
             const sourceV2 = sourceV1.replace('$post = new Post();', '$post = new Post(); // touch');
@@ -131,6 +148,7 @@ $post = new Post();
                 Position.create(3, 14),
             );
             expect(hoverTarget.kind).toBe('mapped');
+            logs.push(`MAPPED_HOVER_REF ${JSON.stringify(hoverTarget)}`);
 
             if (backend && hoverTarget.kind === 'mapped') {
                 const hover = await backend.hover(entryV2.shadow.shadowUri, hoverTarget.position);

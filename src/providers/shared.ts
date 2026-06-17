@@ -117,7 +117,7 @@ export namespace Shared {
     }
 
     export function getComponentTagMatches(line: string): CapturedMatch[] {
-        const pattern = /<(x-[\w.-]+(?:::[\w.-]+)?|livewire:[\w.-]+|[\w]+:[\w.-]+)(?=[\s/>])/g;
+        const pattern = /<(x-[\w.-]+(?:::[\w.-]+)?|livewire:[\w.:-]+|[\w]+:[\w.-]+)(?=[\s/>])/g;
         const matches: CapturedMatch[] = [];
 
         let match: RegExpExecArray | null;
@@ -237,7 +237,7 @@ export namespace Shared {
                 break;
             }
 
-            const componentMatch = lineText.match(/<(x-[\w.-]+(?:::[\w.-]+)?|[\w]+:[\w.-]+)/);
+            const componentMatch = lineText.match(/<(x-[\w.-]+(?:::[\w.-]+)?|livewire:[\w.:-]+|[\w]+:[\w.-]+)/);
             if (componentMatch) {
                 const tagStart = lineText.indexOf(componentMatch[0]);
                 const fullTagName = componentMatch[1];

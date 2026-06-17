@@ -145,6 +145,38 @@ render(function (View $view, Post $post) {
             await doc.close();
         });
 
+        it('provides flux completions for <flux: short-form syntax', async () => {
+            const doc = await client.open({
+                text: '<div>\n<flux:\n</div>',
+            });
+
+            const items = await doc.completions(1, 6);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('flux:button');
+            expect(labels).toContain('flux:input');
+            expect(labels).toContain('flux:modal');
+            // Should not include non-flux components in short form
+            expect(labels).not.toContain('x-button');
+
+            await doc.close();
+        });
+
+        it('filters flux completions by partial name', async () => {
+            const doc = await client.open({
+                text: '<div>\n<flux:but\n</div>',
+            });
+
+            const items = await doc.completions(1, 9);
+            const labels = items.map((i) => i.label);
+
+            expect(labels).toContain('flux:button');
+            expect(labels).not.toContain('flux:input');
+            expect(labels).not.toContain('flux:modal');
+
+            await doc.close();
+        });
+
         it('includes Livewire public properties from php preambles in echo completions', async () => {
             const doc = await client.open({
                 text: `<?php

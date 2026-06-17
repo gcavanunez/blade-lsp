@@ -32,6 +32,13 @@ describe('Shared', () => {
             expect(result!.componentName).toBe('flux:button');
         });
 
+        it('handles Livewire 4 namespaced component tags with ::', () => {
+            const source = '<livewire:pages::settings.two-factor.enable :enabled="true" />';
+            const result = Shared.getComponentPropContext(source, 0, 60);
+            expect(result).not.toBeNull();
+            expect(result!.componentName).toBe('livewire:pages::settings.two-factor.enable');
+        });
+
         it('skips x-slot tags', () => {
             const source = '<x-slot name="header">';
             const result = Shared.getComponentPropContext(source, 0, 21);

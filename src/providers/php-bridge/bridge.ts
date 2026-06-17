@@ -1,10 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
+    CompletionTriggerKind,
+    InsertReplaceEdit,
     Position,
     TextEdit,
     type CompletionItem,
     type CompletionList,
+    type CompletionContext,
     type Hover,
     type Location,
 } from 'vscode-languageserver/node';
@@ -17,6 +20,9 @@ import { PhpBridgeShadowDocument } from './shadow-document';
 import { PhpBridgeStore } from './store';
 
 export namespace PhpBridge {
+    const COMPLETION_BRIDGE_DATA_KEY = '__bladePhpBridge';
+    const EAGER_COMPLETION_RESOLVE_LIMIT = 20;
+
     export interface Logger {
         log(message: string): void;
         error(message: string): void;
@@ -27,9 +33,15 @@ export namespace PhpBridge {
         settings: Server.Settings;
         logger: Logger;
         store: PhpBridgeStore.Store;
-        backend: PhpBridgeBackend.Client | null;
+        backendLifecycle: BackendLifecycle;
         shadowVersion: number;
     }
+
+    type BackendLifecycle =
+        | { kind: 'idle' }
+        | { kind: 'starting'; promise: Promise<PhpBridgeBackend.Client | null> }
+        | { kind: 'ready'; client: PhpBridgeBackend.Client }
+        | { kind: 'stopping'; promise: Promise<void> };
 
     type BackendFactory = (config: PhpBridgeBackend.BackendConfig) => PhpBridgeBackend.Client;
 
@@ -45,7 +57,7 @@ export namespace PhpBridge {
             settings,
             logger,
             store: PhpBridgeStore.create(),
-            backend: null,
+            backendLifecycle: { kind: 'idle' },
             shadowVersion: 0,
         };
     }
@@ -68,50 +80,150 @@ export namespace PhpBridge {
             return null;
         }
 
+        const defaultIntelephenseInit = {
+            globalStoragePath: path.join(process.env.HOME ?? workspaceRoot, '.local', 'share', 'intelephense'),
+            storagePath: path.join(process.env.HOME ?? workspaceRoot, '.local', 'share', 'intelephense'),
+        };
+        const defaultIntelephenseSettings = {
+            intelephense: {
+                client: {
+                    autoCloseDocCommentDoSuggest: true,
+                },
+                files: {
+                    maxSize: 10_000_000,
+                },
+            },
+        };
+
         return {
             backendName,
             command,
             workspaceRoot,
+            initializationOptions:
+                backendName === 'intelephense'
+                    ? {
+                          ...defaultIntelephenseInit,
+                          ...(settings.intelephense?.initializationOptions ?? {}),
+                      }
+                    : (settings.phpactor?.initializationOptions ?? undefined),
+            settings:
+                backendName === 'intelephense'
+                    ? {
+                          ...defaultIntelephenseSettings,
+                          ...(settings.intelephense?.settings ?? {}),
+                      }
+                    : (settings.phpactor?.settings ?? undefined),
         };
     }
 
     export async function ensureBackend(state: State): Promise<PhpBridgeBackend.Client | null> {
-        if (state.backend) {
-            return state.backend;
-        }
+        while (true) {
+            const lifecycle = state.backendLifecycle;
 
-        const config = resolveBackendConfig(state.settings, state.workspaceRoot);
-        if (!config) {
-            return null;
-        }
+            switch (lifecycle.kind) {
+                case 'ready':
+                    return lifecycle.client;
+                case 'starting':
+                    return await lifecycle.promise;
+                case 'stopping':
+                    await lifecycle.promise;
+                    continue;
+                case 'idle': {
+                    const config = resolveBackendConfig(state.settings, state.workspaceRoot);
+                    if (!config) {
+                        return null;
+                    }
 
-        const backend = backendFactory(config);
-        try {
-            await backend.start();
-            state.backend = backend;
-            state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
-            return backend;
-        } catch (error) {
-            state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
-            return null;
+                    const startPromise = (async () => {
+                        const backend = backendFactory({
+                            ...config,
+                            logger: state.logger,
+                        });
+
+                        try {
+                            await backend.start();
+                            state.logger.log(`Embedded PHP bridge backend started (${config.backendName})`);
+
+                            // After the indexer finishes, re-sync all open shadow
+                            // documents so the backend re-analyzes them with a
+                            // complete index.
+                            backend.onReady(() => {
+                                state.logger.log('[php-bridge] backend indexer ready — re-syncing open documents');
+                                for (const entry of state.store.all()) {
+                                    state.shadowVersion += 1;
+                                    backend.reopen({
+                                        uri: entry.shadow.shadowUri,
+                                        version: state.shadowVersion,
+                                        text: entry.shadow.content,
+                                    });
+                                    state.store.markBackendSynced(entry.bladeUri, state.shadowVersion);
+                                }
+                            });
+
+                            return backend;
+                        } catch (error) {
+                            state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
+                            return null;
+                        }
+                    })();
+
+                    state.backendLifecycle = { kind: 'starting', promise: startPromise };
+
+                    const backend = await startPromise;
+                    if (state.backendLifecycle.kind === 'starting' && state.backendLifecycle.promise === startPromise) {
+                        state.backendLifecycle = backend ? { kind: 'ready', client: backend } : { kind: 'idle' };
+                    }
+
+                    return backend;
+                }
+            }
         }
     }
 
     export async function syncDocument(
         state: State,
         document: TextDocument,
+        activePosition?: Position,
     ): Promise<PhpBridgeStore.BridgeDocumentState> {
         const source = document.getText();
         const current = state.store.get(document.uri);
+        const backendEnabled = isEnabled(state.settings);
         if (current && current.bladeVersion === document.version && current.source === source) {
-            return current;
+            if (!activePosition) {
+                if (!backendEnabled || current.backendSyncedVersion !== null) {
+                    return current;
+                }
+            } else {
+                const activeRegion = PhpBridgeRegions.getRegionAtPosition(
+                    source,
+                    current.extraction.regions,
+                    activePosition,
+                );
+                if ((activeRegion?.id ?? null) === current.activeRegionId) {
+                    if (!backendEnabled || current.backendSyncedVersion !== null) {
+                        return current;
+                    }
+                }
+            }
         }
 
         const extraction = PhpBridgeRegions.extract(source);
-        const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction);
+        const activeRegion = activePosition
+            ? PhpBridgeRegions.getRegionAtPosition(source, extraction.regions, activePosition)
+            : null;
+        const activeRegionId = activeRegion?.id ?? null;
+        const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
+            activeRegionId: activeRegionId ?? undefined,
+            shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
+        });
         const previous = state.store.get(document.uri);
-        const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow);
-        const shouldResyncBackend = !previous || phpChanged;
+        const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow, activeRegionId);
+        const shouldResyncBackend =
+            backendEnabled && (!previous || phpChanged || documentState.backendSyncedVersion === null);
+
+        state.logger.log(
+            `[php-bridge] sync ${document.uri} bladeVersion=${document.version} phpChanged=${String(phpChanged)} regions=${extraction.regions.length} activeRegion=${activeRegionId ?? 'none'}`,
+        );
 
         if (shouldResyncBackend) {
             await mkdir(path.dirname(shadow.shadowPath), { recursive: true });
@@ -132,19 +244,73 @@ export namespace PhpBridge {
     }
 
     export async function shutdown(state: State): Promise<void> {
-        if (state.backend) {
-            await state.backend.shutdown();
+        while (true) {
+            const lifecycle = state.backendLifecycle;
+
+            switch (lifecycle.kind) {
+                case 'idle':
+                    state.store.clear();
+                    return;
+                case 'stopping':
+                    await lifecycle.promise;
+                    state.store.clear();
+                    return;
+                case 'starting':
+                case 'ready': {
+                    const stopPromise = (async () => {
+                        try {
+                            const backend = lifecycle.kind === 'starting' ? await lifecycle.promise : lifecycle.client;
+                            if (backend) {
+                                await backend.shutdown();
+                            }
+                        } finally {
+                            state.backendLifecycle = { kind: 'idle' };
+                        }
+                    })();
+
+                    state.backendLifecycle = { kind: 'stopping', promise: stopPromise };
+                    await stopPromise;
+                    state.store.clear();
+                    return;
+                }
+            }
+        }
+    }
+
+    export async function closeDocument(state: State, bladeUri: string): Promise<void> {
+        const entry = state.store.get(bladeUri);
+        if (!entry) {
+            return;
         }
 
-        state.backend = null;
-        state.store.clear();
+        state.store.clear(bladeUri);
+
+        const shadowUri = entry.shadow.shadowUri;
+        switch (state.backendLifecycle.kind) {
+            case 'idle':
+            case 'stopping':
+                return;
+            case 'ready':
+                await state.backendLifecycle.client.close(shadowUri);
+                return;
+            case 'starting': {
+                const backend = await state.backendLifecycle.promise;
+                if (backend) {
+                    await backend.close(shadowUri);
+                }
+                return;
+            }
+        }
     }
 
     export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
         try {
-            const entry = await syncDocument(state, document);
+            const entry = await syncDocument(state, document, position);
             const mapped = PhpBridgeMapping.bladePositionToShadowPosition(entry.source, entry.shadow, position);
             if (mapped.kind !== 'mapped') {
+                state.logger.log(
+                    `[php-bridge] hover fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
+                );
                 return null;
             }
 
@@ -166,10 +332,13 @@ export namespace PhpBridge {
         position: Position,
     ): Promise<Location | Location[] | null> {
         try {
-            const entry = await syncDocument(state, document);
+            const entry = await syncDocument(state, document, position);
             const source = entry.source;
             const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
             if (mapped.kind !== 'mapped') {
+                state.logger.log(
+                    `[php-bridge] definition fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
+                );
                 return null;
             }
 
@@ -216,13 +385,18 @@ export namespace PhpBridge {
     function remapTextEdit(
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
-        edit: TextEdit | undefined,
+        edit: TextEdit | InsertReplaceEdit | undefined,
     ): TextEdit | null {
         if (!edit) {
             return null;
         }
 
-        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, edit.range);
+        // Intelephense returns InsertReplaceEdit (with insert/replace ranges)
+        // while phpactor returns TextEdit (with a single range).  Normalize
+        // to a single range by preferring the replace range.
+        const range = InsertReplaceEdit.is(edit) ? edit.replace : edit.range;
+
+        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, range);
         if (mapped.kind !== 'mapped') {
             return null;
         }
@@ -271,7 +445,9 @@ export namespace PhpBridge {
         item: CompletionItem,
     ): CompletionItem | null {
         const textEdit =
-            'textEdit' in item ? remapTextEdit(source, shadow, item.textEdit as TextEdit | undefined) : null;
+            'textEdit' in item
+                ? remapTextEdit(source, shadow, item.textEdit as TextEdit | InsertReplaceEdit | undefined)
+                : null;
         if ('textEdit' in item && item.textEdit && !textEdit) {
             return null;
         }
@@ -289,21 +465,60 @@ export namespace PhpBridge {
 
         return {
             ...item,
+            data: {
+                ...(typeof item.data === 'object' && item.data !== null ? item.data : {}),
+                [COMPLETION_BRIDGE_DATA_KEY]: true,
+                bladeUri: shadow.bladeUri,
+            },
             ...(textEdit ? { textEdit } : {}),
             ...(additionalTextEdits ? { additionalTextEdits } : {}),
         };
+    }
+
+    function scoreCompletionItem(item: CompletionItem): number {
+        const detail = typeof item.detail === 'string' ? item.detail : '';
+        const docsValue =
+            item.documentation && typeof item.documentation === 'object' && 'value' in item.documentation
+                ? item.documentation.value
+                : typeof item.documentation === 'string'
+                  ? item.documentation
+                  : '';
+        const importText = item.additionalTextEdits?.map((edit) => edit.newText).join('\n') ?? '';
+
+        let score = 0;
+        if (item.label.includes('(App)')) score += 100;
+        if (detail.includes('App\\Models\\')) score += 80;
+        if (docsValue.includes('App\\Models\\')) score += 60;
+        if (importText.includes('use App\\')) score += 40;
+        if (typeof item.sortText === 'string' && item.sortText.startsWith('0')) score += 5;
+        return score;
+    }
+
+    function sortBridgeCompletionItems(items: CompletionItem[]): CompletionItem[] {
+        return [...items].sort((left, right) => {
+            const delta = scoreCompletionItem(right) - scoreCompletionItem(left);
+            if (delta !== 0) return delta;
+
+            const leftSort = typeof left.sortText === 'string' ? left.sortText : left.label;
+            const rightSort = typeof right.sortText === 'string' ? right.sortText : right.label;
+            return String(leftSort).localeCompare(String(rightSort));
+        });
     }
 
     export async function getCompletion(
         state: State,
         document: TextDocument,
         position: Position,
+        context?: CompletionContext,
     ): Promise<CompletionItem[] | null> {
         try {
-            const entry = await syncDocument(state, document);
+            const entry = await syncDocument(state, document, position);
             const source = entry.source;
             const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
             if (mapped.kind !== 'mapped') {
+                state.logger.log(
+                    `[php-bridge] completion fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
+                );
                 return null;
             }
 
@@ -312,19 +527,82 @@ export namespace PhpBridge {
                 return null;
             }
 
-            const result = await backend.completion(entry.shadow.shadowUri, mapped.position);
+            const result = await backend.completion(
+                entry.shadow.shadowUri,
+                mapped.position,
+                context ?? { triggerKind: CompletionTriggerKind.Invoked },
+            );
             if (!result) {
                 return null;
             }
 
             const items = Array.isArray(result) ? result : result.items;
-            const remapped = items
+            const resolvedItems = await Promise.all(
+                items.map(async (item, index) => {
+                    if (index >= EAGER_COMPLETION_RESOLVE_LIMIT) {
+                        return item;
+                    }
+
+                    try {
+                        return (await backend.resolveCompletion(item)) ?? item;
+                    } catch {
+                        return item;
+                    }
+                }),
+            );
+
+            const remapped = resolvedItems
                 .map((item) => remapCompletionItem(source, entry.shadow, item))
                 .filter((item): item is CompletionItem => !!item);
 
-            return remapped;
+            return sortBridgeCompletionItems(remapped);
         } catch (error) {
             state.logger.error(`Embedded PHP bridge completion failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export function isBridgeCompletionItem(item: CompletionItem): boolean {
+        return (
+            !!item.data &&
+            typeof item.data === 'object' &&
+            (item.data as Record<string, unknown>)[COMPLETION_BRIDGE_DATA_KEY] === true
+        );
+    }
+
+    export async function resolveCompletion(state: State, item: CompletionItem): Promise<CompletionItem | null> {
+        if (!isBridgeCompletionItem(item)) {
+            return null;
+        }
+
+        try {
+            const backend = await ensureBackend(state);
+            if (!backend) {
+                return null;
+            }
+
+            const resolved = await backend.resolveCompletion(item);
+            if (!resolved) {
+                return item;
+            }
+
+            const bladeUri =
+                typeof item.data === 'object' && item.data !== null
+                    ? (item.data as Record<string, unknown>).bladeUri
+                    : null;
+            if (typeof bladeUri !== 'string') {
+                return resolved;
+            }
+
+            const documentState = state.store.get(bladeUri);
+            if (!documentState) {
+                return resolved;
+            }
+
+            const remapped = remapCompletionItem(documentState.source, documentState.shadow, resolved);
+            return remapped ?? item;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge completion resolve failed: ${String(error)}`);
             return null;
         }
     }

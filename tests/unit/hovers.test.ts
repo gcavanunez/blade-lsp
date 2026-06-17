@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Hovers } from '../../src/providers/hovers';
 import { BladeDirectives } from '../../src/directives';
+import { LaravelContext } from '../../src/laravel/context';
 import { installMockLaravel, clearMockLaravel, getHoverValue } from '../utils/laravel-mock';
 
 describe('Hovers', () => {
@@ -205,6 +206,32 @@ describe('Hovers', () => {
                 expect(value).toContain('not found in project');
             });
 
+            it('returns hover for Livewire 4 namespaced component', () => {
+                const line = '<livewire:pages::settings.two-factor.enable />';
+                const tagStart = line.indexOf('livewire:pages::settings.two-factor.enable');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('livewire:pages::settings.two-factor.enable');
+                expect(value).toContain('Livewire component');
+                expect(value).toContain('enable.blade.php');
+                expect(value).toContain('enabled');
+                expect(value).toContain('bool');
+            });
+
+            it('returns hover with files for Livewire 4 namespaced component', () => {
+                const line = '<livewire:pages::settings.two-factor.recovery-codes />';
+                const tagStart = line.indexOf('livewire:pages::settings.two-factor.recovery-codes');
+                const hover = Hovers.getComponentHover(line, tagStart + 1);
+
+                expect(hover).not.toBeNull();
+                const value = getHoverValue(hover!);
+                expect(value).toContain('livewire:pages::settings.two-factor.recovery-codes');
+                expect(value).toContain('Livewire component');
+                expect(value).toContain('RecoveryCodes.php');
+            });
+
             it('handles component with string props', () => {
                 clearMockLaravel();
                 installMockLaravel({
@@ -328,6 +355,17 @@ describe('Hovers', () => {
                 const value = getHoverValue(hover);
                 expect(value).toContain('Vendor package view');
                 expect(value).toContain('**Namespace:** `mail`');
+            });
+
+            it('falls back to generic hover while Laravel views are not loaded yet', () => {
+                const state = LaravelContext.use();
+                state.views.loadState = LaravelContext.createIdleLoadState();
+
+                const hover = Hovers.getViewHoverContent('layouts.app');
+                const value = getHoverValue(hover);
+                expect(value).toContain('layouts.app');
+                expect(value).toContain('Blade view');
+                expect(value).not.toContain('resources/views/layouts/app.blade.php');
             });
         });
 

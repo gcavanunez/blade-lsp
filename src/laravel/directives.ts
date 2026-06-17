@@ -26,6 +26,7 @@ export namespace Directives {
         using _ = await Lock.write(REFRESH_LOCK);
 
         const state = LaravelContext.use();
+        state.directives.loadState = LaravelContext.createLoadingLoadState();
 
         try {
             const data = await PhpRunner.runScript<CustomDirective[]>({
@@ -34,12 +35,15 @@ export namespace Directives {
             });
 
             state.directives.items = data;
-            state.directives.lastUpdated = Date.now();
+            state.directives.loadState = LaravelContext.createReadyLoadState();
         } catch (error) {
+            const cause = error instanceof Error ? error.message : String(error);
+            state.directives.loadState = LaravelContext.createFailedLoadState(cause);
+
             throw new RefreshError(
                 {
                     message: 'Failed to refresh directives',
-                    cause: error instanceof Error ? error.message : String(error),
+                    cause,
                 },
                 { cause: error },
             );
@@ -67,6 +71,6 @@ export namespace Directives {
     export function clear(): void {
         const state = LaravelContext.use();
         state.directives.items = [];
-        state.directives.lastUpdated = 0;
+        state.directives.loadState = LaravelContext.createIdleLoadState();
     }
 }
