@@ -17,6 +17,7 @@ import {
     HoverRequest,
     CompletionRequest,
     DefinitionRequest,
+    CodeActionRequest,
     PublishDiagnosticsNotification,
     RegistrationRequest,
     ConfigurationRequest,
@@ -25,6 +26,7 @@ import {
     type Hover,
     type CompletionItem,
     type Location,
+    type CodeAction,
     type Diagnostic,
     type PublishDiagnosticsParams,
 } from 'vscode-languageserver/node';
@@ -59,6 +61,8 @@ export interface ClientDocument {
     completions(line: number, character: number): Promise<CompletionItem[]>;
     /** Send a definition request at the given position */
     definition(line: number, character: number): Promise<Location | Location[] | null>;
+    /** Request code actions for current diagnostics */
+    codeActions(diagnostics?: Diagnostic[]): Promise<CodeAction[]>;
     /** Get the latest diagnostics for this document */
     diagnostics(): Promise<Diagnostic[]>;
     /** Update the document content */
@@ -123,15 +127,16 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
         return;
     });
 
-    rpc.onNotification(PublishDiagnosticsNotification.type, (params: PublishDiagnosticsParams) => {
-        diagnosticsMap.set(params.uri, params.diagnostics);
+    rpc.onNotification(PublishDiagnosticsNotification.type, (params) => {
+        const publishParams = params as PublishDiagnosticsParams;
+        diagnosticsMap.set(publishParams.uri, publishParams.diagnostics);
 
-        const waiters = diagnosticsWaiters.get(params.uri);
+        const waiters = diagnosticsWaiters.get(publishParams.uri);
         if (waiters) {
             for (const resolve of waiters) {
-                resolve(params.diagnostics);
+                resolve(publishParams.diagnostics);
             }
-            diagnosticsWaiters.delete(params.uri);
+            diagnosticsWaiters.delete(publishParams.uri);
         }
     });
 
@@ -158,6 +163,7 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                     },
                 },
                 definition: {},
+                codeAction: {},
                 publishDiagnostics: {
                     relatedInformation: true,
                 },
@@ -223,6 +229,25 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                     textDocument: { uri },
                     position: { line, character },
                 })) as Location | Location[] | null;
+            },
+
+            async codeActions(diagnostics?: Diagnostic[]): Promise<CodeAction[]> {
+                const contextDiagnostics = diagnostics ?? (await this.diagnostics());
+                const result = await rpc.sendRequest(CodeActionRequest.type, {
+                    textDocument: { uri },
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 0 },
+                    },
+                    context: {
+                        diagnostics: contextDiagnostics,
+                    },
+                });
+
+                if (!Array.isArray(result)) return [];
+                return result.filter((item): item is CodeAction => {
+                    return typeof item === 'object' && item !== null && 'title' in item;
+                });
             },
 
             async diagnostics(): Promise<Diagnostic[]> {
