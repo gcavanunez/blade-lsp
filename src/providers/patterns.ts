@@ -37,8 +37,43 @@ const SLOT_COMPLETION_NAME_PATTERN = /<x-slot\s+name=["'][\w-]*$/;
 export const SLOT_DECLARATION_COLON_PATTERN = /<x-slot:([\w-]+)/;
 export const SLOT_DECLARATION_NAME_PATTERN = /<x-slot\s+name=["']([\w-]+)["']/;
 
-export const DIRECTIVE_PARAMETER_PATTERN =
-    /@(extends|include(?:If|When|Unless|First)?|each|component|section|yield|can(?:not|any)?|env|method|push|stack|slot|livewire)\s*\(\s*['"][\w.-]*$/;
+const FIRST_ARGUMENT_PARAMETER_DIRECTIVES = [
+    'extends',
+    'include',
+    'includeIf',
+    'includeFirst',
+    'each',
+    'component',
+    'section',
+    'yield',
+    'can',
+    'cannot',
+    'canany',
+    'env',
+    'method',
+    'push',
+    'stack',
+    'slot',
+    'livewire',
+] as const;
+
+const SECOND_ARGUMENT_PARAMETER_DIRECTIVES = ['includeWhen', 'includeUnless'] as const;
+
+interface DirectiveParameterMatcher {
+    name: string;
+    pattern: RegExp;
+}
+
+const DIRECTIVE_PARAMETER_MATCHERS: DirectiveParameterMatcher[] = [
+    ...FIRST_ARGUMENT_PARAMETER_DIRECTIVES.map((name) => ({
+        name,
+        pattern: new RegExp(`@${name}\\s*\\(\\s*['\"]?[\\w.-]*$`),
+    })),
+    ...SECOND_ARGUMENT_PARAMETER_DIRECTIVES.map((name) => ({
+        name,
+        pattern: new RegExp(`@${name}\\s*\\([^,]+,\\s*['\"]?[\\w.-]*$`),
+    })),
+];
 
 export function getViewReferencePattern(directive: ViewReferenceDirective): RegExp {
     return VIEW_REFERENCE_PATTERNS.get(directive)!;
@@ -67,5 +102,11 @@ export function getSlotCompletionSyntax(textBeforeCursor: string): 'colon' | 'na
 }
 
 export function getDirectiveParameterName(textBeforeCursor: string): string | null {
-    return textBeforeCursor.match(DIRECTIVE_PARAMETER_PATTERN)?.[1] ?? null;
+    for (const matcher of DIRECTIVE_PARAMETER_MATCHERS) {
+        if (matcher.pattern.test(textBeforeCursor)) {
+            return matcher.name;
+        }
+    }
+
+    return null;
 }

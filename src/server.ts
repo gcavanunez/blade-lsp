@@ -447,7 +447,7 @@ export namespace Server {
             return items;
         });
 
-        conn.onCompletionResolve((item: CompletionItem): CompletionItem => item);
+        conn.onCompletionResolve((item: CompletionItem): CompletionItem => Completions.resolveCompletionItem(item));
 
         conn.onHover((params: TextDocumentPositionParams): Hover | null => {
             const document = docs.get(params.textDocument.uri);
@@ -456,6 +456,7 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const position = params.position;
             const source = document.getText();
+            const lineText = source.split('\n')[position.line] || '';
 
             const node = BladeParser.findNodeAtPosition(tree, position.line, position.character);
 
@@ -470,7 +471,19 @@ export namespace Server {
                 };
             }
 
-            const lineText = source.split('\n')[position.line];
+            const directiveNameFromLine = Hovers.getDirectiveNameAtColumn(lineText, position.character);
+            if (directiveNameFromLine && Laravel.isAvailable()) {
+                const customDirective = Directives.getItems().find((item) => `@${item.name}` === directiveNameFromLine);
+                if (customDirective) {
+                    return {
+                        contents: {
+                            kind: MarkupKind.Markdown,
+                            value: Hovers.formatCustomDirective(customDirective),
+                        },
+                    };
+                }
+            }
+
             const wordAtPosition = Hovers.getWordAtPosition(lineText, position.character);
 
             if (wordAtPosition === '$loop' || wordAtPosition.startsWith('$loop->')) {
