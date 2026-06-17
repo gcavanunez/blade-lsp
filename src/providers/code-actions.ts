@@ -14,6 +14,13 @@ import { Diagnostics } from './diagnostics';
 import { ProjectFile } from './project-file';
 
 export namespace CodeActions {
+    interface ScaffoldTarget {
+        diagnostic: Diagnostic;
+        fullPath: string;
+        title: string;
+        template: string;
+    }
+
     interface Context {
         document: TextDocument;
         diagnostics: Diagnostic[];
@@ -128,30 +135,48 @@ export namespace CodeActions {
     }
 
     function createActionForView(diagnostic: Diagnostic, fullPath: string, viewName: string): CodeAction {
-        const uri = ProjectFile.toUri(fullPath);
-        const template = `<div>\n    <!-- ${viewName} -->\n</div>\n`;
+        const target = createViewTarget(diagnostic, fullPath, viewName);
 
         return {
-            title: `Create missing view '${viewName}'`,
+            title: target.title,
             kind: CodeActionKind.QuickFix,
             isPreferred: true,
             diagnostics: [diagnostic],
-            edit: createScaffoldEdit(uri, template),
+            edit: createScaffoldEdit(ProjectFile.toUri(target.fullPath), target.template),
+        };
+    }
+
+    function createViewTarget(diagnostic: Diagnostic, fullPath: string, viewName: string): ScaffoldTarget {
+        return {
+            diagnostic,
+            fullPath,
+            title: `Create missing view '${viewName}'`,
+            template: `<div>\n    <!-- ${viewName} -->\n</div>\n`,
         };
     }
 
     function createActionForComponent(diagnostic: Diagnostic, fullPath: string, tag: string): CodeAction {
+        const target = createComponentTarget(diagnostic, fullPath, tag);
+
         const uri = ProjectFile.toUri(fullPath);
-        const template = tag.startsWith('livewire:')
-            ? `<div>\n    <!-- ${tag} -->\n</div>\n`
-            : `<div>\n    {{ $slot }}\n</div>\n`;
 
         return {
-            title: `Create missing component '${tag}'`,
+            title: target.title,
             kind: CodeActionKind.QuickFix,
             isPreferred: true,
             diagnostics: [diagnostic],
-            edit: createScaffoldEdit(uri, template),
+            edit: createScaffoldEdit(uri, target.template),
+        };
+    }
+
+    function createComponentTarget(diagnostic: Diagnostic, fullPath: string, tag: string): ScaffoldTarget {
+        return {
+            diagnostic,
+            fullPath,
+            title: `Create missing component '${tag}'`,
+            template: tag.startsWith('livewire:')
+                ? `<div>\n    <!-- ${tag} -->\n</div>\n`
+                : `<div>\n    {{ $slot }}\n</div>\n`,
         };
     }
 
@@ -253,7 +278,39 @@ export namespace CodeActions {
     function getScaffoldActions({ document, diagnostics, workspaceRoot }: Context): CodeAction[] {
         if (!workspaceRoot) return [];
 
+        const targets = getScaffoldTargets(document, diagnostics, workspaceRoot);
         const actions: CodeAction[] = [];
+
+        for (const target of targets) {
+            const code = getDiagnosticCode(target.diagnostic);
+            if (code === Diagnostics.Code.undefinedView) {
+                const viewName = inferViewName(document, target.diagnostic);
+                if (viewName) {
+                    actions.push(createActionForView(target.diagnostic, target.fullPath, viewName));
+                }
+                continue;
+            }
+
+            const tag = inferComponentTag(document, target.diagnostic);
+            if (tag) {
+                actions.push(createActionForComponent(target.diagnostic, target.fullPath, tag));
+            }
+        }
+
+        const batchAction = createBatchScaffoldAction(targets);
+        if (batchAction) {
+            actions.unshift(batchAction);
+        }
+
+        return actions;
+    }
+
+    function getScaffoldTargets(
+        document: TextDocument,
+        diagnostics: Diagnostic[],
+        workspaceRoot: string,
+    ): ScaffoldTarget[] {
+        const targets: ScaffoldTarget[] = [];
         const seenPaths = new Set<string>();
 
         for (const diagnostic of diagnostics) {
@@ -270,7 +327,7 @@ export namespace CodeActions {
                 if (seenPaths.has(fullPath) || fs.existsSync(fullPath)) continue;
 
                 seenPaths.add(fullPath);
-                actions.push(createActionForView(diagnostic, fullPath, viewName));
+                targets.push(createViewTarget(diagnostic, fullPath, viewName));
                 continue;
             }
 
@@ -285,11 +342,40 @@ export namespace CodeActions {
                 if (seenPaths.has(fullPath) || fs.existsSync(fullPath)) continue;
 
                 seenPaths.add(fullPath);
-                actions.push(createActionForComponent(diagnostic, fullPath, tag));
+                targets.push(createComponentTarget(diagnostic, fullPath, tag));
             }
         }
 
-        return actions;
+        return targets;
+    }
+
+    function createBatchScaffoldAction(targets: ScaffoldTarget[]): CodeAction | null {
+        if (targets.length < 2) return null;
+
+        const documentChanges: WorkspaceEdit['documentChanges'] = [];
+        for (const target of targets) {
+            const uri = ProjectFile.toUri(target.fullPath);
+            documentChanges?.push(
+                {
+                    kind: 'create',
+                    uri,
+                    options: { ignoreIfExists: true },
+                },
+                {
+                    textDocument: { uri, version: null },
+                    edits: [TextEdit.insert(Position.create(0, 0), target.template)],
+                },
+            );
+        }
+
+        return {
+            title: 'Create all missing Blade files in this file',
+            kind: CodeActionKind.QuickFix,
+            diagnostics: targets.map((target) => target.diagnostic),
+            edit: {
+                documentChanges,
+            },
+        };
     }
 
     export function getActions(context: Context): CodeAction[] {
