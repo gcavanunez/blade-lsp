@@ -15,6 +15,34 @@ import { Diagnostics } from './diagnostics';
 import { ProjectFile } from './project-file';
 
 export namespace CodeActions {
+    export const COMMAND_EXTRACT_SELECTION_TO_NAMED_PARTIAL = 'blade.extractSelectionToNamedPartial';
+
+    export interface NamedExtractCommandArgs {
+        uri: string;
+        range: Range;
+        partialName: string;
+    }
+
+    interface BuildExtractEditParams {
+        document: TextDocument;
+        workspaceRoot: string;
+        range: Range;
+        explicitPartialName?: string;
+    }
+
+    interface BuildExtractEditResult {
+        edit: WorkspaceEdit;
+        partialAbsolutePath: string;
+        includeViewName: string;
+    }
+
+    interface SourceViewContext {
+        workspaceRoot: string;
+        sourceAbsolute: string;
+        sourceDir: string;
+        sourceBaseName: string;
+    }
+
     interface Context {
         document: TextDocument;
         diagnostics: Diagnostic[];
@@ -325,6 +353,33 @@ export namespace CodeActions {
         return `${startLine}-${Math.max(startLine, endLine)}`;
     }
 
+    function splitPartialName(raw: string): string[] | null {
+        const normalized = raw
+            .trim()
+            .replace(/\.blade\.php$/i, '')
+            .replace(/\\/g, '/')
+            .replace(/\.+/g, '/');
+
+        if (!normalized) {
+            return null;
+        }
+
+        const segments = normalized
+            .split('/')
+            .map((segment) => sanitizeSegment(segment))
+            .filter((segment): segment is string => !!segment);
+
+        if (segments.length === 0) {
+            return null;
+        }
+
+        if (segments[0] === 'partials') {
+            segments.shift();
+        }
+
+        return segments.length > 0 ? segments : null;
+    }
+
     function getUniquePartialPath(targetDir: string, baseName: string): string {
         const firstCandidate = path.join(targetDir, `${baseName}.blade.php`);
         if (!fs.existsSync(firstCandidate)) {
@@ -363,20 +418,13 @@ export namespace CodeActions {
         return (segments as string[]).join('.');
     }
 
-    function getExtractSelectionAction(context: Context): CodeAction | null {
-        if (!context.workspaceRoot) return null;
-        if (!isNonEmptyRange(context.range)) return null;
-        if (!isKindRequested(context.only, CodeActionKind.RefactorExtract)) return null;
-
-        const selection = context.document.getText(context.range);
-        if (!selection) return null;
-
-        const sourcePath = getSourcePathFromUri(context.document.uri);
+    function getSourceViewContext(workspaceRoot: string, documentUri: string): SourceViewContext | null {
+        const sourcePath = getSourcePathFromUri(documentUri);
         if (!sourcePath) return null;
 
-        const workspaceRoot = path.resolve(context.workspaceRoot);
+        const resolvedRoot = path.resolve(workspaceRoot);
         const sourceAbsolute = path.resolve(sourcePath);
-        const sourceRelative = path.relative(workspaceRoot, sourceAbsolute);
+        const sourceRelative = path.relative(resolvedRoot, sourceAbsolute);
 
         if (sourceRelative.startsWith('..') || path.isAbsolute(sourceRelative)) {
             return null;
@@ -390,13 +438,47 @@ export namespace CodeActions {
             return null;
         }
 
-        const sourceDir = path.dirname(sourceAbsolute);
-        const sourceBaseName = path.basename(sourceAbsolute, '.blade.php');
-        const lineSuffix = getSelectionLineSuffix(context.range);
-        const partialBaseName = `${sourceBaseName}-${lineSuffix}`;
+        return {
+            workspaceRoot: resolvedRoot,
+            sourceAbsolute,
+            sourceDir: path.dirname(sourceAbsolute),
+            sourceBaseName: path.basename(sourceAbsolute, '.blade.php'),
+        };
+    }
 
-        const partialAbsolute = getUniquePartialPath(path.join(sourceDir, 'partials'), partialBaseName);
-        const partialRelative = path.relative(workspaceRoot, partialAbsolute);
+    function resolveTargetPartialPath(
+        sourceContext: SourceViewContext,
+        range: Range,
+        explicitPartialName?: string,
+    ): string | null {
+        if (explicitPartialName && explicitPartialName.trim()) {
+            const segments = splitPartialName(explicitPartialName);
+            if (!segments) return null;
+
+            const fileBase = segments[segments.length - 1];
+            const nestedDirs = segments.slice(0, -1);
+            const targetDir = path.join(sourceContext.sourceDir, 'partials', ...nestedDirs);
+            return getUniquePartialPath(targetDir, fileBase);
+        }
+
+        const lineSuffix = getSelectionLineSuffix(range);
+        const partialBaseName = `${sourceContext.sourceBaseName}-${lineSuffix}`;
+        return getUniquePartialPath(path.join(sourceContext.sourceDir, 'partials'), partialBaseName);
+    }
+
+    function buildExtractSelectionEdit(params: BuildExtractEditParams): BuildExtractEditResult | null {
+        if (!isNonEmptyRange(params.range)) return null;
+
+        const selection = params.document.getText(params.range);
+        if (!selection) return null;
+
+        const sourceContext = getSourceViewContext(params.workspaceRoot, params.document.uri);
+        if (!sourceContext) return null;
+
+        const partialAbsolute = resolveTargetPartialPath(sourceContext, params.range, params.explicitPartialName);
+        if (!partialAbsolute) return null;
+
+        const partialRelative = path.relative(sourceContext.workspaceRoot, partialAbsolute);
         const includeViewName = toBladeViewKey(partialRelative);
         if (!includeViewName) {
             return null;
@@ -405,9 +487,8 @@ export namespace CodeActions {
         const partialUri = ProjectFile.toUri(partialAbsolute);
 
         return {
-            title: 'Extract selection to partial view',
-            kind: CodeActionKind.RefactorExtract,
-            isPreferred: true,
+            partialAbsolutePath: partialAbsolute,
+            includeViewName,
             edit: {
                 documentChanges: [
                     {
@@ -420,11 +501,63 @@ export namespace CodeActions {
                         edits: [TextEdit.insert(Position.create(0, 0), selection)],
                     },
                     {
-                        textDocument: { uri: context.document.uri, version: null },
-                        edits: [TextEdit.replace(context.range, `@include('${includeViewName}')`)],
+                        textDocument: { uri: params.document.uri, version: null },
+                        edits: [TextEdit.replace(params.range, `@include('${includeViewName}')`)],
                     },
                 ],
             },
+        };
+    }
+
+    export function getSuggestedPartialName(workspaceRoot: string, documentUri: string, range: Range): string | null {
+        const sourceContext = getSourceViewContext(workspaceRoot, documentUri);
+        if (!sourceContext) return null;
+        return `${sourceContext.sourceBaseName}-${getSelectionLineSuffix(range)}`;
+    }
+
+    export function getNamedExtractWorkspaceEdit(params: BuildExtractEditParams): WorkspaceEdit | null {
+        const result = buildExtractSelectionEdit(params);
+        return result?.edit ?? null;
+    }
+
+    export function isNamedExtractCommandArgs(value: unknown): value is NamedExtractCommandArgs {
+        if (!value || typeof value !== 'object') {
+            return false;
+        }
+
+        const payload = value as Partial<NamedExtractCommandArgs>;
+        const hasUri = typeof payload.uri === 'string';
+        const hasPartialName = typeof payload.partialName === 'string';
+        const hasRange =
+            !!payload.range &&
+            typeof payload.range === 'object' &&
+            !!payload.range.start &&
+            !!payload.range.end &&
+            typeof payload.range.start.line === 'number' &&
+            typeof payload.range.start.character === 'number' &&
+            typeof payload.range.end.line === 'number' &&
+            typeof payload.range.end.character === 'number';
+
+        return hasUri && hasPartialName && hasRange;
+    }
+
+    function getExtractSelectionAction(context: Context): CodeAction | null {
+        if (!context.workspaceRoot) return null;
+        if (!isNonEmptyRange(context.range)) return null;
+        if (!isKindRequested(context.only, CodeActionKind.RefactorExtract)) return null;
+
+        const result = buildExtractSelectionEdit({
+            document: context.document,
+            workspaceRoot: context.workspaceRoot,
+            range: context.range,
+        });
+        if (!result) return null;
+
+        return {
+            title: 'Extract selection to partial view',
+            kind: CodeActionKind.RefactorExtract,
+            isPreferred: true,
+            edit: result.edit,
         };
     }
 
