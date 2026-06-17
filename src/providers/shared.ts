@@ -31,29 +31,82 @@ export namespace Shared {
         end: number;
     };
 
-    function getCapturedMatchAtColumn(line: string, column: number, pattern: RegExp): CapturedMatch | null {
-        const match = line.match(pattern);
-        if (!match || !match[1]) return null;
+    function collectCapturedMatches(line: string, pattern: RegExp): CapturedMatch[] {
+        const matches: CapturedMatch[] = [];
+        const globalPattern = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+        globalPattern.lastIndex = 0;
 
-        const value = match[1];
-        const start = line.indexOf(value, match.index ?? 0);
-        const end = start + value.length;
+        let match: RegExpExecArray | null;
+        while ((match = globalPattern.exec(line)) !== null) {
+            if (!match[1]) continue;
 
-        if (column < start || column > end) return null;
+            const value = match[1];
+            const start = line.indexOf(value, match.index ?? 0);
+            const end = start + value.length;
 
-        return { value, start, end };
+            matches.push({ value, start, end });
+        }
+
+        return matches;
+    }
+
+    function getIncludeFirstMatches(line: string): CapturedMatch[] {
+        const outer = /@includeFirst\s*\(\s*\[([^\]]*)\]/g;
+        const quoted = /['"]([^'"]+)['"]/g;
+        const matches: CapturedMatch[] = [];
+
+        for (const outerMatch of collectCapturedMatches(line, outer)) {
+            const arrayContent = outerMatch.value;
+            const arrayStart = outerMatch.start;
+            quoted.lastIndex = 0;
+
+            let match: RegExpExecArray | null;
+            while ((match = quoted.exec(arrayContent)) !== null) {
+                if (!match[1]) continue;
+                const value = match[1];
+                const start = arrayStart + arrayContent.indexOf(value, match.index ?? 0);
+                const end = start + value.length;
+                matches.push({ value, start, end });
+            }
+        }
+
+        return matches;
+    }
+
+    function getEachFallbackMatches(line: string): CapturedMatch[] {
+        return collectCapturedMatches(
+            line,
+            /@each\s*\(\s*['"][^'"]+['"]\s*,\s*[^,]+,\s*['"][^'"]+['"]\s*,\s*['"]([^'"]+)['"]/g,
+        );
+    }
+
+    export function getViewReferenceMatches(line: string): CapturedMatch[] {
+        const matches: CapturedMatch[] = [];
+
+        for (const directive of VIEW_REFERENCE_DIRECTIVES) {
+            if (directive === 'includeFirst') {
+                matches.push(...collectCapturedMatches(line, getViewReferencePattern(directive)));
+                matches.push(...getIncludeFirstMatches(line));
+                continue;
+            }
+
+            matches.push(...collectCapturedMatches(line, getViewReferencePattern(directive)));
+        }
+
+        matches.push(...getEachFallbackMatches(line));
+        matches.push(...collectCapturedMatches(line, VIEW_HELPER_PATTERN));
+
+        return matches;
     }
 
     export function getViewReferenceAtColumn(line: string, column: number): string | null {
-        for (const directive of VIEW_REFERENCE_DIRECTIVES) {
-            const match = getCapturedMatchAtColumn(line, column, getViewReferencePattern(directive));
-            if (match) {
+        for (const match of getViewReferenceMatches(line)) {
+            if (column >= match.start && column <= match.end) {
                 return match.value;
             }
         }
 
-        const helperMatch = getCapturedMatchAtColumn(line, column, VIEW_HELPER_PATTERN);
-        return helperMatch?.value ?? null;
+        return null;
     }
 
     export function getComponentTagAtColumn(line: string, column: number): string | null {

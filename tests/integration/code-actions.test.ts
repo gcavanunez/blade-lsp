@@ -91,6 +91,22 @@ describe('Code Actions (Integration)', () => {
         await doc.close();
     });
 
+    it('offers scaffold action for @includeFirst fallback views', async () => {
+        const doc = await client.open({
+            text: "@includeFirst(['partials.header', 'missing.fallback'])",
+        });
+
+        const diagnostics = await doc.diagnostics();
+        const diagnostic = findDiagnosticByCode(diagnostics, 'blade/undefined-view');
+
+        const actions = await doc.codeActions({ diagnostics: [diagnostic] });
+        const action = findAction(actions, "Create missing view 'missing.fallback'");
+
+        expect(getActionCreatedUri(action)).toBe('file:///test/project/resources/views/missing/fallback.blade.php');
+
+        await doc.close();
+    });
+
     it('uses a layout-oriented stub for missing @extends views', async () => {
         const doc = await client.open({
             text: "@extends('layouts.missing')",

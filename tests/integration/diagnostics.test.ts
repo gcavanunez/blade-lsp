@@ -91,6 +91,34 @@ describe('Diagnostics (Integration)', () => {
             await doc.close();
         });
 
+        it('reports undefined views inside @includeFirst arrays', async () => {
+            const doc = await client.open({
+                text: "@includeFirst(['partials.header', 'missing.fallback'])",
+            });
+
+            const diags = await doc.diagnostics();
+            const undefinedViews = diags.filter((d) => d.code === 'blade/undefined-view');
+
+            expect(undefinedViews).toHaveLength(1);
+            expect(undefinedViews[0].message).toContain('missing.fallback');
+
+            await doc.close();
+        });
+
+        it('reports undefined fallback view in @each', async () => {
+            const doc = await client.open({
+                text: "@each('partials.header', $items, 'item', 'missing.empty')",
+            });
+
+            const diags = await doc.diagnostics();
+            const undefinedViews = diags.filter((d) => d.code === 'blade/undefined-view');
+
+            expect(undefinedViews).toHaveLength(1);
+            expect(undefinedViews[0].message).toContain('missing.empty');
+
+            await doc.close();
+        });
+
         it('accepts existing view in @include', async () => {
             const doc = await client.open({
                 text: "@include('layouts.app')",
