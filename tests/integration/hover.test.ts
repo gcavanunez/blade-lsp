@@ -8,7 +8,6 @@ describe('Hover (Integration)', () => {
     beforeAll(async () => {
         client = await createClient({
             settings: {
-                parserBackend: 'wasm',
                 enableLaravelIntegration: false,
             },
         });

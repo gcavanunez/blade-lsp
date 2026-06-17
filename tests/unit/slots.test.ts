@@ -7,7 +7,7 @@ import { ensureContainer, installMockLaravel, clearMockLaravel, getHoverValue } 
 describe('Slots', () => {
     beforeAll(async () => {
         ensureContainer();
-        await BladeParser.initialize('wasm');
+        await BladeParser.initialize();
     });
 
     // ─── extractSlotsFromContent ────────────────────────────────────────────

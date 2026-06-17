@@ -1,5 +1,5 @@
 /**
- * WASM tree-sitter backend (web-tree-sitter).
+ * WASM tree-sitter parser runtime (web-tree-sitter).
  *
  * Uses the `web-tree-sitter` npm package with a precompiled `.wasm` grammar.
  * No native compilation required -- this is the default for npm distribution.
@@ -51,7 +51,7 @@ type WasmModule = {
 };
 
 export namespace WasmBackend {
-    export function create(): ParserTypes.Backend {
+    export function create(): ParserTypes.Runtime {
         let parser: WasmParserInstance | null = null;
         let language: unknown = null;
         let Query: WasmQueryCtor | null = null;

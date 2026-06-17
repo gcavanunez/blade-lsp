@@ -1,9 +1,8 @@
 /**
- * Shared types for tree-sitter parser backends.
+ * Shared types for tree-sitter parser operations.
  *
- * Both native (node-gyp) and WASM (web-tree-sitter) backends implement
- * the Backend interface. The SyntaxNode and Tree interfaces cover the
- * exact API surface used by this project -- nothing more.
+ * The SyntaxNode and Tree interfaces cover the exact API surface used by
+ * this project -- nothing more.
  */
 
 export namespace ParserTypes {
@@ -20,8 +19,7 @@ export namespace ParserTypes {
         readonly childCount: number;
         child(index: number): SyntaxNode | null;
         readonly parent: SyntaxNode | null;
-        // Getters in web-tree-sitter, methods in native 0.20.x, getters in newer native.
-        // Each backend normalizes to a readonly property.
+        // web-tree-sitter exposes these as readonly properties.
         readonly hasError: boolean;
         readonly isMissing: boolean;
         toString(): string;
@@ -41,7 +39,7 @@ export namespace ParserTypes {
         captures(node: SyntaxNode): QueryCapture[];
     }
 
-    export interface Backend {
+    export interface Runtime {
         initialize(): Promise<void>;
         parse(source: string): Tree;
         compileQuery(source: string): CompiledQuery;

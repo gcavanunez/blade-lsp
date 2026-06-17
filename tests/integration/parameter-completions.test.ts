@@ -8,7 +8,6 @@ describe('Parameter Completions (Integration)', () => {
     beforeAll(async () => {
         client = await createClient({
             settings: {
-                parserBackend: 'wasm',
                 enableLaravelIntegration: false,
             },
         });
