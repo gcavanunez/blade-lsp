@@ -36,10 +36,10 @@ describe('Embedded PHP bridge completion (Integration)', () => {
                             additionalTextEdits: [
                                 {
                                     range: {
-                                        start: { line: position.line, character: 0 },
-                                        end: { line: position.line, character: 0 },
+                                        start: { line: 1, character: 0 },
+                                        end: { line: 1, character: 0 },
                                     },
-                                    newText: '$prefix = null;\n',
+                                    newText: 'use App\\Models\\Post;\n',
                                 },
                             ],
                         } satisfies CompletionItem,
@@ -87,7 +87,9 @@ $po
             expect(postItem.textEdit.range.start.character).toBe(0);
             expect(postItem.textEdit.range.end.character).toBe(3);
         }
-        expect(postItem?.additionalTextEdits?.[0]?.range.start.line).toBe(1);
+        expect(postItem?.additionalTextEdits?.[0]?.range.start.line).toBe(0);
+        expect(postItem?.additionalTextEdits?.[0]?.range.start.character).toBe(5);
+        expect(postItem?.additionalTextEdits?.[0]?.newText).toContain('use App\\Models\\Post;');
 
         await doc.close();
     });
@@ -101,6 +103,37 @@ $po
         const beforeCalls = completionCalls.length;
         const items = await doc.completions(0, 4);
         expect(items.map((item) => item.label)).toContain('route');
+        expect(completionCalls.length).toBe(beforeCalls);
+
+        await doc.close();
+    });
+
+    it('still falls back to blade-side echo completions for @php-assigned variables', async () => {
+        const doc = await client.open({
+            name: 'resources/views/show.blade.php',
+            text: `<?php
+use Livewire\\Component;
+
+new class extends Component {
+    public string $title;
+};
+?>
+
+@php
+    $groovy = 'chevere';
+    $phrases = collect(['lets go!', $groovy]);
+    $rando = $phrases->random();
+@endphp
+
+<div>{{ $ }}</div>`,
+        });
+
+        const beforeCalls = completionCalls.length;
+        const items = await doc.completions(14, 8);
+        const labels = items.map((item) => item.label);
+
+        expect(labels).toContain('$rando');
+        expect(labels).toContain('$groovy');
         expect(completionCalls.length).toBe(beforeCalls);
 
         await doc.close();
