@@ -33,7 +33,7 @@ export interface ConnectResult {
     /** The client-side protocol connection for sending LSP requests */
     clientConnection: ProtocolConnection;
     /** Dispose function to clean up */
-    dispose: () => void;
+    dispose: () => Promise<void>;
 }
 
 /**
@@ -63,11 +63,11 @@ export function connect(): ConnectResult {
 
     return {
         clientConnection: clientConn,
-        dispose: () => {
+        dispose: async () => {
             clientConn.dispose();
             reader.dispose();
             writer.dispose();
-            Server.reset();
+            await Server.reset();
         },
     };
 }

@@ -167,8 +167,14 @@ export namespace Container {
      * Tear down the runtime and clear the container.
      * Used between test runs for isolation.
      */
-    export function dispose(): void {
+    export async function dispose(): Promise<void> {
+        const currentRuntime = runtime;
+
         container = null;
         runtime = null;
+
+        if (currentRuntime) {
+            await currentRuntime.dispose();
+        }
     }
 }

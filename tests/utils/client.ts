@@ -381,7 +381,7 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                 // Connection may already be closed
             }
 
-            dispose();
+            await dispose();
         },
     };
 }

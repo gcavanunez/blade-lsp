@@ -78,10 +78,12 @@ export namespace Laravel {
 
         const promise = doInitialize(workspaceRoot, options);
         MutableRef.set(ref, promise);
-        const result = await promise;
-        // Allow future calls to initialize again after this run completes.
-        MutableRef.set(ref, null);
-        return result;
+        try {
+            return await promise;
+        } finally {
+            // Allow future calls to initialize again after this run completes.
+            MutableRef.set(ref, null);
+        }
     }
 
     export function isAvailable(): boolean {
