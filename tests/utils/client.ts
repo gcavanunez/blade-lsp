@@ -18,6 +18,7 @@ import {
     CompletionRequest,
     CompletionResolveRequest,
     DefinitionRequest,
+    DocumentSymbolRequest,
     CodeActionRequest,
     PublishDiagnosticsNotification,
     RegistrationRequest,
@@ -27,6 +28,7 @@ import {
     type Hover,
     type CompletionItem,
     type Location,
+    type DocumentSymbol,
     type CodeAction,
     type Diagnostic,
     type Range,
@@ -65,6 +67,8 @@ export interface ClientDocument {
     resolveCompletion(item: CompletionItem): Promise<CompletionItem>;
     /** Send a definition request at the given position */
     definition(line: number, character: number): Promise<Location | Location[] | null>;
+    /** Request document symbols for the current Blade file */
+    symbols(): Promise<DocumentSymbol[]>;
     /** Request code actions for current diagnostics */
     codeActions(options?: { diagnostics?: Diagnostic[]; range?: Range; only?: string[] }): Promise<CodeAction[]>;
     /** Get the latest diagnostics for this document */
@@ -237,6 +241,14 @@ export async function createClient(options: ClientOptions = {}): Promise<Client>
                     textDocument: { uri },
                     position: { line, character },
                 })) as Location | Location[] | null;
+            },
+
+            async symbols(): Promise<DocumentSymbol[]> {
+                const result = await rpc.sendRequest(DocumentSymbolRequest.type, {
+                    textDocument: { uri },
+                });
+
+                return Array.isArray(result) ? (result as DocumentSymbol[]) : [];
             },
 
             async codeActions(options?: {
