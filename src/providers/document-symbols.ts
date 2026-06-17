@@ -1,4 +1,5 @@
 import { DocumentSymbol, Range, SymbolKind } from 'vscode-languageserver/node';
+import { LineIndex } from '../utils/line-index';
 
 export namespace DocumentSymbols {
     interface MatchResult {
@@ -72,10 +73,10 @@ export namespace DocumentSymbols {
 
     export function getSymbols(source: string): DocumentSymbol[] {
         const symbols: DocumentSymbol[] = [];
-        const lines = source.split('\n');
+        const idx = new LineIndex(source);
 
-        for (let lineNumber = 0; lineNumber < lines.length; lineNumber++) {
-            const line = lines[lineNumber];
+        for (let lineNumber = 0; lineNumber < idx.lineCount; lineNumber++) {
+            const line = idx.getLineText(lineNumber);
 
             for (const match of collectDirectiveMatches(
                 line,

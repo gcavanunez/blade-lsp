@@ -1,13 +1,24 @@
 import path from 'node:path';
+import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeRegions } from './regions';
 
 export namespace PhpBridgeShadowDocument {
+    export interface RegionFeatures {
+        completion: boolean;
+        hover: boolean;
+        definition: boolean;
+        diagnostics: boolean;
+        references: boolean;
+        rename: boolean;
+    }
+
     export interface ShadowRegion {
         id: string;
         bladeContentOffsetStart: number;
         bladeContentOffsetEnd: number;
         shadowContentOffsetStart: number;
         shadowContentOffsetEnd: number;
+        features: RegionFeatures;
     }
 
     export interface ShadowDocument {
@@ -15,6 +26,7 @@ export namespace PhpBridgeShadowDocument {
         shadowPath: string;
         shadowUri: string;
         content: string;
+        lineIndex: LineIndex;
         regions: ShadowRegion[];
         activeRegionId: string | null;
     }
@@ -46,6 +58,37 @@ export namespace PhpBridgeShadowDocument {
         return /new\s+((?:#\[[^\]]+\]\s*)*)class\b/.test(content);
     }
 
+    const ALL_FEATURES: RegionFeatures = {
+        completion: true,
+        hover: true,
+        definition: true,
+        diagnostics: true,
+        references: true,
+        rename: true,
+    };
+
+    const INLINE_FEATURES: RegionFeatures = {
+        completion: true,
+        hover: true,
+        definition: true,
+        diagnostics: false,
+        references: false,
+        rename: false,
+    };
+
+    const SCOPED_FEATURES: RegionFeatures = {
+        completion: true,
+        hover: true,
+        definition: true,
+        diagnostics: false,
+        references: true,
+        rename: true,
+    };
+
+    function isInlineExpression(content: string): boolean {
+        return !content.includes('\n');
+    }
+
     function slugifyBladePath(relativePath: string): string {
         return relativePath
             .replace(/\\/g, '/')
@@ -54,6 +97,88 @@ export namespace PhpBridgeShadowDocument {
             .replace(/[^A-Za-z0-9._-]+/g, '-')
             .replace(/-+/g, '-')
             .replace(/^-|-$/g, '');
+    }
+
+    /**
+     * Try to patch a shadow document when only a single region's content changed.
+     * Returns `null` when incremental update is not possible (full rebuild needed).
+     */
+    export function tryIncrementalUpdate(
+        previousShadow: ShadowDocument,
+        previousExtraction: PhpBridgeRegions.RegionExtraction,
+        newExtraction: PhpBridgeRegions.RegionExtraction,
+        _newSource: string,
+    ): ShadowDocument | null {
+        const prevRegions = previousExtraction.regions;
+        const newRegions = newExtraction.regions;
+
+        if (prevRegions.length !== newRegions.length) return null;
+        if (prevRegions.length === 0) return null;
+
+        let changedIndex = -1;
+        for (let i = 0; i < prevRegions.length; i++) {
+            if (prevRegions[i].content !== newRegions[i].content) {
+                if (changedIndex !== -1) return null;
+                changedIndex = i;
+            }
+            if (prevRegions[i].kind !== newRegions[i].kind) return null;
+        }
+
+        if (changedIndex === -1) {
+            // No PHP content changed — just update blade offsets
+            const updatedRegions = previousShadow.regions.map((sr, i) => ({
+                ...sr,
+                bladeContentOffsetStart: newRegions[i].contentOffsetStart,
+                bladeContentOffsetEnd: newRegions[i].contentOffsetEnd,
+            }));
+            return {
+                ...previousShadow,
+                regions: updatedRegions,
+            };
+        }
+
+        const changedPrev = prevRegions[changedIndex];
+        const changedNew = newRegions[changedIndex];
+        const prevShadowRegion = previousShadow.regions[changedIndex];
+        if (!prevShadowRegion) return null;
+
+        const contentDelta = changedNew.content.length - changedPrev.content.length;
+        const newContent =
+            previousShadow.content.slice(0, prevShadowRegion.shadowContentOffsetStart) +
+            changedNew.content +
+            previousShadow.content.slice(prevShadowRegion.shadowContentOffsetEnd);
+
+        const newShadowRegions = previousShadow.regions.map((sr, i) => {
+            if (i === changedIndex) {
+                return {
+                    ...sr,
+                    bladeContentOffsetStart: changedNew.contentOffsetStart,
+                    bladeContentOffsetEnd: changedNew.contentOffsetEnd,
+                    shadowContentOffsetEnd: sr.shadowContentOffsetStart + changedNew.content.length,
+                };
+            }
+            if (i > changedIndex) {
+                return {
+                    ...sr,
+                    bladeContentOffsetStart: newRegions[i].contentOffsetStart,
+                    bladeContentOffsetEnd: newRegions[i].contentOffsetEnd,
+                    shadowContentOffsetStart: sr.shadowContentOffsetStart + contentDelta,
+                    shadowContentOffsetEnd: sr.shadowContentOffsetEnd + contentDelta,
+                };
+            }
+            return {
+                ...sr,
+                bladeContentOffsetStart: newRegions[i].contentOffsetStart,
+                bladeContentOffsetEnd: newRegions[i].contentOffsetEnd,
+            };
+        });
+
+        return {
+            ...previousShadow,
+            content: newContent,
+            lineIndex: new LineIndex(newContent),
+            regions: newShadowRegions,
+        };
     }
 
     export function getShadowPath(
@@ -127,12 +252,24 @@ export namespace PhpBridgeShadowDocument {
             parts.push(content);
             currentOffset += content.length;
 
+            let features: RegionFeatures;
+            if (needsScope) {
+                features = SCOPED_FEATURES;
+            } else if (region.kind === 'php-tag') {
+                features = ALL_FEATURES;
+            } else if (isInlineExpression(content)) {
+                features = INLINE_FEATURES;
+            } else {
+                features = ALL_FEATURES;
+            }
+
             regions.push({
                 id: region.id,
                 bladeContentOffsetStart: region.contentOffsetStart,
                 bladeContentOffsetEnd: region.contentOffsetEnd,
                 shadowContentOffsetStart,
                 shadowContentOffsetEnd: currentOffset,
+                features,
             });
 
             if (wrapperSuffix) {
@@ -151,11 +288,13 @@ export namespace PhpBridgeShadowDocument {
             }
         }
 
+        const content = parts.join('');
         return {
             bladeUri,
             shadowPath,
             shadowUri: pathToUri(shadowPath),
-            content: parts.join(''),
+            content,
+            lineIndex: new LineIndex(content),
             regions,
             activeRegionId: options.activeRegionId ?? null,
         };

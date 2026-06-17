@@ -4,14 +4,18 @@ import {
     CompletionTriggerKind,
     InsertReplaceEdit,
     Position,
+    Range,
     TextEdit,
     type CompletionItem,
     type CompletionContext,
+    type Diagnostic,
     type Hover,
     type Location,
+    type WorkspaceEdit,
 } from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { Server } from '../../server';
+import { LineIndex } from '../../utils/line-index';
 import { PhpBridgeBackend } from './backend';
 import { PhpBridgeMapping } from './mapping';
 import { PhpBridgeRegions } from './regions';
@@ -27,6 +31,8 @@ export namespace PhpBridge {
         error(message: string): void;
     }
 
+    export type DiagnosticsCallback = (bladeUri: string, diagnostics: Diagnostic[]) => void;
+
     export interface State {
         workspaceRoot: string;
         settings: Server.Settings;
@@ -34,6 +40,7 @@ export namespace PhpBridge {
         store: PhpBridgeStore.Store;
         backendLifecycle: BackendLifecycle;
         shadowVersion: number;
+        diagnosticsCallbacks: DiagnosticsCallback[];
     }
 
     type BackendLifecycle =
@@ -58,7 +65,12 @@ export namespace PhpBridge {
             store: PhpBridgeStore.create(),
             backendLifecycle: { kind: 'idle' },
             shadowVersion: 0,
+            diagnosticsCallbacks: [],
         };
+    }
+
+    export function onDiagnostics(state: State, callback: DiagnosticsCallback): void {
+        state.diagnosticsCallbacks.push(callback);
     }
 
     export function isEnabled(settings: Server.Settings): boolean {
@@ -159,6 +171,10 @@ export namespace PhpBridge {
                                 }
                             });
 
+                            backend.onDiagnostics((params) => {
+                                remapAndPublishDiagnostics(state, params.uri, params.diagnostics);
+                            });
+
                             return backend;
                         } catch (error) {
                             state.logger.error(`Embedded PHP bridge backend failed to start: ${String(error)}`);
@@ -197,6 +213,7 @@ export namespace PhpBridge {
                     source,
                     current.extraction.regions,
                     activePosition,
+                    current.bladeLineIndex,
                 );
                 if ((activeRegion?.id ?? null) === current.activeRegionId) {
                     if (!backendEnabled || current.backendSyncedVersion !== null) {
@@ -208,13 +225,33 @@ export namespace PhpBridge {
 
         const extraction = PhpBridgeRegions.extract(source);
         const activeRegion = activePosition
-            ? PhpBridgeRegions.getRegionAtPosition(source, extraction.regions, activePosition)
+            ? PhpBridgeRegions.getRegionAtPosition(
+                  source,
+                  extraction.regions,
+                  activePosition,
+                  extraction.lexed.lineIndex,
+              )
             : null;
         const activeRegionId = activeRegion?.id ?? null;
-        const shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
-            activeRegionId: activeRegionId ?? undefined,
-            shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
-        });
+
+        let shadow: PhpBridgeShadowDocument.ShadowDocument;
+        const incrementalResult =
+            current && current.extraction
+                ? PhpBridgeShadowDocument.tryIncrementalUpdate(current.shadow, current.extraction, extraction, source)
+                : null;
+
+        if (incrementalResult) {
+            shadow = {
+                ...incrementalResult,
+                activeRegionId: activeRegionId ?? null,
+            };
+            state.logger.log(`[php-bridge] incremental shadow update for ${document.uri}`);
+        } else {
+            shadow = PhpBridgeShadowDocument.build(state.workspaceRoot, document.uri, extraction, {
+                activeRegionId: activeRegionId ?? undefined,
+                shadowDirectory: path.join('vendor', 'blade-lsp', 'shadow'),
+            });
+        }
         const previous = state.store.get(document.uri);
         const { state: documentState, phpChanged } = state.store.apply(document, extraction, shadow, activeRegionId);
         const shouldResyncBackend =
@@ -302,16 +339,65 @@ export namespace PhpBridge {
         }
     }
 
+    function remapAndPublishDiagnostics(state: State, shadowUri: string, diagnostics: Diagnostic[]): void {
+        const entry = state.store.all().find((e) => e.shadow.shadowUri === shadowUri);
+        if (!entry) return;
+
+        const remapped = diagnostics.flatMap((diag) => {
+            const mapped = PhpBridgeMapping.shadowRangeToBladeRange(
+                entry.source,
+                entry.shadow,
+                diag.range,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return [];
+
+            const region = entry.shadow.regions.find((r) => r.id === mapped.regionId);
+            if (!region?.features.diagnostics) return [];
+
+            return [
+                {
+                    ...diag,
+                    range: mapped.range,
+                    source: diag.source ? `php(${diag.source})` : 'php',
+                } satisfies Diagnostic,
+            ];
+        });
+
+        state.logger.log(
+            `[php-bridge] diagnostics for ${entry.bladeUri}: ${diagnostics.length} raw -> ${remapped.length} remapped`,
+        );
+
+        for (const cb of state.diagnosticsCallbacks) {
+            cb(entry.bladeUri, remapped);
+        }
+    }
+
+    function getRegionById(
+        shadow: PhpBridgeShadowDocument.ShadowDocument,
+        regionId: string,
+    ): PhpBridgeShadowDocument.ShadowRegion | undefined {
+        return shadow.regions.find((r) => r.id === regionId);
+    }
+
     export async function getHover(state: State, document: TextDocument, position: Position): Promise<Hover | null> {
         try {
             const entry = await syncDocument(state, document, position);
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(entry.source, entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                entry.source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
             if (mapped.kind !== 'mapped') {
                 state.logger.log(
                     `[php-bridge] hover fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
                 );
                 return null;
             }
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.hover) return null;
 
             const backend = await ensureBackend(state);
             if (!backend) {
@@ -333,13 +419,21 @@ export namespace PhpBridge {
         try {
             const entry = await syncDocument(state, document, position);
             const source = entry.source;
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
             if (mapped.kind !== 'mapped') {
                 state.logger.log(
                     `[php-bridge] definition fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
                 );
                 return null;
             }
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.definition) return null;
 
             const backend = await ensureBackend(state);
             if (!backend) {
@@ -357,7 +451,12 @@ export namespace PhpBridge {
                     return [location];
                 }
 
-                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(source, entry.shadow, location.range);
+                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                    source,
+                    entry.shadow,
+                    location.range,
+                    entry.bladeLineIndex,
+                );
                 if (mappedRange.kind !== 'mapped') {
                     return [];
                 }
@@ -381,10 +480,154 @@ export namespace PhpBridge {
         }
     }
 
+    export async function getReferences(
+        state: State,
+        document: TextDocument,
+        position: Position,
+    ): Promise<Location[] | null> {
+        try {
+            const entry = await syncDocument(state, document, position);
+            const source = entry.source;
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return null;
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.references) return null;
+
+            const backend = await ensureBackend(state);
+            if (!backend) return null;
+
+            const result = await backend.references(entry.shadow.shadowUri, mapped.position);
+            if (!result || result.length === 0) return null;
+
+            const remapped = result.flatMap((location) => {
+                if (location.uri !== entry.shadow.shadowUri) {
+                    return [location];
+                }
+
+                const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                    source,
+                    entry.shadow,
+                    location.range,
+                    entry.bladeLineIndex,
+                );
+                if (mappedRange.kind !== 'mapped') return [];
+
+                return [{ uri: document.uri, range: mappedRange.range } satisfies Location];
+            });
+
+            return remapped.length > 0 ? remapped : null;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge references failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function doPrepareRename(
+        state: State,
+        document: TextDocument,
+        position: Position,
+    ): Promise<Range | null> {
+        try {
+            const entry = await syncDocument(state, document, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                entry.source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return null;
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.rename) return null;
+
+            const backend = await ensureBackend(state);
+            if (!backend) return null;
+
+            const result = await backend.prepareRename(entry.shadow.shadowUri, mapped.position);
+            if (!result) return null;
+
+            const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                entry.source,
+                entry.shadow,
+                result,
+                entry.bladeLineIndex,
+            );
+            if (mappedRange.kind !== 'mapped') return null;
+
+            return mappedRange.range;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge prepareRename failed: ${String(error)}`);
+            return null;
+        }
+    }
+
+    export async function doRename(
+        state: State,
+        document: TextDocument,
+        position: Position,
+        newName: string,
+    ): Promise<WorkspaceEdit | null> {
+        try {
+            const entry = await syncDocument(state, document, position);
+            const source = entry.source;
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
+            if (mapped.kind !== 'mapped') return null;
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.rename) return null;
+
+            const backend = await ensureBackend(state);
+            if (!backend) return null;
+
+            const result = await backend.rename(entry.shadow.shadowUri, mapped.position, newName);
+            if (!result?.changes) return null;
+
+            const remappedChanges: Record<string, TextEdit[]> = {};
+            for (const [uri, edits] of Object.entries(result.changes)) {
+                if (uri !== entry.shadow.shadowUri) {
+                    remappedChanges[uri] = edits;
+                    continue;
+                }
+
+                const bladeEdits = edits.flatMap((edit) => {
+                    const mappedRange = PhpBridgeMapping.shadowRangeToBladeRange(
+                        source,
+                        entry.shadow,
+                        edit.range,
+                        entry.bladeLineIndex,
+                    );
+                    if (mappedRange.kind !== 'mapped') return [];
+                    return [{ newText: edit.newText, range: mappedRange.range } satisfies TextEdit];
+                });
+
+                if (bladeEdits.length > 0) {
+                    remappedChanges[document.uri] = [...(remappedChanges[document.uri] ?? []), ...bladeEdits];
+                }
+            }
+
+            return Object.keys(remappedChanges).length > 0 ? { changes: remappedChanges } : null;
+        } catch (error) {
+            state.logger.error(`Embedded PHP bridge rename failed: ${String(error)}`);
+            return null;
+        }
+    }
+
     function remapTextEdit(
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         edit: TextEdit | InsertReplaceEdit | undefined,
+        bladeLineIndex?: LineIndex,
     ): TextEdit | null {
         if (!edit) {
             return null;
@@ -395,7 +638,7 @@ export namespace PhpBridge {
         // to a single range by preferring the replace range.
         const range = InsertReplaceEdit.is(edit) ? edit.replace : edit.range;
 
-        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, range);
+        const mapped = PhpBridgeMapping.shadowRangeToBladeRange(source, shadow, range, bladeLineIndex);
         if (mapped.kind !== 'mapped') {
             return null;
         }
@@ -410,8 +653,9 @@ export namespace PhpBridge {
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         edit: TextEdit,
+        bladeLineIndex?: LineIndex,
     ): TextEdit | null {
-        const mapped = remapTextEdit(source, shadow, edit);
+        const mapped = remapTextEdit(source, shadow, edit, bladeLineIndex);
         if (mapped) {
             return mapped;
         }
@@ -421,14 +665,15 @@ export namespace PhpBridge {
             return null;
         }
 
-        const shadowStart = PhpBridgeMapping.positionToOffset(shadow.content, edit.range.start);
-        const shadowEnd = PhpBridgeMapping.positionToOffset(shadow.content, edit.range.end);
+        const shadowStart = shadow.lineIndex.positionToOffset(edit.range.start);
+        const shadowEnd = shadow.lineIndex.positionToOffset(edit.range.end);
         const isInsertion = shadowStart === shadowEnd;
         if (!isInsertion || shadowStart > firstRegion.shadowContentOffsetStart) {
             return null;
         }
 
-        const bladeInsertPosition = PhpBridgeMapping.offsetToPosition(source, firstRegion.bladeContentOffsetStart);
+        const bladeIdx = bladeLineIndex ?? new LineIndex(source);
+        const bladeInsertPosition = bladeIdx.offsetToPosition(firstRegion.bladeContentOffsetStart);
         return {
             newText: edit.newText,
             range: {
@@ -442,17 +687,23 @@ export namespace PhpBridge {
         source: string,
         shadow: PhpBridgeShadowDocument.ShadowDocument,
         item: CompletionItem,
+        bladeLineIndex?: LineIndex,
     ): CompletionItem | null {
         const textEdit =
             'textEdit' in item
-                ? remapTextEdit(source, shadow, item.textEdit as TextEdit | InsertReplaceEdit | undefined)
+                ? remapTextEdit(
+                      source,
+                      shadow,
+                      item.textEdit as TextEdit | InsertReplaceEdit | undefined,
+                      bladeLineIndex,
+                  )
                 : null;
         if ('textEdit' in item && item.textEdit && !textEdit) {
             return null;
         }
 
         const additionalTextEdits = item.additionalTextEdits
-            ?.map((edit) => remapAdditionalTextEdit(source, shadow, edit))
+            ?.map((edit) => remapAdditionalTextEdit(source, shadow, edit, bladeLineIndex))
             .filter((edit): edit is TextEdit => !!edit);
         if (
             item.additionalTextEdits &&
@@ -513,13 +764,21 @@ export namespace PhpBridge {
         try {
             const entry = await syncDocument(state, document, position);
             const source = entry.source;
-            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(source, entry.shadow, position);
+            const mapped = PhpBridgeMapping.bladePositionToShadowPosition(
+                source,
+                entry.shadow,
+                position,
+                entry.bladeLineIndex,
+            );
             if (mapped.kind !== 'mapped') {
                 state.logger.log(
                     `[php-bridge] completion fallback for ${document.uri} at ${position.line}:${position.character} (kind=${mapped.kind})`,
                 );
                 return null;
             }
+
+            const region = getRegionById(entry.shadow, mapped.regionId);
+            if (!region?.features.completion) return null;
 
             const backend = await ensureBackend(state);
             if (!backend) {
@@ -551,7 +810,7 @@ export namespace PhpBridge {
             );
 
             const remapped = resolvedItems
-                .map((item) => remapCompletionItem(source, entry.shadow, item))
+                .map((item) => remapCompletionItem(source, entry.shadow, item, entry.bladeLineIndex))
                 .filter((item): item is CompletionItem => !!item);
 
             return sortBridgeCompletionItems(remapped);
@@ -598,7 +857,12 @@ export namespace PhpBridge {
                 return resolved;
             }
 
-            const remapped = remapCompletionItem(documentState.source, documentState.shadow, resolved);
+            const remapped = remapCompletionItem(
+                documentState.source,
+                documentState.shadow,
+                resolved,
+                documentState.bladeLineIndex,
+            );
             return remapped ?? item;
         } catch (error) {
             state.logger.error(`Embedded PHP bridge completion resolve failed: ${String(error)}`);

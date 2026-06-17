@@ -1,6 +1,6 @@
 import { Position } from 'vscode-languageserver/node';
+import { LineIndex } from '../../utils/line-index';
 import { Lexer } from '../../parser/lexer';
-import { PhpBridgeMapping } from './mapping';
 
 export namespace PhpBridgeRegions {
     export type RegionKind = 'php-tag' | 'blade-directive';
@@ -22,8 +22,6 @@ export namespace PhpBridgeRegions {
         regions: Region[];
         signature: string;
     }
-
-    const { offsetToPosition, positionToOffset } = PhpBridgeMapping;
 
     function getPhpTagContentOffsets(
         source: string,
@@ -70,8 +68,8 @@ export namespace PhpBridgeRegions {
                 rawOffsetEnd: range.offsetEnd,
                 contentOffsetStart: contentOffsets.contentOffsetStart,
                 contentOffsetEnd: contentOffsets.contentOffsetEnd,
-                start: offsetToPosition(source, contentOffsets.contentOffsetStart),
-                end: offsetToPosition(source, contentOffsets.contentOffsetEnd),
+                start: lexed.lineIndex.offsetToPosition(contentOffsets.contentOffsetStart),
+                end: lexed.lineIndex.offsetToPosition(contentOffsets.contentOffsetEnd),
                 content: source.slice(contentOffsets.contentOffsetStart, contentOffsets.contentOffsetEnd),
             });
         }
@@ -80,12 +78,29 @@ export namespace PhpBridgeRegions {
     }
 
     export function getRegionAtOffset(regions: Region[], offset: number): Region | null {
-        return (
-            regions.find((region) => offset >= region.contentOffsetStart && offset <= region.contentOffsetEnd) ?? null
-        );
+        let lo = 0;
+        let hi = regions.length - 1;
+        while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const r = regions[mid];
+            if (offset < r.contentOffsetStart) {
+                hi = mid - 1;
+            } else if (offset > r.contentOffsetEnd) {
+                lo = mid + 1;
+            } else {
+                return r;
+            }
+        }
+        return null;
     }
 
-    export function getRegionAtPosition(source: string, regions: Region[], position: Position): Region | null {
-        return getRegionAtOffset(regions, positionToOffset(source, position));
+    export function getRegionAtPosition(
+        source: string,
+        regions: Region[],
+        position: Position,
+        lineIndex?: LineIndex,
+    ): Region | null {
+        const idx = lineIndex ?? new LineIndex(source);
+        return getRegionAtOffset(regions, idx.positionToOffset(position));
     }
 }

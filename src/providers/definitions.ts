@@ -8,6 +8,7 @@ import { Components } from '../laravel/components';
 import { PhpPreambleSymbols } from './php-preamble-symbols';
 import { isLivewireActionAttribute } from './patterns';
 import { Hovers } from './hovers';
+import { LineIndex } from '../utils/line-index';
 
 export namespace Definitions {
     function toSameFileLocation(uri: string, line: number, column: number, length: number): Location {
@@ -150,7 +151,7 @@ export namespace Definitions {
      * Returns the line and column of the prop, or null if not found.
      */
     function findPropInFile(content: string, propName: string): { line: number; col: number } | null {
-        const lines = content.split('\n');
+        const lines = new LineIndex(content).lines;
         const propNeedle = `'${propName}'`;
 
         for (let i = 0; i < lines.length; i++) {
@@ -232,7 +233,7 @@ export namespace Definitions {
         content: string,
         slotName: string,
     ): { line: number; col: number; length: number } | null {
-        const lines = content.split('\n');
+        const lines = new LineIndex(content).lines;
         const patterns = [
             new RegExp(`\\{\\{[\\s]*\\$${slotName}[\\s]*(?:\\?\\?[^}]*)?\\}\\}`),
             new RegExp(`\\{!![\\s]*\\$${slotName}[\\s]*(?:\\?\\?[^}]*)?!!\\}`),

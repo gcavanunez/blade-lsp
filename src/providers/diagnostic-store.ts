@@ -1,17 +1,18 @@
 import { Diagnostic } from 'vscode-languageserver/node';
 
 export namespace DiagnosticStore {
-    export type Kind = 'syntax' | 'semantic';
+    export type Kind = 'syntax' | 'semantic' | 'php';
 
     interface Bucket {
         syntax: Diagnostic[];
         semantic: Diagnostic[];
+        php: Diagnostic[];
         merged: Diagnostic[];
         published: boolean;
     }
 
     export interface Store {
-        update(uri: string, diagnostics: Record<Kind, Diagnostic[]>): Diagnostic[] | null;
+        update(uri: string, diagnostics: Partial<Record<Kind, Diagnostic[]>>): Diagnostic[] | null;
         delete(uri: string): void;
     }
 
@@ -78,23 +79,25 @@ export namespace DiagnosticStore {
     }
 
     function merge(bucket: Bucket): Diagnostic[] {
-        return [...bucket.syntax, ...bucket.semantic];
+        return [...bucket.syntax, ...bucket.semantic, ...bucket.php];
     }
 
     export function create(): Store {
         const buckets = new Map<string, Bucket>();
 
         return {
-            update(uri: string, diagnostics: Record<Kind, Diagnostic[]>): Diagnostic[] | null {
+            update(uri: string, diagnostics: Partial<Record<Kind, Diagnostic[]>>): Diagnostic[] | null {
                 const bucket = buckets.get(uri) ?? {
                     syntax: [],
                     semantic: [],
+                    php: [],
                     merged: [],
                     published: false,
                 };
 
-                bucket.syntax = diagnostics.syntax;
-                bucket.semantic = diagnostics.semantic;
+                bucket.syntax = diagnostics.syntax ?? bucket.syntax;
+                bucket.semantic = diagnostics.semantic ?? bucket.semantic;
+                bucket.php = diagnostics.php ?? bucket.php;
 
                 const merged = merge(bucket);
                 if (bucket.published && diagnosticsEqual(bucket.merged, merged)) {

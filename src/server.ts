@@ -45,6 +45,7 @@ import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
 import { Shared } from './providers/shared';
+import { LineIndex } from './utils/line-index';
 import {
     getDirectiveParameterName,
     getSlotCompletionSyntax,
@@ -93,18 +94,16 @@ export namespace Server {
         phpactor?: PhpactorBridgeConfig;
     }
 
-    const SettingsSchema = z
-        .object({
-            phpCommand: z.array(z.string()).optional(),
-            phpEnvironment: z.string().optional(),
-            enableLaravelIntegration: z.boolean().optional(),
-            enableEmbeddedPhpBridge: z.boolean().optional(),
-            embeddedPhpBackend: z.string().optional(),
-            embeddedPhpLspCommand: z.array(z.string()).optional(),
-            intelephense: z.record(z.string(), z.unknown()).optional(),
-            phpactor: z.record(z.string(), z.unknown()).optional(),
-        })
-        .passthrough();
+    const SettingsSchema = z.looseObject({
+        phpCommand: z.array(z.string()).optional(),
+        phpEnvironment: z.string().optional(),
+        enableLaravelIntegration: z.boolean().optional(),
+        enableEmbeddedPhpBridge: z.boolean().optional(),
+        embeddedPhpBackend: z.string().optional(),
+        embeddedPhpLspCommand: z.array(z.string()).optional(),
+        intelephense: z.record(z.string(), z.unknown()).optional(),
+        phpactor: z.record(z.string(), z.unknown()).optional(),
+    });
 
     function parseSettings(input: unknown): Settings {
         if (!input || typeof input !== 'object') return {};
@@ -157,7 +156,7 @@ export namespace Server {
         return tree;
     }
 
-    function collectDocumentDiagnostics(document: TextDocument): Record<DiagnosticStore.Kind, Diagnostic[]> {
+    function collectDocumentDiagnostics(document: TextDocument): Partial<Record<DiagnosticStore.Kind, Diagnostic[]>> {
         const source = document.getText();
         const tree = parseDocument(document);
 
@@ -218,6 +217,13 @@ export namespace Server {
                     log: (message) => conn.console.log(message),
                     error: (message) => conn.console.error(message),
                 });
+
+                PhpBridge.onDiagnostics(phpBridgeState, (bladeUri, phpDiagnostics) => {
+                    const merged = diagnosticStore.update(bladeUri, { php: phpDiagnostics });
+                    if (merged) {
+                        conn.sendDiagnostics({ uri: bladeUri, diagnostics: merged });
+                    }
+                });
             }
 
             return phpBridgeState;
@@ -269,6 +275,10 @@ export namespace Server {
                     },
                     hoverProvider: true,
                     definitionProvider: true,
+                    referencesProvider: true,
+                    renameProvider: {
+                        prepareProvider: true,
+                    },
                     documentSymbolProvider: true,
                     documentLinkProvider: {
                         resolveProvider: false,
@@ -467,7 +477,8 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const position = params.position;
             const source = document.getText();
-            const currentLine = source.split('\n')[position.line] || '';
+            const lineIndex = new LineIndex(source);
+            const currentLine = lineIndex.getLineText(position.line);
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {
                 const bridgeItems = await PhpBridge.getCompletion(phpBridge, document, position, params.context);
@@ -564,7 +575,8 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const position = params.position;
             const source = document.getText();
-            const lineText = source.split('\n')[position.line] || '';
+            const lineIndex = new LineIndex(source);
+            const lineText = lineIndex.getLineText(position.line);
 
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {
@@ -688,8 +700,8 @@ export namespace Server {
             const tree = cache.get(params.textDocument.uri) || parseDocument(document);
             const source = document.getText();
             const position = params.position;
-            const lines = source.split('\n');
-            const currentLine = lines[position.line] || '';
+            const lineIndex = new LineIndex(source);
+            const currentLine = lineIndex.getLineText(position.line);
 
             const phpBridge = getPhpBridgeState();
             if (phpBridge) {
@@ -742,6 +754,42 @@ export namespace Server {
             const slotDefinition = Definitions.getSlotDefinition(currentLine, position.line, position.character, tree);
             if (slotDefinition) {
                 return slotDefinition;
+            }
+
+            return null;
+        });
+
+        conn.onReferences(async (params) => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return null;
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                return await PhpBridge.getReferences(phpBridge, document, params.position);
+            }
+
+            return null;
+        });
+
+        conn.onPrepareRename(async (params) => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return null;
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                return await PhpBridge.doPrepareRename(phpBridge, document, params.position);
+            }
+
+            return null;
+        });
+
+        conn.onRenameRequest(async (params) => {
+            const document = docs.get(params.textDocument.uri);
+            if (!document) return null;
+
+            const phpBridge = getPhpBridgeState();
+            if (phpBridge) {
+                return await PhpBridge.doRename(phpBridge, document, params.position, params.newName);
             }
 
             return null;

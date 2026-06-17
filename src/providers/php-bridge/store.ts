@@ -1,4 +1,5 @@
 import type { TextDocument } from 'vscode-languageserver-textdocument';
+import type { LineIndex } from '../../utils/line-index';
 import { PhpBridgeRegions } from './regions';
 import { PhpBridgeShadowDocument } from './shadow-document';
 
@@ -7,6 +8,7 @@ export namespace PhpBridgeStore {
         bladeUri: string;
         bladeVersion: number;
         source: string;
+        bladeLineIndex: LineIndex;
         extraction: PhpBridgeRegions.RegionExtraction;
         activeRegionId: string | null;
         shadow: PhpBridgeShadowDocument.ShadowDocument;
@@ -54,6 +56,7 @@ export namespace PhpBridgeStore {
                     bladeUri: document.uri,
                     bladeVersion: document.version,
                     source: document.getText(),
+                    bladeLineIndex: extraction.lexed.lineIndex,
                     extraction,
                     activeRegionId,
                     shadow,

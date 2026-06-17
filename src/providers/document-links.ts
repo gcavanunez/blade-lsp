@@ -1,6 +1,7 @@
 import { DocumentLink, Range } from 'vscode-languageserver/node';
 import { Shared } from './shared';
 import { Definitions } from './definitions';
+import { LineIndex } from '../utils/line-index';
 
 export namespace DocumentLinks {
     function createLink(line: number, start: number, end: number, target: string): DocumentLink {
@@ -12,10 +13,10 @@ export namespace DocumentLinks {
 
     export function getLinks(source: string): DocumentLink[] {
         const links: DocumentLink[] = [];
-        const lines = source.split('\n');
+        const idx = new LineIndex(source);
 
-        for (let lineNumber = 0; lineNumber < lines.length; lineNumber++) {
-            const line = lines[lineNumber];
+        for (let lineNumber = 0; lineNumber < idx.lineCount; lineNumber++) {
+            const line = idx.getLineText(lineNumber);
 
             for (const match of Shared.getViewReferenceMatches(line)) {
                 const target = Definitions.resolveViewLocation(match.value)?.uri;

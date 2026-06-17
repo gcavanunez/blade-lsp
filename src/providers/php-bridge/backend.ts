@@ -12,9 +12,12 @@ import {
     type CompletionContext,
     type CompletionItem,
     type CompletionList,
+    type Diagnostic,
     type Hover,
     type Location,
     type Position,
+    type Range,
+    type WorkspaceEdit,
 } from 'vscode-languageserver/node';
 
 export namespace PhpBridgeBackend {
@@ -53,10 +56,16 @@ export namespace PhpBridgeBackend {
         };
     }
 
+    export interface DiagnosticsParams {
+        uri: string;
+        diagnostics: Diagnostic[];
+    }
+
     export interface Client {
         start(): Promise<void>;
         waitForReady(timeoutMs?: number): Promise<boolean>;
         onReady(callback: () => void): void;
+        onDiagnostics(callback: (params: DiagnosticsParams) => void): void;
         close(uri: string): Promise<void>;
         openOrUpdate(document: ShadowDocumentTransport): Promise<void>;
         /** Close and re-open a document so the backend fully re-analyzes it.
@@ -71,6 +80,9 @@ export namespace PhpBridgeBackend {
             context?: CompletionContext,
         ): Promise<CompletionItem[] | CompletionList | null>;
         resolveCompletion(item: CompletionItem): Promise<CompletionItem | null>;
+        references(uri: string, position: Position): Promise<Location[] | null>;
+        prepareRename(uri: string, position: Position): Promise<Range | null>;
+        rename(uri: string, position: Position, newName: string): Promise<WorkspaceEdit | null>;
         shutdown(): Promise<void>;
     }
 
@@ -173,6 +185,7 @@ export namespace PhpBridgeBackend {
     export function createLspClient(config: BackendConfig): Client {
         let clientState: ClientState = { kind: 'idle' };
         const pendingReadyCallbacks: ReadyCallback[] = [];
+        const diagnosticsCallbacks: Array<(params: DiagnosticsParams) => void> = [];
 
         function isReadyState(readiness: ReadinessState): boolean {
             return readiness.kind === 'ready' || readiness.kind === 'degraded';
@@ -417,6 +430,14 @@ export namespace PhpBridgeBackend {
                     );
                     return null;
                 });
+                connection.onNotification(
+                    'textDocument/publishDiagnostics',
+                    (params: { uri: string; diagnostics: Diagnostic[] }) => {
+                        for (const cb of diagnosticsCallbacks) {
+                            cb(params);
+                        }
+                    },
+                );
                 // Catch-all for unhandled notifications.  Detects indexer crashes
                 // so we can treat them as degraded-ready rather than hanging forever.
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -589,6 +610,10 @@ export namespace PhpBridgeBackend {
         return {
             async start() {
                 await ensureStarted();
+            },
+
+            onDiagnostics(callback: (params: DiagnosticsParams) => void) {
+                diagnosticsCallbacks.push(callback);
             },
 
             onReady(callback: () => void) {
@@ -798,6 +823,41 @@ export namespace PhpBridgeBackend {
                     })}`,
                 );
                 return result;
+            },
+
+            async references(uri, position) {
+                const session = await ensureStarted();
+                return (await session.connection.sendRequest('textDocument/references', {
+                    textDocument: { uri },
+                    position,
+                    context: { includeDeclaration: true },
+                })) as Location[] | null;
+            },
+
+            async prepareRename(uri, position) {
+                const session = await ensureStarted();
+                try {
+                    const result = await session.connection.sendRequest('textDocument/prepareRename', {
+                        textDocument: { uri },
+                        position,
+                    });
+                    if (!result) return null;
+                    // Response can be Range | { range: Range; placeholder: string }
+                    if ('start' in (result as object)) return result as Range;
+                    if ('range' in (result as object)) return (result as { range: Range }).range;
+                    return null;
+                } catch {
+                    return null;
+                }
+            },
+
+            async rename(uri, position, newName) {
+                const session = await ensureStarted();
+                return (await session.connection.sendRequest('textDocument/rename', {
+                    textDocument: { uri },
+                    position,
+                    newName,
+                })) as WorkspaceEdit | null;
             },
 
             async shutdown() {

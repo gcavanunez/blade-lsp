@@ -13,6 +13,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Diagnostics } from './diagnostics';
 import { ProjectFile } from './project-file';
 import { VIEW_HELPER_PATTERN, VIEW_REFERENCE_DIRECTIVES, getViewReferencePattern } from './patterns';
+import { LineIndex } from '../utils/line-index';
 
 export namespace CodeActions {
     interface ScaffoldTarget {
@@ -275,9 +276,8 @@ export namespace CodeActions {
     }
 
     function getLineIndent(document: TextDocument, line: number): string {
-        const lines = document.getText().split('\n');
-        const value = lines[line] ?? '';
-        const match = value.match(/^\s*/);
+        const lineText = new LineIndex(document.getText()).getLineText(line);
+        const match = lineText.match(/^\s*/);
         return match?.[0] ?? '';
     }
 

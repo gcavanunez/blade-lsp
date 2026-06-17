@@ -101,6 +101,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async (document) => {
@@ -110,6 +111,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         };
 
@@ -159,6 +163,7 @@ describe('PhpBridge backend skeleton', () => {
             },
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {},
@@ -166,6 +171,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         };
 
@@ -198,6 +206,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
@@ -207,6 +216,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 
@@ -245,6 +257,7 @@ describe('PhpBridge backend skeleton', () => {
             },
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
@@ -254,6 +267,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 
@@ -288,6 +304,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async (uri) => {
                 closedUris.push(uri);
             },
@@ -297,6 +314,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 
@@ -331,6 +351,7 @@ describe('PhpBridge backend skeleton', () => {
             start: async () => {},
             waitForReady: async () => true,
             onReady: () => {},
+            onDiagnostics: () => {},
             close: async () => {},
             reopen: async () => {},
             openOrUpdate: async () => {
@@ -340,6 +361,9 @@ describe('PhpBridge backend skeleton', () => {
             definition: async () => null,
             completion: async () => null,
             resolveCompletion: async () => null,
+            references: async () => null,
+            prepareRename: async () => null,
+            rename: async () => null,
             shutdown: async () => {},
         }));
 

@@ -8,10 +8,19 @@ export default [
     ...tseslint.configs.recommended,
     eslintConfigPrettier,
     {
-        files: ['src/**/*.ts', 'tests/**/*.ts'],
+        ignores: ['dist/', 'node_modules/', 'my-chaos/', 'agents/', '.agents/', 'benchmarks/', '*.config.*'],
     },
     {
-        ignores: ['dist/', 'node_modules/', 'my-chaos/'],
+        files: ['src/**/*.ts'],
+        languageOptions: {
+            parserOptions: {
+                project: './tsconfig.json',
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+        rules: {
+            '@typescript-eslint/no-deprecated': 'warn',
+        },
     },
     {
         rules: {

@@ -8,6 +8,9 @@ export default defineConfig({
         hookTimeout: 15_000,
         globals: true,
         pool: 'threads',
+        benchmark: {
+            include: ['benchmarks/**/*.bench.ts'],
+        },
     },
     define: {
         'process.env.TEST': '"1"',
