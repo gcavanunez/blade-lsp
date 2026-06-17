@@ -37,6 +37,7 @@ import { Hovers } from './providers/hovers';
 import { Definitions } from './providers/definitions';
 import { DocumentLinks } from './providers/document-links';
 import { DocumentSymbols } from './providers/document-symbols';
+import { PhpPreambleSymbols } from './providers/php-preamble-symbols';
 import { CodeActions } from './providers/code-actions';
 import { Diagnostics } from './providers/diagnostics';
 import { DiagnosticStore } from './providers/diagnostic-store';
@@ -437,6 +438,7 @@ export namespace Server {
                     items.push(...Completions.getParameterCompletions(directiveName, { source }));
                 }
             } else if (context.type === 'echo') {
+                items.push(...PhpPreambleSymbols.toCompletionItems(source));
                 items.push(...Completions.getLaravelHelperCompletions());
             } else if (context.type === 'php' || context.type === 'parameter') {
                 const line = source.split('\n')[position.line];
@@ -499,6 +501,18 @@ export namespace Server {
 
             if (wordAtPosition === '$attributes' || wordAtPosition.startsWith('$attributes->')) {
                 return { contents: { kind: MarkupKind.Markdown, value: Hovers.formatAttributesVariable() } };
+            }
+
+            if (wordAtPosition.startsWith('$')) {
+                const phpSymbol = PhpPreambleSymbols.findSymbol(source, wordAtPosition);
+                if (phpSymbol) {
+                    return {
+                        contents: {
+                            kind: MarkupKind.Markdown,
+                            value: PhpPreambleSymbols.formatSymbol(phpSymbol),
+                        },
+                    };
+                }
             }
 
             const componentHover = Hovers.getComponentHover(lineText, position.character);
