@@ -33,8 +33,10 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
       retries re-boot. Service key replaced by `LaravelInitLockService`.
       (Note: `Effect.cached` was considered but its arg-less, result-caching
       shape didn't fit per-call `workspaceRoot`/`options`.)
-- [ ] LOCK2: `src/utils/lock.ts` RW lock → `Effect.Semaphore` (writer
-      preference: evaluate `TxReentrantLock` if reader/writer split must stay).
+- [x] LOCK2: `src/utils/lock.ts` RW lock deleted. Its only consumers were the
+      three refresh modules, and only `Lock.write` — the entire read side was
+      dead code. Each module now owns a module-level single-permit
+      `Semaphore` held via `Semaphore.withPermit`.
 - [ ] LOCK3: `src/utils/defer.ts` → `Scope`/`Effect.addFinalizer` at Effect
       boundaries; keep `using` for pure-sync spots.
 

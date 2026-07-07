@@ -1,7 +1,6 @@
 import z from 'zod';
-import { Effect } from 'effect';
+import { Effect, Semaphore } from 'effect';
 import { NamedError } from '../utils/error';
-import { Lock } from '../utils/lock';
 import { PhpRunner } from './php-runner';
 import { LaravelContext } from './context';
 import { ComponentItem, ComponentsRawResult } from './types';
@@ -15,54 +14,53 @@ export namespace Components {
         }),
     );
 
-    const REFRESH_LOCK = 'components-refresh';
+    /** Serializes refreshes so concurrent calls queue instead of overlapping. */
+    const refreshLock = Semaphore.makeUnsafe(1);
 
     /**
      * Refresh components from Laravel.
-     * Uses a write lock to prevent concurrent refreshes.
+     * Holds a single-permit semaphore to prevent concurrent refreshes.
      *
      * Error channel: `RefreshError` (the failed load state is recorded
      * before failing).
      */
     export function refresh(): Effect.Effect<void, InstanceType<typeof RefreshError>> {
-        return Effect.acquireUseRelease(
-            Effect.promise(() => Lock.write(REFRESH_LOCK)),
-            () =>
-                Effect.gen(function* () {
-                    const state = LaravelContext.use();
-                    state.components.loadState = LaravelContext.createLoadingLoadState();
+        return Semaphore.withPermit(
+            refreshLock,
+            Effect.gen(function* () {
+                const state = LaravelContext.use();
+                state.components.loadState = LaravelContext.createLoadingLoadState();
 
-                    const raw = yield* PhpRunner.runScript<ComponentsRawResult>({
-                        project: state.project,
-                        scriptName: 'blade-components',
-                    }).pipe(
-                        Effect.tapError((error) =>
-                            Effect.sync(() => {
-                                state.components.loadState = LaravelContext.createFailedLoadState(error.message);
-                            }),
-                        ),
-                        Effect.mapError(
-                            (error) =>
-                                new RefreshError(
-                                    { message: 'Failed to refresh components', cause: error.message },
-                                    { cause: error },
-                                ),
-                        ),
-                    );
+                const raw = yield* PhpRunner.runScript<ComponentsRawResult>({
+                    project: state.project,
+                    scriptName: 'blade-components',
+                }).pipe(
+                    Effect.tapError((error) =>
+                        Effect.sync(() => {
+                            state.components.loadState = LaravelContext.createFailedLoadState(error.message);
+                        }),
+                    ),
+                    Effect.mapError(
+                        (error) =>
+                            new RefreshError(
+                                { message: 'Failed to refresh components', cause: error.message },
+                                { cause: error },
+                            ),
+                    ),
+                );
 
-                    const items: ComponentItem[] = Object.entries(raw.components).map(([key, data]) => ({
-                        key,
-                        path: data.paths[0] ?? '',
-                        paths: data.paths,
-                        isVendor: data.isVendor,
-                        props: data.props,
-                    }));
+                const items: ComponentItem[] = Object.entries(raw.components).map(([key, data]) => ({
+                    key,
+                    path: data.paths[0] ?? '',
+                    paths: data.paths,
+                    isVendor: data.isVendor,
+                    props: data.props,
+                }));
 
-                    state.components.items = items;
-                    state.components.prefixes = raw.prefixes;
-                    state.components.loadState = LaravelContext.createReadyLoadState();
-                }),
-            (guard) => Effect.sync(() => guard[Symbol.dispose]()),
+                state.components.items = items;
+                state.components.prefixes = raw.prefixes;
+                state.components.loadState = LaravelContext.createReadyLoadState();
+            }),
         );
     }
 

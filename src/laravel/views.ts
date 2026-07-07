@@ -1,7 +1,6 @@
 import z from 'zod';
-import { Effect } from 'effect';
+import { Effect, Semaphore } from 'effect';
 import { NamedError } from '../utils/error';
-import { Lock } from '../utils/lock';
 import { PhpRunner } from './php-runner';
 import { LaravelContext } from './context';
 import { ViewItem } from './types';
@@ -15,45 +14,44 @@ export namespace Views {
         }),
     );
 
-    const REFRESH_LOCK = 'views-refresh';
+    /** Serializes refreshes so concurrent calls queue instead of overlapping. */
+    const refreshLock = Semaphore.makeUnsafe(1);
 
     /**
      * Refresh views from Laravel.
-     * Uses a write lock to prevent concurrent refreshes.
+     * Holds a single-permit semaphore to prevent concurrent refreshes.
      *
      * Error channel: `RefreshError` (the failed load state is recorded
      * before failing).
      */
     export function refresh(): Effect.Effect<void, InstanceType<typeof RefreshError>> {
-        return Effect.acquireUseRelease(
-            Effect.promise(() => Lock.write(REFRESH_LOCK)),
-            () =>
-                Effect.gen(function* () {
-                    const state = LaravelContext.use();
-                    state.views.loadState = LaravelContext.createLoadingLoadState();
+        return Semaphore.withPermit(
+            refreshLock,
+            Effect.gen(function* () {
+                const state = LaravelContext.use();
+                state.views.loadState = LaravelContext.createLoadingLoadState();
 
-                    const data = yield* PhpRunner.runScript<ViewItem[]>({
-                        project: state.project,
-                        scriptName: 'views',
-                    }).pipe(
-                        Effect.tapError((error) =>
-                            Effect.sync(() => {
-                                state.views.loadState = LaravelContext.createFailedLoadState(error.message);
-                            }),
-                        ),
-                        Effect.mapError(
-                            (error) =>
-                                new RefreshError(
-                                    { message: 'Failed to refresh views', cause: error.message },
-                                    { cause: error },
-                                ),
-                        ),
-                    );
+                const data = yield* PhpRunner.runScript<ViewItem[]>({
+                    project: state.project,
+                    scriptName: 'views',
+                }).pipe(
+                    Effect.tapError((error) =>
+                        Effect.sync(() => {
+                            state.views.loadState = LaravelContext.createFailedLoadState(error.message);
+                        }),
+                    ),
+                    Effect.mapError(
+                        (error) =>
+                            new RefreshError(
+                                { message: 'Failed to refresh views', cause: error.message },
+                                { cause: error },
+                            ),
+                    ),
+                );
 
-                    state.views.items = data;
-                    state.views.loadState = LaravelContext.createReadyLoadState();
-                }),
-            (guard) => Effect.sync(() => guard[Symbol.dispose]()),
+                state.views.items = data;
+                state.views.loadState = LaravelContext.createReadyLoadState();
+            }),
         );
     }
 
