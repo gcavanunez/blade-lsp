@@ -257,7 +257,7 @@ export namespace PhpRunner {
         timeout: number,
         markers: FrameworkConfig['outputMarkers'],
     ): Effect.Effect<T, ExecuteError> {
-        return Effect.async<T, ExecuteError>((resume, signal) => {
+        return Effect.callback<T, ExecuteError>((resume, signal) => {
             let stdout = '';
             let stderr = '';
             let proc: ChildProcess;
