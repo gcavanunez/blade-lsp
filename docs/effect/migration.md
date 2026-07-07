@@ -58,14 +58,35 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
 
 ## Track BRIDGE — php-bridge lifecycle (highest correctness payoff)
 
-- [ ] BR1: `backend.ts` `ClientState`/`ReadinessState` machines →
-      `Scope` + `Effect.acquireRelease` for the PHP LSP child process;
-      `Deferred` for readiness; delete callback registries.
-- [ ] BR2: `bridge.ts` `BackendLifecycle` (promises stored in state) →
-      scoped resource + `Effect.cached` acquisition.
-- [ ] BR3: indexing progress / background loops → `Effect.forkIn(scope)` +
-      `Effect.repeat`; interruption instead of manual cancellation flags.
-- [ ] BR4: diagnostics callback array → Effect stream or queue (evaluate).
+Sliced plan (each independently shippable; see the lifecycle map in this
+track's history):
+
+- [x] BR0: extract the readiness state machine into a **pure reducer**
+      (`src/providers/php-bridge/readiness.ts`, `Readiness.reduce`), with
+      direct unit tests (`tests/unit/php-bridge-readiness.test.ts` — the
+      machine previously had zero non-e2e coverage). `backend.ts` keeps a
+      thin `dispatchReadiness` that applies the reducer and flushes ready
+      callbacks when the state settles. No behavior change.
+- [ ] BR1: `bridge.ts` `ensureBackend`/`BackendLifecycle` → cached scoped
+      acquisition (`Effect.cached`-style single-flight with reset-on-null,
+      matching the "retry after startup failure" unit test); exported
+      Promise API unchanged.
+- [ ] BR2: `backend.ts` `startSession`/`shutdownSession` →
+      `Effect.acquireRelease` (spawn/handshake acquire, best-effort
+      shutdown→kill→dispose release); readiness callbacks → `Deferred`;
+      `waitForReady` → `Deferred.await` + `Effect.timeout` + the 2s grace
+      heuristic. Prereq: fake-process/connection-injection unit tests for
+      the backend lifecycle.
+- [ ] BR3: `ensureStarted`/`shutdown` `while(true)` CAS loops →
+      `Semaphore(1)`-guarded lifecycle (pattern already used by
+      `LaravelInitLockService`); decide explicitly whether to add a
+      dead-process scope watcher (behavior improvement, currently no
+      recovery and no test pins it).
+- [ ] BR4: `syncDocument` side-effect block per-URI semaphore;
+      `getCompletion` eager resolve `Promise.all` → `Effect.forEach`;
+      diagnostics callback arrays → scoped subscription (fixes the
+      never-cleared callbacks and the `server.ts` `getPhpBridgeState`
+      abandoned-state leak).
 
 ## Track LAYER — make layers real
 
