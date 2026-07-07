@@ -37,8 +37,9 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
       three refresh modules, and only `Lock.write` — the entire read side was
       dead code. Each module now owns a module-level single-permit
       `Semaphore` held via `Semaphore.withPermit`.
-- [ ] LOCK3: `src/utils/defer.ts` → `Scope`/`Effect.addFinalizer` at Effect
-      boundaries; keep `using` for pure-sync spots.
+- [x] LOCK3: `src/utils/defer.ts` deleted. Its only consumer was
+      `Log.withLevel` (pure-sync level restore), which is now a plain
+      try/finally — no Effect needed for a synchronous spot.
 
 ## Track RUNNER — push the Effect boundary up
 
@@ -68,13 +69,23 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
 
 ## Track LAYER — make layers real
 
-- [ ] LAY1: parser init (`ParserApi.initialize`) → `Layer.effect` so the
-      runtime owns WASM initialization; drop `ParserRuntimeService` null ref.
-- [ ] LAY2: connection/documents wiring as scoped layers with finalizers so
-      `Container.dispose()` releases real resources.
-- [ ] LAY3 (decision): keep the extracted `Container.Services` singleton for
-      pure call sites, but run Effect-native subsystems via
-      `runtime.runPromise` instead of extracting them.
+- [x] LAY1 (decided: **won't do**): parser init stays at the LSP `initialize`
+      handshake, not in a `Layer.effect`. Rationale: (a) parser failure is
+      deliberately tolerated — the server keeps running in degraded mode
+      (`server.ts` onInitialize catch); a failing layer would abort startup
+      instead. (b) The WASM runtime exposes no disposal API, so there is no
+      finalizer to own. (c) WASM init is async, and layer extraction is
+      `runSync` — an async layer would force `Container.build()` async for
+      no lifecycle gain.
+- [x] LAY2: an internally-created stdio connection is now owned by the
+      runtime via `Layer.effect` + `Effect.acquireRelease`; its `dispose()`
+      runs on `Container.dispose()` (shutdown and per-test reset). External
+      test connections stay `Layer.succeed` — the caller owns them.
+      `TextDocuments`/`Progress` have no teardown APIs; nothing to own.
+- [x] LAY3 (decided): keep the extracted `Container.Services` singleton for
+      pure/sync call sites. Effect-native subsystems compose as Effects and
+      run via `runPromise` at explicit edges (see RUN3). Do not force
+      handlers into the runtime wholesale.
 
 ## Track ERR — unify errors
 

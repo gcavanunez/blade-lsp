@@ -8,7 +8,7 @@
  * This is the single source of truth for all singleton state.
  */
 
-import { Layer, ManagedRuntime, MutableRef, Semaphore } from 'effect';
+import { Effect, Layer, ManagedRuntime, MutableRef, Semaphore } from 'effect';
 import z from 'zod';
 import { NamedError } from '../utils/error';
 import { createConnection, TextDocuments, ProposedFeatures } from 'vscode-languageserver/node';
@@ -101,12 +101,22 @@ export namespace Container {
      *
      * Accepts an optional external `Connection` (useful for testing with
      * in-memory transports) — otherwise creates the default stdio connection.
+     *
+     * An internally-created connection is owned by the runtime: it is
+     * acquired when the layer builds and disposed when the runtime is
+     * disposed (`Container.dispose()`). External connections are not owned —
+     * their lifecycle belongs to the caller.
      */
     function makeProcessLayer(externalConnection?: Connection) {
-        const ConnectionLive = Layer.succeed(
-            ConnectionService,
-            externalConnection ?? createConnection(ProposedFeatures.all),
-        );
+        const ConnectionLive = externalConnection
+            ? Layer.succeed(ConnectionService, externalConnection)
+            : Layer.effect(
+                  ConnectionService,
+                  Effect.acquireRelease(
+                      Effect.sync(() => createConnection(ProposedFeatures.all)),
+                      (conn) => Effect.sync(() => conn.dispose()),
+                  ),
+              );
 
         const DocumentsLive = Layer.succeed(DocumentsService, new TextDocuments(TextDocument));
 

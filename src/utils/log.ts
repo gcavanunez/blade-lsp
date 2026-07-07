@@ -1,5 +1,4 @@
 import { NamedError } from './error';
-import { defer } from './defer';
 
 /**
  * Structured logging utility with tag support and timing.
@@ -225,7 +224,10 @@ export namespace Log {
     export function withLevel<T>(level: Level, fn: () => T): T {
         const oldLevel = currentLevel;
         setLevel(level);
-        using _ = defer(() => setLevel(oldLevel));
-        return fn();
+        try {
+            return fn();
+        } finally {
+            setLevel(oldLevel);
+        }
     }
 }
