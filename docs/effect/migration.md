@@ -111,8 +111,12 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
 
 ## Track TEST — Effect-aware testing
 
-- [ ] TST1: add a `testEffect` helper (vitest) that builds explicit test
-      layers and pretty-prints `Cause` on failure.
+- [x] TST1: `tests/utils/effect.ts` adds `runTest(effect)` — typed failures
+      are rethrown as-is (so `rejects`/`instanceof` assertions work), defects
+      throw with the pretty-printed `Cause`. Used by
+      `tests/unit/php-runner.test.ts` (catchTag, top-level error fields) and
+      `tests/unit/refresh.test.ts` (RefreshError cause chain, load-state
+      recording).
 - [ ] TST2: replace stub-container setup in `tests/utils/laravel-mock.ts`
       with test layers where slices are migrated.
 - [ ] TST3: enforce no-sleep synchronization (readiness signals only).
