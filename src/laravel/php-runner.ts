@@ -243,18 +243,17 @@ export namespace PhpRunner {
      * Spawn a PHP child process, collect its output, and parse the result.
      *
      * Returns an `Effect` that:
-     *   - Spawns the process and sets up a timeout
+     *   - Spawns the process
      *   - Collects stdout/stderr
      *   - On close, parses the output into `T`
-     *   - On interruption or abort, kills the process with SIGTERM
+     *   - On interruption (including `Effect.timeoutOrElse` in `runScript`),
+     *     kills the process with SIGTERM via the abort signal
      *
      * Error channel: `ExecuteError` (TimeoutError | StartupError | OutputError | ParseError | SpawnError)
      */
     function executePhp<T>(
         project: Project.AnyProject,
         scriptPath: string,
-        scriptName: string,
-        timeout: number,
         markers: FrameworkConfig['outputMarkers'],
     ): Effect.Effect<T, ExecuteError> {
         return Effect.callback<T, ExecuteError>((resume, signal) => {
@@ -286,15 +285,8 @@ export namespace PhpRunner {
                 return;
             }
 
-            // Kill on timeout
-            const timeoutId = setTimeout(() => {
-                proc.kill('SIGTERM');
-                resume(Effect.fail(new TimeoutError({ timeoutMs: timeout, scriptName })));
-            }, timeout);
-
-            // Kill on fiber interruption
+            // Kill on fiber interruption (covers the runScript timeout as well)
             signal.addEventListener('abort', () => {
-                clearTimeout(timeoutId);
                 proc.kill('SIGTERM');
             });
 
@@ -307,7 +299,6 @@ export namespace PhpRunner {
             });
 
             proc.on('close', () => {
-                clearTimeout(timeoutId);
                 if (signal.aborted) return;
 
                 try {
@@ -329,7 +320,6 @@ export namespace PhpRunner {
             });
 
             proc.on('error', (err) => {
-                clearTimeout(timeoutId);
                 resume(Effect.fail(new SpawnError({ command: project.phpCommand.join(' '), message: err.message })));
             });
         });
@@ -339,11 +329,12 @@ export namespace PhpRunner {
      * Run a PHP script in the context of a Laravel or Jigsaw project.
      * Uses file-based execution for Docker compatibility.
      *
-     * Internally constructs an Effect pipeline with retry
-     * (1 retry, 1s exponential backoff, only for transient errors),
-     * then runs it as a Promise at the boundary.
+     * Returns an `Effect` with a typed error channel (`RunScriptError`).
+     * Execution is bounded by a 30s timeout and retried once on transient
+     * errors with 1s exponential backoff. Callers run it at their own
+     * runtime edge.
      */
-    export async function runScript<T>(options: Options): Promise<T> {
+    export function runScript<T>(options: Options): Effect.Effect<T, RunScriptError> {
         const { project, scriptName } = options;
         const config = FRAMEWORK_CONFIGS[project.type];
 
@@ -375,18 +366,21 @@ export namespace PhpRunner {
                 },
             });
 
-            return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT, config.outputMarkers);
+            return yield* executePhp<T>(project, relativeScriptPath, config.outputMarkers).pipe(
+                Effect.timeoutOrElse({
+                    duration: TIMEOUT,
+                    orElse: () => Effect.fail(new TimeoutError({ timeoutMs: TIMEOUT, scriptName })),
+                }),
+            );
         });
 
         // Retry once on transient errors with 1s backoff
-        const withRetry = effect.pipe(
+        return effect.pipe(
             Effect.retry({
                 times: 1,
                 while: isRetryableError,
                 schedule: Schedule.exponential('1 seconds'),
             }),
         );
-
-        return Effect.runPromise(withRetry);
     }
 }

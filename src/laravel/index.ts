@@ -15,7 +15,7 @@ import { LaravelContext } from './context';
 import { Views } from './views';
 import { Components } from './components';
 import { Directives } from './directives';
-import { Effect, MutableRef, Semaphore } from 'effect';
+import { Effect, MutableRef, Result, Semaphore } from 'effect';
 import { ErrorFormat } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
@@ -195,40 +195,38 @@ export namespace Laravel {
 
         let completed = 0;
         const total = 3;
-        const trackProgress = (label: string) => {
-            completed++;
-            const pct = Math.round((completed / total) * 100);
-            report(`${label} (${completed}/${total})`, pct);
-        };
+        const trackProgress = (label: string) =>
+            Effect.sync(() => {
+                completed++;
+                const pct = Math.round((completed / total) * 100);
+                report(`${label} (${completed}/${total})`, pct);
+            });
 
-        const results = await Promise.allSettled([
-            Views.refresh().then(() => {
-                trackProgress('Views loaded');
-            }),
-            Components.refresh().then(() => {
-                trackProgress('Components loaded');
-            }),
-            Directives.refresh().then(() => {
-                trackProgress('Directives loaded');
-            }),
-        ]);
+        const [viewResult, componentResult, directiveResult] = await Effect.runPromise(
+            Effect.all(
+                [
+                    Views.refresh().pipe(Effect.andThen(trackProgress('Views loaded'))),
+                    Components.refresh().pipe(Effect.andThen(trackProgress('Components loaded'))),
+                    Directives.refresh().pipe(Effect.andThen(trackProgress('Directives loaded'))),
+                ],
+                { concurrency: 'unbounded', mode: 'result' },
+            ),
+        );
 
-        const [viewResult, componentResult, directiveResult] = results;
-
-        if (viewResult.status === 'rejected') {
-            log.error('Views refresh failed', { error: viewResult.reason });
+        if (Result.isFailure(viewResult)) {
+            log.error('Views refresh failed', { error: viewResult.failure });
             result.views = 'failed';
-            result.errors.push(ErrorFormat.forLog(viewResult.reason));
+            result.errors.push(ErrorFormat.forLog(viewResult.failure));
         }
-        if (componentResult.status === 'rejected') {
-            log.error('Components refresh failed', { error: componentResult.reason });
+        if (Result.isFailure(componentResult)) {
+            log.error('Components refresh failed', { error: componentResult.failure });
             result.components = 'failed';
-            result.errors.push(ErrorFormat.forLog(componentResult.reason));
+            result.errors.push(ErrorFormat.forLog(componentResult.failure));
         }
-        if (directiveResult.status === 'rejected') {
-            log.error('Directives refresh failed', { error: directiveResult.reason });
+        if (Result.isFailure(directiveResult)) {
+            log.error('Directives refresh failed', { error: directiveResult.failure });
             result.directives = 'failed';
-            result.errors.push(ErrorFormat.forLog(directiveResult.reason));
+            result.errors.push(ErrorFormat.forLog(directiveResult.failure));
         }
 
         const storedResult = setLastRefreshResult(result);

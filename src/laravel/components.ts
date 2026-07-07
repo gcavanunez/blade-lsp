@@ -1,4 +1,5 @@
 import z from 'zod';
+import { Effect } from 'effect';
 import { NamedError } from '../utils/error';
 import { Lock } from '../utils/lock';
 import { PhpRunner } from './php-runner';
@@ -20,43 +21,49 @@ export namespace Components {
      * Refresh components from Laravel.
      * Uses a write lock to prevent concurrent refreshes.
      *
-     * @throws RefreshError if refresh fails
+     * Error channel: `RefreshError` (the failed load state is recorded
+     * before failing).
      */
-    export async function refresh(): Promise<void> {
-        using _ = await Lock.write(REFRESH_LOCK);
+    export function refresh(): Effect.Effect<void, InstanceType<typeof RefreshError>> {
+        return Effect.acquireUseRelease(
+            Effect.promise(() => Lock.write(REFRESH_LOCK)),
+            () =>
+                Effect.gen(function* () {
+                    const state = LaravelContext.use();
+                    state.components.loadState = LaravelContext.createLoadingLoadState();
 
-        const state = LaravelContext.use();
-        state.components.loadState = LaravelContext.createLoadingLoadState();
+                    const raw = yield* PhpRunner.runScript<ComponentsRawResult>({
+                        project: state.project,
+                        scriptName: 'blade-components',
+                    }).pipe(
+                        Effect.tapError((error) =>
+                            Effect.sync(() => {
+                                state.components.loadState = LaravelContext.createFailedLoadState(error.message);
+                            }),
+                        ),
+                        Effect.mapError(
+                            (error) =>
+                                new RefreshError(
+                                    { message: 'Failed to refresh components', cause: error.message },
+                                    { cause: error },
+                                ),
+                        ),
+                    );
 
-        try {
-            const raw = await PhpRunner.runScript<ComponentsRawResult>({
-                project: state.project,
-                scriptName: 'blade-components',
-            });
+                    const items: ComponentItem[] = Object.entries(raw.components).map(([key, data]) => ({
+                        key,
+                        path: data.paths[0] ?? '',
+                        paths: data.paths,
+                        isVendor: data.isVendor,
+                        props: data.props,
+                    }));
 
-            const items: ComponentItem[] = Object.entries(raw.components).map(([key, data]) => ({
-                key,
-                path: data.paths[0] ?? '',
-                paths: data.paths,
-                isVendor: data.isVendor,
-                props: data.props,
-            }));
-
-            state.components.items = items;
-            state.components.prefixes = raw.prefixes;
-            state.components.loadState = LaravelContext.createReadyLoadState();
-        } catch (error) {
-            const cause = error instanceof Error ? error.message : String(error);
-            state.components.loadState = LaravelContext.createFailedLoadState(cause);
-
-            throw new RefreshError(
-                {
-                    message: 'Failed to refresh components',
-                    cause,
-                },
-                { cause: error },
-            );
-        }
+                    state.components.items = items;
+                    state.components.prefixes = raw.prefixes;
+                    state.components.loadState = LaravelContext.createReadyLoadState();
+                }),
+            (guard) => Effect.sync(() => guard[Symbol.dispose]()),
+        );
     }
 
     export function getItems(): ComponentItem[] {

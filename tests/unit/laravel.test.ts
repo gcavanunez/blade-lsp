@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Effect } from 'effect';
 import { Laravel } from '../../src/laravel/index';
 import { LaravelContext } from '../../src/laravel/context';
 import { Project } from '../../src/laravel/project';
@@ -44,9 +45,9 @@ describe('Laravel lifecycle', () => {
             .spyOn(Project, 'validateAny')
             .mockRejectedValueOnce(new Error('validation crashed'))
             .mockResolvedValueOnce(true);
-        const viewsRefreshSpy = vi.spyOn(Views, 'refresh').mockResolvedValue();
-        const componentsRefreshSpy = vi.spyOn(Components, 'refresh').mockResolvedValue();
-        const directivesRefreshSpy = vi.spyOn(Directives, 'refresh').mockResolvedValue();
+        const viewsRefreshSpy = vi.spyOn(Views, 'refresh').mockReturnValue(Effect.void);
+        const componentsRefreshSpy = vi.spyOn(Components, 'refresh').mockReturnValue(Effect.void);
+        const directivesRefreshSpy = vi.spyOn(Directives, 'refresh').mockReturnValue(Effect.void);
 
         await expect(Laravel.initialize('/workspace')).rejects.toThrow('validation crashed');
 
@@ -67,9 +68,9 @@ describe('Laravel lifecycle', () => {
                     resolveValidate = resolve;
                 }),
         );
-        vi.spyOn(Views, 'refresh').mockResolvedValue();
-        vi.spyOn(Components, 'refresh').mockResolvedValue();
-        vi.spyOn(Directives, 'refresh').mockResolvedValue();
+        vi.spyOn(Views, 'refresh').mockReturnValue(Effect.void);
+        vi.spyOn(Components, 'refresh').mockReturnValue(Effect.void);
+        vi.spyOn(Directives, 'refresh').mockReturnValue(Effect.void);
 
         const first = Laravel.initialize('/workspace');
         const second = Laravel.initialize('/workspace');
@@ -88,9 +89,9 @@ describe('Laravel lifecycle', () => {
     it('re-runs initialization on a later call after dispose', async () => {
         vi.spyOn(Project, 'detectAny').mockReturnValue(project);
         const validateSpy = vi.spyOn(Project, 'validateAny').mockResolvedValue(true);
-        vi.spyOn(Views, 'refresh').mockResolvedValue();
-        vi.spyOn(Components, 'refresh').mockResolvedValue();
-        vi.spyOn(Directives, 'refresh').mockResolvedValue();
+        vi.spyOn(Views, 'refresh').mockReturnValue(Effect.void);
+        vi.spyOn(Components, 'refresh').mockReturnValue(Effect.void);
+        vi.spyOn(Directives, 'refresh').mockReturnValue(Effect.void);
 
         await expect(Laravel.initialize('/workspace')).resolves.toBe(true);
         // While the context is live, initialize is idempotent.

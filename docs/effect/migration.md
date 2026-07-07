@@ -40,13 +40,18 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
 
 ## Track RUNNER — push the Effect boundary up
 
-- [ ] RUN1: `PhpRunner.runScript` returns `Effect` (delete the internal
-      `Effect.runPromise` at `php-runner.ts:390`); replace manual
-      `setTimeout` with `Effect.timeout`.
-- [ ] RUN2: `views/components/directives.refresh` compose as Effects; typed
-      error unions instead of try/catch re-wrapping.
-- [ ] RUN3: `Laravel.refreshAll` `Promise.allSettled` → `Effect.all` with
-      `{ mode: 'either' }`; single `runPromise` at the server handler edge.
+- [x] RUN1: `PhpRunner.runScript` returns `Effect<T, RunScriptError>` (no
+      internal `runPromise`); manual `setTimeout` replaced with
+      `Effect.timeoutOrElse` (interruption drives SIGTERM via the abort
+      signal).
+- [x] RUN2: `views/components/directives.refresh` return
+      `Effect<void, RefreshError>`; lock held via `Effect.acquireUseRelease`,
+      failed load state recorded with `Effect.tapError` + `Effect.mapError`.
+- [x] RUN3: `Laravel.refreshAll` composes with `Effect.all` in
+      `{ mode: 'result' }` (v4 replaced Either-mode with `Result`); the
+      watcher debounce in `server.ts` runs one contiguous
+      `Effect.all` block. Promise boundary stays at `refreshAll` /
+      the watcher callback.
 
 ## Track BRIDGE — php-bridge lifecycle (highest correctness payoff)
 

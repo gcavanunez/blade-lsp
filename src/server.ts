@@ -55,7 +55,7 @@ import {
 } from './providers/patterns';
 import { Watcher } from './watcher';
 import { Container } from './runtime/container';
-import { MutableRef } from 'effect';
+import { Effect, MutableRef } from 'effect';
 import z from 'zod';
 
 export namespace Server {
@@ -394,55 +394,42 @@ export namespace Server {
             const targetList = [...targets];
             const progress = await Progress.begin('Blade LSP', `Reloading ${targetList.join(', ')}...`);
 
-            const promises: Promise<void>[] = [];
             let completed = 0;
             const total = targetList.length;
-            const trackProgress = (label: string) => {
-                completed++;
-                const pct = Math.round((completed / total) * 100);
-                progress.report(`${label} (${completed}/${total})`, pct);
-            };
+            const trackProgress = (label: string) =>
+                Effect.sync(() => {
+                    completed++;
+                    const pct = Math.round((completed / total) * 100);
+                    progress.report(`${label} (${completed}/${total})`, pct);
+                });
+
+            const refreshTask = (label: string, refresh: Effect.Effect<void, unknown>) =>
+                refresh.pipe(
+                    Effect.andThen(trackProgress(`${label} reloaded`)),
+                    Effect.catch((err) =>
+                        Effect.sync(() => {
+                            conn.console.error(
+                                `File watcher: ${label.toLowerCase()} refresh failed: ${ErrorFormat.forLog(err)}`,
+                            );
+                        }).pipe(Effect.andThen(trackProgress(`${label} failed`))),
+                    ),
+                );
+
+            const tasks: Effect.Effect<void>[] = [];
 
             if (targets.has('views')) {
-                promises.push(
-                    Views.refresh()
-                        .then(() => {
-                            trackProgress('Views reloaded');
-                        })
-                        .catch((err) => {
-                            conn.console.error(`File watcher: views refresh failed: ${ErrorFormat.forLog(err)}`);
-                            trackProgress('Views failed');
-                        }),
-                );
+                tasks.push(refreshTask('Views', Views.refresh()));
             }
 
             if (targets.has('components')) {
-                promises.push(
-                    Components.refresh()
-                        .then(() => {
-                            trackProgress('Components reloaded');
-                        })
-                        .catch((err) => {
-                            conn.console.error(`File watcher: components refresh failed: ${ErrorFormat.forLog(err)}`);
-                            trackProgress('Components failed');
-                        }),
-                );
+                tasks.push(refreshTask('Components', Components.refresh()));
             }
 
             if (targets.has('directives')) {
-                promises.push(
-                    Directives.refresh()
-                        .then(() => {
-                            trackProgress('Directives reloaded');
-                        })
-                        .catch((err) => {
-                            conn.console.error(`File watcher: directives refresh failed: ${ErrorFormat.forLog(err)}`);
-                            trackProgress('Directives failed');
-                        }),
-                );
+                tasks.push(refreshTask('Directives', Directives.refresh()));
             }
 
-            await Promise.allSettled(promises);
+            await Effect.runPromise(Effect.all(tasks, { concurrency: 'unbounded', discard: true }));
             Laravel.syncRefreshResultFromState();
             progress.done('Reload complete');
             conn.console.log('File watcher: refresh complete');
