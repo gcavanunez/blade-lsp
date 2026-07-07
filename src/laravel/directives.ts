@@ -1,18 +1,15 @@
-import z from 'zod';
-import { Effect, Semaphore } from 'effect';
-import { NamedError } from '../utils/error';
+import { Effect, Schema, Semaphore } from 'effect';
 import { PhpRunner } from './php-runner';
 import { LaravelContext } from './context';
 import { CustomDirective } from './types';
 
 export namespace Directives {
-    export const RefreshError = NamedError.create(
-        'DirectivesRefreshError',
-        z.object({
-            message: z.string(),
-            cause: z.string().optional(),
-        }),
-    );
+    export class RefreshError extends Schema.TaggedErrorClass<RefreshError>()('DirectivesRefreshError', {
+        message: Schema.String,
+        // Schema.Defect is preferred, but it crashes class construction in
+        // effect 4.0.0-beta.93 — revisit on the next beta bump.
+        cause: Schema.optional(Schema.Unknown),
+    }) {}
 
     /** Serializes refreshes so concurrent calls queue instead of overlapping. */
     const refreshLock = Semaphore.makeUnsafe(1);
@@ -41,11 +38,7 @@ export namespace Directives {
                         }),
                     ),
                     Effect.mapError(
-                        (error) =>
-                            new RefreshError(
-                                { message: 'Failed to refresh directives', cause: error.message },
-                                { cause: error },
-                            ),
+                        (error) => new RefreshError({ message: 'Failed to refresh directives', cause: error }),
                     ),
                 );
 

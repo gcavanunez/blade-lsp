@@ -83,16 +83,29 @@ in a ref to dedupe concurrent work, use `Effect.cached` instead.
 ## Errors
 
 - Expected failures are typed values in the error channel; defects are bugs.
-- Current convention: zod-based `NamedError` (`src/utils/error.ts`). These are
-  plain classes and interop fine with Effect's error channel (see
-  `PhpRunner.ExecuteError`).
-- For **new** Effect-native error surfaces, prefer `Schema.TaggedErrorClass`
-  (v4; not `Data.TaggedError`) so `Effect.catchTag` works. Full unification is
-  track ERR in the migration doc.
-- Prefer `yield* new MyError(...)` over `yield* Effect.fail(new MyError(...))`
-  once errors are `Schema.TaggedErrorClass`-based.
+- Convention: `Schema.TaggedErrorClass` (v4; not `Data.TaggedError`), defined
+  next to the code that fails (`PhpRunner.*`, `Views.RefreshError`, ...).
+  `Effect.catchTag` works on these. `UnknownError` (`src/utils/error.ts`) is
+  the fallback when no typed error applies.
+- Errors without a `message` field should define a `get message()` override
+  so `error.message`/`String(error)` are informative.
+- Carry underlying errors in a `cause` field —
+  `Schema.optional(Schema.Unknown)` for now; `Schema.Defect` crashes class
+  construction in beta.93 (revisit on the next beta bump).
+- Prefer `yield* new MyError(...)` over `yield* Effect.fail(new MyError(...))`.
 - Never use `catchCause`-style blanket handling in tool/handler code —
   interruption and defects must survive.
+- Structured logging serializes tagged errors as `{ name: _tag, data: fields }`
+  (`ErrorFormat.toObject`, `Log`); own enumerable props are `_tag` + fields.
+
+## Schemas
+
+- Effect `Schema` for validation at boundaries (LSP settings in `server.ts`);
+  zod has been fully removed from the dependency tree.
+- `Schema.decodeUnknownOption` + `Option.getOrElse` for tolerant parses that
+  fall back to defaults.
+- `Schema.mutable(Schema.Array(...))` when the domain type wants `string[]`
+  rather than `readonly string[]`.
 
 ## ESM / build constraints
 

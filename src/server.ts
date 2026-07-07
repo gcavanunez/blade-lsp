@@ -55,8 +55,7 @@ import {
 } from './providers/patterns';
 import { Watcher } from './watcher';
 import { Container } from './runtime/container';
-import { Effect, MutableRef } from 'effect';
-import z from 'zod';
+import { Effect, MutableRef, Option, Schema } from 'effect';
 
 export namespace Server {
     export interface IntelephenseBridgeConfig {
@@ -100,22 +99,23 @@ export namespace Server {
         phpantom?: PhpantomBridgeConfig;
     }
 
-    const SettingsSchema = z.looseObject({
-        phpCommand: z.array(z.string()).optional(),
-        phpEnvironment: z.string().optional(),
-        enableLaravelIntegration: z.boolean().optional(),
-        enableEmbeddedPhpBridge: z.boolean().optional(),
-        embeddedPhpBackend: z.string().optional(),
-        embeddedPhpLspCommand: z.array(z.string()).optional(),
-        intelephense: z.record(z.string(), z.unknown()).optional(),
-        phpactor: z.record(z.string(), z.unknown()).optional(),
-        phpantom: z.record(z.string(), z.unknown()).optional(),
+    const SettingsSchema = Schema.Struct({
+        phpCommand: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+        phpEnvironment: Schema.optional(Schema.String),
+        enableLaravelIntegration: Schema.optional(Schema.Boolean),
+        enableEmbeddedPhpBridge: Schema.optional(Schema.Boolean),
+        embeddedPhpBackend: Schema.optional(Schema.String),
+        embeddedPhpLspCommand: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+        intelephense: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+        phpactor: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+        phpantom: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
     });
+
+    const decodeSettings = Schema.decodeUnknownOption(SettingsSchema);
 
     function parseSettings(input: unknown): Settings {
         if (!input || typeof input !== 'object') return {};
-        const result = SettingsSchema.safeParse(input);
-        return result.success ? (result.data as Settings) : {};
+        return Option.getOrElse(decodeSettings(input), () => ({})) as Settings;
     }
 
     export function getWorkspaceRoot(): string | null {

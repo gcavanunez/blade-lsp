@@ -98,9 +98,16 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
       the `{ name, data }` logging shape from `_tag` + own fields, so the
       structured-log format is unchanged. `Effect.catchTag` now works on the
       `runScript` error channel.
-- [ ] ERR3 (later): migrate `RefreshError`s, `Laravel.*` errors, and
-      remaining `NamedError` consumers; then evaluate deleting
-      `src/utils/error.ts`.
+- [x] ERR3: all remaining `NamedError` classes migrated —
+      `Views/Components/Directives.RefreshError` (with a
+      `cause: Schema.optional(Schema.Unknown)` field carrying the underlying
+      error; `Schema.Defect` crashes in beta.93), `Laravel.*` errors,
+      `Container.NotInitializedError`, `BladeParser.NotInitializedError`,
+      and `NamedError.Unknown` → `UnknownError`. The zod `NamedError`
+      factory is gone; `utils/error.ts` now only hosts `UnknownError`.
+- [x] SCHEMA (bonus): LSP settings parsing in `server.ts` migrated from zod
+      `looseObject`/`safeParse` to Effect `Schema.Struct` +
+      `Schema.decodeUnknownOption`. **zod removed from dependencies.**
 
 ## Track TEST — Effect-aware testing
 

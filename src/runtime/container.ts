@@ -8,9 +8,7 @@
  * This is the single source of truth for all singleton state.
  */
 
-import { Effect, Layer, ManagedRuntime, MutableRef, Semaphore } from 'effect';
-import z from 'zod';
-import { NamedError } from '../utils/error';
+import { Effect, Layer, ManagedRuntime, MutableRef, Schema, Semaphore } from 'effect';
 import { createConnection, TextDocuments, ProposedFeatures } from 'vscode-languageserver/node';
 import type { Connection } from 'vscode-languageserver/node';
 import type { TextDocuments as TextDocumentsType } from 'vscode-languageserver/node';
@@ -41,10 +39,10 @@ import {
 import type { ParserApi, ProgressApi } from './services';
 
 export namespace Container {
-    export const NotInitializedError = NamedError.create(
+    export class NotInitializedError extends Schema.TaggedErrorClass<NotInitializedError>()(
         'ContainerNotInitializedError',
-        z.object({ message: z.string() }),
-    );
+        { message: Schema.String },
+    ) {}
 
     export interface Services {
         readonly connection: Connection;

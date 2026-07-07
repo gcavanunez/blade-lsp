@@ -1,5 +1,3 @@
-import { NamedError } from './error';
-
 /**
  * Structured logging utility with tag support and timing.
  *
@@ -9,7 +7,7 @@ import { NamedError } from './error';
  * log.info("Initialized", { path: "/app" })
  * log.error("Failed", { error: new Error("oops") })
  *
- * // NamedErrors are automatically serialized with toObject()
+ * // Tagged errors are automatically serialized as { name, data }
  * log.error("Failed", { error: new PhpRunner.TimeoutError({ ... }) })
  *
  * // Timing with dispose
@@ -78,13 +76,14 @@ export namespace Log {
     }
 
     function formatError(error: Error, depth = 0): string {
-        if (error instanceof NamedError) {
-            const obj = error.toObject();
+        // Effect Schema tagged errors: own enumerable props are `_tag` + fields.
+        if ('_tag' in error && typeof error._tag === 'string') {
+            const { _tag, cause: _cause, ...fields } = { ...(error as Error & { _tag: string; cause?: unknown }) };
             let result: string;
             try {
-                result = JSON.stringify(obj);
+                result = JSON.stringify({ name: _tag, data: fields });
             } catch {
-                result = `${obj.name}: ${JSON.stringify(obj.data)}`;
+                result = _tag;
             }
             if (error.cause instanceof Error && depth < 10) {
                 result += ' Caused by: ' + formatError(error.cause, depth + 1);

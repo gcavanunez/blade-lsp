@@ -1,18 +1,15 @@
-import z from 'zod';
-import { Effect, Semaphore } from 'effect';
-import { NamedError } from '../utils/error';
+import { Effect, Schema, Semaphore } from 'effect';
 import { PhpRunner } from './php-runner';
 import { LaravelContext } from './context';
 import { ComponentItem, ComponentsRawResult } from './types';
 
 export namespace Components {
-    export const RefreshError = NamedError.create(
-        'ComponentsRefreshError',
-        z.object({
-            message: z.string(),
-            cause: z.string().optional(),
-        }),
-    );
+    export class RefreshError extends Schema.TaggedErrorClass<RefreshError>()('ComponentsRefreshError', {
+        message: Schema.String,
+        // Schema.Defect is preferred, but it crashes class construction in
+        // effect 4.0.0-beta.93 — revisit on the next beta bump.
+        cause: Schema.optional(Schema.Unknown),
+    }) {}
 
     /** Serializes refreshes so concurrent calls queue instead of overlapping. */
     const refreshLock = Semaphore.makeUnsafe(1);
@@ -41,11 +38,7 @@ export namespace Components {
                         }),
                     ),
                     Effect.mapError(
-                        (error) =>
-                            new RefreshError(
-                                { message: 'Failed to refresh components', cause: error.message },
-                                { cause: error },
-                            ),
+                        (error) => new RefreshError({ message: 'Failed to refresh components', cause: error }),
                     ),
                 );
 

@@ -29,8 +29,7 @@
         "effect": "4.0.0-beta.93",
         "vscode-languageserver": "^9.0.1",
         "vscode-languageserver-textdocument": "^1.0.11",
-        "web-tree-sitter": "^0.26.5",
-        "zod": "^4.3.6"
+        "web-tree-sitter": "^0.26.5"
     },
     "devDependencies": {
         "@eslint/js": "^9.39.2",

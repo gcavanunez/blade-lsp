@@ -5,8 +5,7 @@
  * from a Laravel project via PHP script execution.
  */
 
-import z from 'zod';
-import { NamedError } from '../utils/error';
+import { UnknownError } from '../utils/error';
 import { Log } from '../utils/log';
 
 import { Project } from './project';
@@ -15,32 +14,23 @@ import { LaravelContext } from './context';
 import { Views } from './views';
 import { Components } from './components';
 import { Directives } from './directives';
-import { Effect, MutableRef, Result, Semaphore } from 'effect';
+import { Effect, MutableRef, Result, Schema, Semaphore } from 'effect';
 import { ErrorFormat } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
 export namespace Laravel {
-    export const NotDetectedError = NamedError.create(
-        'LaravelNotDetectedError',
-        z.object({
-            workspaceRoot: z.string(),
-        }),
-    );
+    export class NotDetectedError extends Schema.TaggedErrorClass<NotDetectedError>()('LaravelNotDetectedError', {
+        workspaceRoot: Schema.String,
+    }) {}
 
-    export const ValidationError = NamedError.create(
-        'LaravelValidationError',
-        z.object({
-            projectRoot: z.string(),
-            message: z.string().optional(),
-        }),
-    );
+    export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()('LaravelValidationError', {
+        projectRoot: Schema.String,
+        message: Schema.optional(Schema.String),
+    }) {}
 
-    export const NotAvailableError = NamedError.create(
-        'LaravelNotAvailableError',
-        z.object({
-            message: z.string().optional(),
-        }),
-    );
+    export class NotAvailableError extends Schema.TaggedErrorClass<NotAvailableError>()('LaravelNotAvailableError', {
+        message: Schema.optional(Schema.String),
+    }) {}
 
     const log = Log.create({ service: 'laravel' });
 
@@ -88,7 +78,7 @@ export namespace Laravel {
                 };
             default: {
                 const _exhaustive: never = loadState;
-                throw new NamedError.Unknown({
+                throw new UnknownError({
                     message: `Unexpected load state: ${(_exhaustive as LaravelContext.LoadState).status}`,
                 });
             }

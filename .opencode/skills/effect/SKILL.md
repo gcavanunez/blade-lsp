@@ -24,7 +24,7 @@ Use the current Effect v4 / effect-smol source, not memory or older Effect v2/v3
 - `Context.Tag('X')<X, Shape>()` does not exist. Use `Context.Service<X, Shape>()('X')`.
 - `Effect.async` is renamed `Effect.callback` (same resume + AbortSignal shape).
 - `Effect.fork` / `Effect.forkDaemon` do not exist. Use `Effect.forkIn(scope)` or `Effect.forkScoped`.
-- Typed errors: prefer `Schema.TaggedErrorClass` (not `Data.TaggedError`) when modeling new error surfaces. The repo's zod-based `NamedError` interops with the error channel and remains the current convention.
+- Typed errors: `Schema.TaggedErrorClass` (not `Data.TaggedError`) is the repo convention — all domain errors are tagged classes with top-level fields; `UnknownError` in `src/utils/error.ts` is the fallback. Zod has been fully removed.
 - The `effect` package is ESM-only. This project compiles CJS and relies on Node `require(esm)` (Node >= 20.19) with `moduleResolution: NodeNext`.
 
 ## Guidelines
