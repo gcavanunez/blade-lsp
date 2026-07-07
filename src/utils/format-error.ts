@@ -43,39 +43,39 @@ export namespace ErrorFormat {
      * ```
      */
     export function format(input: unknown): string | undefined {
-        if (PhpRunner.ScriptNotFoundError.isInstance(input)) {
-            return `PHP script '${input.data.script}' not found at ${input.data.path}`;
+        if (input instanceof PhpRunner.ScriptNotFoundError) {
+            return input.message;
         }
 
-        if (PhpRunner.VendorDirError.isInstance(input)) {
-            return `Failed to create vendor directory: ${input.data.message}`;
+        if (input instanceof PhpRunner.VendorDirError) {
+            return `Failed to create vendor directory: ${input.message}`;
         }
 
-        if (PhpRunner.WriteError.isInstance(input)) {
-            return `Failed to write PHP script: ${input.data.message}`;
+        if (input instanceof PhpRunner.WriteError) {
+            return `Failed to write PHP script: ${input.message}`;
         }
 
-        if (PhpRunner.TimeoutError.isInstance(input)) {
-            return `PHP script '${input.data.scriptName}' timed out after ${input.data.timeoutMs}ms`;
+        if (input instanceof PhpRunner.TimeoutError) {
+            return input.message;
         }
 
-        if (PhpRunner.StartupError.isInstance(input)) {
-            return `Laravel failed to start: ${input.data.message}`;
+        if (input instanceof PhpRunner.StartupError) {
+            return `Laravel failed to start: ${input.message}`;
         }
 
-        if (PhpRunner.OutputError.isInstance(input)) {
-            const parts = [`Invalid PHP output: ${input.data.message}`];
-            if (input.data.stdout) parts.push(`stdout: ${input.data.stdout}`);
-            if (input.data.stderr) parts.push(`stderr: ${input.data.stderr}`);
+        if (input instanceof PhpRunner.OutputError) {
+            const parts = [`Invalid PHP output: ${input.message}`];
+            if (input.stdout) parts.push(`stdout: ${input.stdout}`);
+            if (input.stderr) parts.push(`stderr: ${input.stderr}`);
             return parts.join('\n');
         }
 
-        if (PhpRunner.ParseError.isInstance(input)) {
-            return `Failed to parse PHP output: ${input.data.message}`;
+        if (input instanceof PhpRunner.ParseError) {
+            return `Failed to parse PHP output: ${input.message}`;
         }
 
-        if (PhpRunner.SpawnError.isInstance(input)) {
-            return `Failed to run PHP command '${input.data.command}': ${input.data.message}`;
+        if (input instanceof PhpRunner.SpawnError) {
+            return `Failed to run PHP command '${input.command}': ${input.message}`;
         }
 
         if (Views.RefreshError.isInstance(input)) {
@@ -136,6 +136,12 @@ export namespace ErrorFormat {
     export function toObject(input: unknown): Record<string, unknown> {
         if (input instanceof NamedError) {
             return input.toObject();
+        }
+
+        // Effect Schema tagged errors: own enumerable props are `_tag` + fields.
+        if (input instanceof Error && '_tag' in input && typeof input._tag === 'string') {
+            const { _tag, ...fields } = { ...(input as Error & { _tag: string }) };
+            return { name: _tag, data: fields };
         }
 
         if (input instanceof Error) {

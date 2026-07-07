@@ -89,11 +89,18 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
 
 ## Track ERR — unify errors
 
-- [ ] ERR1: new Effect-native surfaces use `Schema.TaggedErrorClass`.
-- [ ] ERR2: migrate `PhpRunner` errors from zod `NamedError` →
-      `Schema.TaggedErrorClass`; adopt `Effect.catchTag` in callers.
-- [ ] ERR3 (later): evaluate replacing `src/utils/error.ts` wholesale once
-      most consumers are Effect-native.
+- [x] ERR1: new Effect-native surfaces use `Schema.TaggedErrorClass`
+      (policy; see `docs/effect/guide.md`).
+- [x] ERR2: all eight `PhpRunner` errors migrated from zod `NamedError` →
+      `Schema.TaggedErrorClass`. Fields are top-level (no `.data`);
+      `ScriptNotFoundError`/`TimeoutError` define `message` getters (the
+      other six have a `message` field). `ErrorFormat.toObject` reconstructs
+      the `{ name, data }` logging shape from `_tag` + own fields, so the
+      structured-log format is unchanged. `Effect.catchTag` now works on the
+      `runScript` error channel.
+- [ ] ERR3 (later): migrate `RefreshError`s, `Laravel.*` errors, and
+      remaining `NamedError` consumers; then evaluate deleting
+      `src/utils/error.ts`.
 
 ## Track TEST — Effect-aware testing
 
