@@ -26,9 +26,13 @@ Status legend: `[ ]` pending, `[~]` in progress, `[x]` done.
 
 ## Track LOCK — replace hand-rolled concurrency
 
-- [ ] LOCK1: `LaravelInitPromiseService` (`MutableRef<Promise<boolean> | null>`
-      mutex in `src/laravel/index.ts:120`) → `Effect.cached` initialization
-      effect. Delete the service key.
+- [x] LOCK1: `LaravelInitPromiseService` (`MutableRef<Promise<boolean> | null>`
+      mutex in `src/laravel/index.ts`) → `Semaphore` (single permit) +
+      idempotence check on `LaravelContext.isAvailable()`. Concurrent callers
+      queue on the permit and coalesce; failed runs leave no context so
+      retries re-boot. Service key replaced by `LaravelInitLockService`.
+      (Note: `Effect.cached` was considered but its arg-less, result-caching
+      shape didn't fit per-call `workspaceRoot`/`options`.)
 - [ ] LOCK2: `src/utils/lock.ts` RW lock → `Effect.Semaphore` (writer
       preference: evaluate `TxReentrantLock` if reader/writer split must stay).
 - [ ] LOCK3: `src/utils/defer.ts` → `Scope`/`Effect.addFinalizer` at Effect

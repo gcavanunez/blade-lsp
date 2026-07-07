@@ -16,7 +16,7 @@ import type { ViewItem, ComponentItem, CustomDirective, ComponentProp } from '..
 import { Project } from '../../src/laravel/project';
 import { PhpEnvironment } from '../../src/laravel/php-environment';
 import { Container } from '../../src/runtime/container';
-import { MutableRef } from 'effect';
+import { MutableRef, Semaphore } from 'effect';
 
 // ─── Default Fixture Data ───────────────────────────────────────────────────
 
@@ -282,7 +282,7 @@ export function ensureContainer(): void {
         laravelState: MutableRef.make<LaravelContext.State | null>(null),
         watchCapability: MutableRef.make(false),
         parserRuntime: MutableRef.make(null),
-        laravelInitPromise: MutableRef.make(null),
+        laravelInitLock: Semaphore.makeUnsafe(1),
         laravelRefreshResult: MutableRef.make(null),
     });
 }

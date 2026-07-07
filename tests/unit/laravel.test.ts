@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MutableRef } from 'effect';
 import { Laravel } from '../../src/laravel/index';
 import { LaravelContext } from '../../src/laravel/context';
 import { Project } from '../../src/laravel/project';
@@ -39,7 +38,7 @@ describe('Laravel lifecycle', () => {
         await Container.dispose();
     });
 
-    it('clears init promise after initialization failures so retries can run', async () => {
+    it('releases the init lock after initialization failures so retries can run', async () => {
         vi.spyOn(Project, 'detectAny').mockReturnValue(project);
         const validateSpy = vi
             .spyOn(Project, 'validateAny')
@@ -50,7 +49,6 @@ describe('Laravel lifecycle', () => {
         const directivesRefreshSpy = vi.spyOn(Directives, 'refresh').mockResolvedValue();
 
         await expect(Laravel.initialize('/workspace')).rejects.toThrow('validation crashed');
-        expect(MutableRef.get(Container.get().laravelInitPromise)).toBeNull();
 
         await expect(Laravel.initialize('/workspace')).resolves.toBe(true);
 
@@ -58,7 +56,51 @@ describe('Laravel lifecycle', () => {
         expect(viewsRefreshSpy).toHaveBeenCalledTimes(1);
         expect(componentsRefreshSpy).toHaveBeenCalledTimes(1);
         expect(directivesRefreshSpy).toHaveBeenCalledTimes(1);
-        expect(MutableRef.get(Container.get().laravelInitPromise)).toBeNull();
+    });
+
+    it('coalesces concurrent initialize calls into a single boot', async () => {
+        vi.spyOn(Project, 'detectAny').mockReturnValue(project);
+        let resolveValidate: (value: boolean) => void;
+        const validateSpy = vi.spyOn(Project, 'validateAny').mockImplementation(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    resolveValidate = resolve;
+                }),
+        );
+        vi.spyOn(Views, 'refresh').mockResolvedValue();
+        vi.spyOn(Components, 'refresh').mockResolvedValue();
+        vi.spyOn(Directives, 'refresh').mockResolvedValue();
+
+        const first = Laravel.initialize('/workspace');
+        const second = Laravel.initialize('/workspace');
+
+        // Let the first boot reach the validation step, then release it.
+        await vi.waitFor(() => expect(validateSpy).toHaveBeenCalledTimes(1));
+        resolveValidate!(true);
+
+        await expect(first).resolves.toBe(true);
+        await expect(second).resolves.toBe(true);
+
+        // The second caller observed the initialized context; no second boot.
+        expect(validateSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-runs initialization on a later call after dispose', async () => {
+        vi.spyOn(Project, 'detectAny').mockReturnValue(project);
+        const validateSpy = vi.spyOn(Project, 'validateAny').mockResolvedValue(true);
+        vi.spyOn(Views, 'refresh').mockResolvedValue();
+        vi.spyOn(Components, 'refresh').mockResolvedValue();
+        vi.spyOn(Directives, 'refresh').mockResolvedValue();
+
+        await expect(Laravel.initialize('/workspace')).resolves.toBe(true);
+        // While the context is live, initialize is idempotent.
+        await expect(Laravel.initialize('/workspace')).resolves.toBe(true);
+        expect(validateSpy).toHaveBeenCalledTimes(1);
+
+        Laravel.dispose();
+
+        await expect(Laravel.initialize('/workspace')).resolves.toBe(true);
+        expect(validateSpy).toHaveBeenCalledTimes(2);
     });
 
     it('syncs refresh result from current dataset load states', () => {

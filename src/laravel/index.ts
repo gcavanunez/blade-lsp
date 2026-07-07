@@ -15,7 +15,7 @@ import { LaravelContext } from './context';
 import { Views } from './views';
 import { Components } from './components';
 import { Directives } from './directives';
-import { MutableRef } from 'effect';
+import { Effect, MutableRef, Semaphore } from 'effect';
 import { ErrorFormat } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
@@ -116,23 +116,28 @@ export namespace Laravel {
     /**
      * Initialize the Laravel integration for a workspace.
      * Returns true if initialization succeeded, false otherwise.
+     *
+     * Concurrent calls are serialized on a single-permit semaphore. A caller
+     * that acquires the permit after a successful boot observes the
+     * initialized context and returns without re-running the boot sequence,
+     * so overlapping calls coalesce. Failed or "no project" runs leave no
+     * context behind, allowing retries.
      */
     export async function initialize(workspaceRoot: string, options: Options = {}): Promise<boolean> {
-        // Reuse the in-flight initialization promise to avoid concurrent boots.
-        const ref = Container.get().laravelInitPromise;
-        const existing = MutableRef.get(ref);
-        if (existing) {
-            return existing;
-        }
+        const lock = Container.get().laravelInitLock;
 
-        const promise = doInitialize(workspaceRoot, options);
-        MutableRef.set(ref, promise);
-        try {
-            return await promise;
-        } finally {
-            // Allow future calls to initialize again after this run completes.
-            MutableRef.set(ref, null);
-        }
+        const boot = Effect.gen(function* () {
+            if (LaravelContext.isAvailable()) {
+                return true;
+            }
+
+            return yield* Effect.tryPromise({
+                try: () => doInitialize(workspaceRoot, options),
+                catch: (error) => error,
+            });
+        });
+
+        return Effect.runPromise(Semaphore.withPermit(lock, boot));
     }
 
     export function isAvailable(): boolean {

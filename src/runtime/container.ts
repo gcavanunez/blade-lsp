@@ -8,7 +8,7 @@
  * This is the single source of truth for all singleton state.
  */
 
-import { Layer, ManagedRuntime, MutableRef } from 'effect';
+import { Layer, ManagedRuntime, MutableRef, Semaphore } from 'effect';
 import z from 'zod';
 import { NamedError } from '../utils/error';
 import { createConnection, TextDocuments, ProposedFeatures } from 'vscode-languageserver/node';
@@ -35,7 +35,7 @@ import {
     LaravelStateService,
     WatchCapabilityService,
     ParserRuntimeService,
-    LaravelInitPromiseService,
+    LaravelInitLockService,
     LaravelRefreshResultService,
 } from './services';
 import type { ParserApi, ProgressApi } from './services';
@@ -59,7 +59,7 @@ export namespace Container {
         readonly laravelState: MutableRef.MutableRef<LaravelContext.State | null>;
         readonly watchCapability: MutableRef.MutableRef<boolean>;
         readonly parserRuntime: MutableRef.MutableRef<ParserTypes.Runtime | null>;
-        readonly laravelInitPromise: MutableRef.MutableRef<Promise<boolean> | null>;
+        readonly laravelInitLock: Semaphore.Semaphore;
         readonly laravelRefreshResult: MutableRef.MutableRef<Laravel.RefreshResult | null>;
     }
 
@@ -137,7 +137,7 @@ export namespace Container {
             Layer.succeed(LaravelStateService, MutableRef.make<LaravelContext.State | null>(null)),
             Layer.succeed(WatchCapabilityService, MutableRef.make<boolean>(false)),
             Layer.succeed(ParserRuntimeService, MutableRef.make<ParserTypes.Runtime | null>(null)),
-            Layer.succeed(LaravelInitPromiseService, MutableRef.make<Promise<boolean> | null>(null)),
+            Layer.succeed(LaravelInitLockService, Semaphore.makeUnsafe(1)),
             Layer.succeed(LaravelRefreshResultService, MutableRef.make<Laravel.RefreshResult | null>(null)),
         );
     }
@@ -167,7 +167,7 @@ export namespace Container {
             laravelState: runtime.runSync(LaravelStateService),
             watchCapability: runtime.runSync(WatchCapabilityService),
             parserRuntime: runtime.runSync(ParserRuntimeService),
-            laravelInitPromise: runtime.runSync(LaravelInitPromiseService),
+            laravelInitLock: runtime.runSync(LaravelInitLockService),
             laravelRefreshResult: runtime.runSync(LaravelRefreshResultService),
         });
     }

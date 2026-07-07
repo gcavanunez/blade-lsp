@@ -13,7 +13,7 @@
  *   - Workspace scope: one per opened root (settings, tree cache, laravel state)
  */
 
-import { Context, MutableRef } from 'effect';
+import { Context, MutableRef, Semaphore } from 'effect';
 import type { Connection, TextDocuments } from 'vscode-languageserver/node';
 import type { TextDocument } from 'vscode-languageserver-textdocument';
 import type { ParserTypes } from '../parser/types';
@@ -118,13 +118,15 @@ export class ParserRuntimeService extends Context.Service<
 >()('ParserRuntimeService') {}
 
 /**
- * Mutable reference to the in-flight Laravel initialization promise.
- * Acts as a mutex to prevent concurrent `Laravel.initialize()` calls.
+ * Mutex guarding `Laravel.initialize()`.
+ *
+ * Concurrent callers queue on the single permit; once the winner completes,
+ * queued callers observe the initialized context and return without
+ * re-running the boot sequence.
  */
-export class LaravelInitPromiseService extends Context.Service<
-    LaravelInitPromiseService,
-    MutableRef.MutableRef<Promise<boolean> | null>
->()('LaravelInitPromiseService') {}
+export class LaravelInitLockService extends Context.Service<LaravelInitLockService, Semaphore.Semaphore>()(
+    'LaravelInitLockService',
+) {}
 
 /**
  * Mutable reference to the result of the last `Laravel.refreshAll()` call.
