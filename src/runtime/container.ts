@@ -8,9 +8,7 @@
  * This is the single source of truth for all singleton state.
  */
 
-import { Layer, ManagedRuntime, MutableRef } from 'effect';
-import z from 'zod';
-import { NamedError } from '../utils/error';
+import { Effect, Layer, ManagedRuntime, MutableRef, Schema, Semaphore } from 'effect';
 import { createConnection, TextDocuments, ProposedFeatures } from 'vscode-languageserver/node';
 import type { Connection } from 'vscode-languageserver/node';
 import type { TextDocuments as TextDocumentsType } from 'vscode-languageserver/node';
@@ -35,16 +33,16 @@ import {
     LaravelStateService,
     WatchCapabilityService,
     ParserRuntimeService,
-    LaravelInitPromiseService,
+    LaravelInitLockService,
     LaravelRefreshResultService,
 } from './services';
 import type { ParserApi, ProgressApi } from './services';
 
 export namespace Container {
-    export const NotInitializedError = NamedError.create(
+    export class NotInitializedError extends Schema.TaggedErrorClass<NotInitializedError>()(
         'ContainerNotInitializedError',
-        z.object({ message: z.string() }),
-    );
+        { message: Schema.String },
+    ) {}
 
     export interface Services {
         readonly connection: Connection;
@@ -59,7 +57,7 @@ export namespace Container {
         readonly laravelState: MutableRef.MutableRef<LaravelContext.State | null>;
         readonly watchCapability: MutableRef.MutableRef<boolean>;
         readonly parserRuntime: MutableRef.MutableRef<ParserTypes.Runtime | null>;
-        readonly laravelInitPromise: MutableRef.MutableRef<Promise<boolean> | null>;
+        readonly laravelInitLock: Semaphore.Semaphore;
         readonly laravelRefreshResult: MutableRef.MutableRef<Laravel.RefreshResult | null>;
     }
 
@@ -101,12 +99,22 @@ export namespace Container {
      *
      * Accepts an optional external `Connection` (useful for testing with
      * in-memory transports) — otherwise creates the default stdio connection.
+     *
+     * An internally-created connection is owned by the runtime: it is
+     * acquired when the layer builds and disposed when the runtime is
+     * disposed (`Container.dispose()`). External connections are not owned —
+     * their lifecycle belongs to the caller.
      */
     function makeProcessLayer(externalConnection?: Connection) {
-        const ConnectionLive = Layer.succeed(
-            ConnectionService,
-            externalConnection ?? createConnection(ProposedFeatures.all),
-        );
+        const ConnectionLive = externalConnection
+            ? Layer.succeed(ConnectionService, externalConnection)
+            : Layer.effect(
+                  ConnectionService,
+                  Effect.acquireRelease(
+                      Effect.sync(() => createConnection(ProposedFeatures.all)),
+                      (conn) => Effect.sync(() => conn.dispose()),
+                  ),
+              );
 
         const DocumentsLive = Layer.succeed(DocumentsService, new TextDocuments(TextDocument));
 
@@ -137,7 +145,7 @@ export namespace Container {
             Layer.succeed(LaravelStateService, MutableRef.make<LaravelContext.State | null>(null)),
             Layer.succeed(WatchCapabilityService, MutableRef.make<boolean>(false)),
             Layer.succeed(ParserRuntimeService, MutableRef.make<ParserTypes.Runtime | null>(null)),
-            Layer.succeed(LaravelInitPromiseService, MutableRef.make<Promise<boolean> | null>(null)),
+            Layer.succeed(LaravelInitLockService, Semaphore.makeUnsafe(1)),
             Layer.succeed(LaravelRefreshResultService, MutableRef.make<Laravel.RefreshResult | null>(null)),
         );
     }
@@ -167,7 +175,7 @@ export namespace Container {
             laravelState: runtime.runSync(LaravelStateService),
             watchCapability: runtime.runSync(WatchCapabilityService),
             parserRuntime: runtime.runSync(ParserRuntimeService),
-            laravelInitPromise: runtime.runSync(LaravelInitPromiseService),
+            laravelInitLock: runtime.runSync(LaravelInitLockService),
             laravelRefreshResult: runtime.runSync(LaravelRefreshResultService),
         });
     }

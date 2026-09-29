@@ -5,8 +5,7 @@
  * from a Laravel project via PHP script execution.
  */
 
-import z from 'zod';
-import { NamedError } from '../utils/error';
+import { UnknownError } from '../utils/error';
 import { Log } from '../utils/log';
 
 import { Project } from './project';
@@ -15,32 +14,23 @@ import { LaravelContext } from './context';
 import { Views } from './views';
 import { Components } from './components';
 import { Directives } from './directives';
-import { MutableRef } from 'effect';
+import { Effect, MutableRef, Result, Schema, Semaphore } from 'effect';
 import { ErrorFormat } from '../utils/format-error';
 import { Container } from '../runtime/container';
 
 export namespace Laravel {
-    export const NotDetectedError = NamedError.create(
-        'LaravelNotDetectedError',
-        z.object({
-            workspaceRoot: z.string(),
-        }),
-    );
+    export class NotDetectedError extends Schema.TaggedErrorClass<NotDetectedError>()('LaravelNotDetectedError', {
+        workspaceRoot: Schema.String,
+    }) {}
 
-    export const ValidationError = NamedError.create(
-        'LaravelValidationError',
-        z.object({
-            projectRoot: z.string(),
-            message: z.string().optional(),
-        }),
-    );
+    export class ValidationError extends Schema.TaggedErrorClass<ValidationError>()('LaravelValidationError', {
+        projectRoot: Schema.String,
+        message: Schema.optional(Schema.String),
+    }) {}
 
-    export const NotAvailableError = NamedError.create(
-        'LaravelNotAvailableError',
-        z.object({
-            message: z.string().optional(),
-        }),
-    );
+    export class NotAvailableError extends Schema.TaggedErrorClass<NotAvailableError>()('LaravelNotAvailableError', {
+        message: Schema.optional(Schema.String),
+    }) {}
 
     const log = Log.create({ service: 'laravel' });
 
@@ -88,7 +78,7 @@ export namespace Laravel {
                 };
             default: {
                 const _exhaustive: never = loadState;
-                throw new NamedError.Unknown({
+                throw new UnknownError({
                     message: `Unexpected load state: ${(_exhaustive as LaravelContext.LoadState).status}`,
                 });
             }
@@ -116,23 +106,28 @@ export namespace Laravel {
     /**
      * Initialize the Laravel integration for a workspace.
      * Returns true if initialization succeeded, false otherwise.
+     *
+     * Concurrent calls are serialized on a single-permit semaphore. A caller
+     * that acquires the permit after a successful boot observes the
+     * initialized context and returns without re-running the boot sequence,
+     * so overlapping calls coalesce. Failed or "no project" runs leave no
+     * context behind, allowing retries.
      */
     export async function initialize(workspaceRoot: string, options: Options = {}): Promise<boolean> {
-        // Reuse the in-flight initialization promise to avoid concurrent boots.
-        const ref = Container.get().laravelInitPromise;
-        const existing = MutableRef.get(ref);
-        if (existing) {
-            return existing;
-        }
+        const lock = Container.get().laravelInitLock;
 
-        const promise = doInitialize(workspaceRoot, options);
-        MutableRef.set(ref, promise);
-        try {
-            return await promise;
-        } finally {
-            // Allow future calls to initialize again after this run completes.
-            MutableRef.set(ref, null);
-        }
+        const boot = Effect.gen(function* () {
+            if (LaravelContext.isAvailable()) {
+                return true;
+            }
+
+            return yield* Effect.tryPromise({
+                try: () => doInitialize(workspaceRoot, options),
+                catch: (error) => error,
+            });
+        });
+
+        return Effect.runPromise(Semaphore.withPermit(lock, boot));
     }
 
     export function isAvailable(): boolean {
@@ -190,40 +185,38 @@ export namespace Laravel {
 
         let completed = 0;
         const total = 3;
-        const trackProgress = (label: string) => {
-            completed++;
-            const pct = Math.round((completed / total) * 100);
-            report(`${label} (${completed}/${total})`, pct);
-        };
+        const trackProgress = (label: string) =>
+            Effect.sync(() => {
+                completed++;
+                const pct = Math.round((completed / total) * 100);
+                report(`${label} (${completed}/${total})`, pct);
+            });
 
-        const results = await Promise.allSettled([
-            Views.refresh().then(() => {
-                trackProgress('Views loaded');
-            }),
-            Components.refresh().then(() => {
-                trackProgress('Components loaded');
-            }),
-            Directives.refresh().then(() => {
-                trackProgress('Directives loaded');
-            }),
-        ]);
+        const [viewResult, componentResult, directiveResult] = await Effect.runPromise(
+            Effect.all(
+                [
+                    Views.refresh().pipe(Effect.andThen(trackProgress('Views loaded'))),
+                    Components.refresh().pipe(Effect.andThen(trackProgress('Components loaded'))),
+                    Directives.refresh().pipe(Effect.andThen(trackProgress('Directives loaded'))),
+                ],
+                { concurrency: 'unbounded', mode: 'result' },
+            ),
+        );
 
-        const [viewResult, componentResult, directiveResult] = results;
-
-        if (viewResult.status === 'rejected') {
-            log.error('Views refresh failed', { error: viewResult.reason });
+        if (Result.isFailure(viewResult)) {
+            log.error('Views refresh failed', { error: viewResult.failure });
             result.views = 'failed';
-            result.errors.push(ErrorFormat.forLog(viewResult.reason));
+            result.errors.push(ErrorFormat.forLog(viewResult.failure));
         }
-        if (componentResult.status === 'rejected') {
-            log.error('Components refresh failed', { error: componentResult.reason });
+        if (Result.isFailure(componentResult)) {
+            log.error('Components refresh failed', { error: componentResult.failure });
             result.components = 'failed';
-            result.errors.push(ErrorFormat.forLog(componentResult.reason));
+            result.errors.push(ErrorFormat.forLog(componentResult.failure));
         }
-        if (directiveResult.status === 'rejected') {
-            log.error('Directives refresh failed', { error: directiveResult.reason });
+        if (Result.isFailure(directiveResult)) {
+            log.error('Directives refresh failed', { error: directiveResult.failure });
             result.directives = 'failed';
-            result.errors.push(ErrorFormat.forLog(directiveResult.reason));
+            result.errors.push(ErrorFormat.forLog(directiveResult.failure));
         }
 
         const storedResult = setLastRefreshResult(result);

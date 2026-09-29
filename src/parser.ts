@@ -7,8 +7,7 @@
  * native compilation requirements.
  */
 
-import { MutableRef } from 'effect';
-import z from 'zod';
+import { MutableRef, Schema } from 'effect';
 import { ParserTypes } from './parser/types';
 import { WasmBackend } from './parser/wasm';
 import { ParserContext } from './parser/context';
@@ -16,13 +15,12 @@ import { ParserComponents } from './parser/components';
 import { ParserDiagnostics } from './parser/diagnostics';
 import { ParserAst } from './parser/ast';
 import { Container } from './runtime/container';
-import { NamedError } from './utils/error';
 
 export namespace BladeParser {
-    export const NotInitializedError = NamedError.create(
+    export class NotInitializedError extends Schema.TaggedErrorClass<NotInitializedError>()(
         'BladeParserNotInitializedError',
-        z.object({ message: z.string() }),
-    );
+        { message: Schema.String },
+    ) {}
 
     export type SyntaxNode = ParserTypes.SyntaxNode;
     export type Tree = ParserTypes.Tree;

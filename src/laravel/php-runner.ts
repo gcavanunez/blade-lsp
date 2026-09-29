@@ -2,86 +2,67 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import z from 'zod';
-import { Effect, Schedule } from 'effect';
-import { NamedError } from '../utils/error';
+import { Effect, Schedule, Schema } from 'effect';
 import { Project } from './project';
 import type { FrameworkType } from './types';
 
 export namespace PhpRunner {
-    export const ScriptNotFoundError = NamedError.create(
+    export class ScriptNotFoundError extends Schema.TaggedErrorClass<ScriptNotFoundError>()(
         'PhpRunnerScriptNotFoundError',
-        z.object({
-            script: z.string(),
-            path: z.string(),
-        }),
-    );
+        {
+            script: Schema.String,
+            path: Schema.String,
+        },
+    ) {
+        override get message(): string {
+            return `PHP script '${this.script}' not found at ${this.path}`;
+        }
+    }
 
-    export const VendorDirError = NamedError.create(
-        'PhpRunnerVendorDirError',
-        z.object({
-            path: z.string(),
-            message: z.string(),
-        }),
-    );
+    export class VendorDirError extends Schema.TaggedErrorClass<VendorDirError>()('PhpRunnerVendorDirError', {
+        path: Schema.String,
+        message: Schema.String,
+    }) {}
 
-    export const WriteError = NamedError.create(
-        'PhpRunnerWriteError',
-        z.object({
-            path: z.string(),
-            message: z.string(),
-        }),
-    );
+    export class WriteError extends Schema.TaggedErrorClass<WriteError>()('PhpRunnerWriteError', {
+        path: Schema.String,
+        message: Schema.String,
+    }) {}
 
-    export const TimeoutError = NamedError.create(
-        'PhpRunnerTimeoutError',
-        z.object({
-            timeoutMs: z.number(),
-            scriptName: z.string(),
-        }),
-    );
+    export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()('PhpRunnerTimeoutError', {
+        timeoutMs: Schema.Number,
+        scriptName: Schema.String,
+    }) {
+        override get message(): string {
+            return `PHP script '${this.scriptName}' timed out after ${this.timeoutMs}ms`;
+        }
+    }
 
-    export const StartupError = NamedError.create(
-        'PhpRunnerStartupError',
-        z.object({
-            message: z.string(),
-        }),
-    );
+    export class StartupError extends Schema.TaggedErrorClass<StartupError>()('PhpRunnerStartupError', {
+        message: Schema.String,
+    }) {}
 
-    export const OutputError = NamedError.create(
-        'PhpRunnerOutputError',
-        z.object({
-            message: z.string(),
-            stdout: z.string().optional(),
-            stderr: z.string().optional(),
-        }),
-    );
+    export class OutputError extends Schema.TaggedErrorClass<OutputError>()('PhpRunnerOutputError', {
+        message: Schema.String,
+        stdout: Schema.optional(Schema.String),
+        stderr: Schema.optional(Schema.String),
+    }) {}
 
-    export const ParseError = NamedError.create(
-        'PhpRunnerParseError',
-        z.object({
-            message: z.string(),
-            output: z.string().optional(),
-        }),
-    );
+    export class ParseError extends Schema.TaggedErrorClass<ParseError>()('PhpRunnerParseError', {
+        message: Schema.String,
+        output: Schema.optional(Schema.String),
+    }) {}
 
-    export const SpawnError = NamedError.create(
-        'PhpRunnerSpawnError',
-        z.object({
-            command: z.string(),
-            message: z.string(),
-        }),
-    );
+    export class SpawnError extends Schema.TaggedErrorClass<SpawnError>()('PhpRunnerSpawnError', {
+        command: Schema.String,
+        message: Schema.String,
+    }) {}
 
     /** Union of all errors that `executePhp` can produce. */
-    export type ExecuteError = InstanceType<
-        typeof TimeoutError | typeof StartupError | typeof OutputError | typeof ParseError | typeof SpawnError
-    >;
+    export type ExecuteError = TimeoutError | StartupError | OutputError | ParseError | SpawnError;
 
     /** Union of all errors that `runScript` can produce. */
-    export type RunScriptError =
-        | InstanceType<typeof ScriptNotFoundError | typeof VendorDirError | typeof WriteError>
-        | ExecuteError;
+    export type RunScriptError = ScriptNotFoundError | VendorDirError | WriteError | ExecuteError;
 
     interface FrameworkConfig {
         scriptsSubdir: string;
@@ -130,10 +111,7 @@ export namespace PhpRunner {
      * Check if an error is retryable (transient)
      */
     function isRetryableError(error: unknown): boolean {
-        if (TimeoutError.isInstance(error)) return true;
-        if (SpawnError.isInstance(error)) return true;
-        if (StartupError.isInstance(error)) return true;
-        return false;
+        return error instanceof TimeoutError || error instanceof SpawnError || error instanceof StartupError;
     }
 
     /**
@@ -208,7 +186,8 @@ export namespace PhpRunner {
 
     /**
      * Parse the raw stdout from a PHP process into a typed result.
-     * Pure function — all error paths return NamedError instances.
+     * Pure function — all error paths throw tagged error instances
+     * (StartupError | OutputError | ParseError).
      */
     function parseOutput<T>(stdout: string, stderr: string, markers: FrameworkConfig['outputMarkers']): T {
         if (stdout.includes(markers.STARTUP_ERROR)) {
@@ -243,21 +222,20 @@ export namespace PhpRunner {
      * Spawn a PHP child process, collect its output, and parse the result.
      *
      * Returns an `Effect` that:
-     *   - Spawns the process and sets up a timeout
+     *   - Spawns the process
      *   - Collects stdout/stderr
      *   - On close, parses the output into `T`
-     *   - On interruption or abort, kills the process with SIGTERM
+     *   - On interruption (including `Effect.timeoutOrElse` in `runScript`),
+     *     kills the process with SIGTERM via the abort signal
      *
      * Error channel: `ExecuteError` (TimeoutError | StartupError | OutputError | ParseError | SpawnError)
      */
     function executePhp<T>(
         project: Project.AnyProject,
         scriptPath: string,
-        scriptName: string,
-        timeout: number,
         markers: FrameworkConfig['outputMarkers'],
     ): Effect.Effect<T, ExecuteError> {
-        return Effect.async<T, ExecuteError>((resume, signal) => {
+        return Effect.callback<T, ExecuteError>((resume, signal) => {
             let stdout = '';
             let stderr = '';
             let proc: ChildProcess;
@@ -286,15 +264,8 @@ export namespace PhpRunner {
                 return;
             }
 
-            // Kill on timeout
-            const timeoutId = setTimeout(() => {
-                proc.kill('SIGTERM');
-                resume(Effect.fail(new TimeoutError({ timeoutMs: timeout, scriptName })));
-            }, timeout);
-
-            // Kill on fiber interruption
+            // Kill on fiber interruption (covers the runScript timeout as well)
             signal.addEventListener('abort', () => {
-                clearTimeout(timeoutId);
                 proc.kill('SIGTERM');
             });
 
@@ -307,14 +278,13 @@ export namespace PhpRunner {
             });
 
             proc.on('close', () => {
-                clearTimeout(timeoutId);
                 if (signal.aborted) return;
 
                 try {
                     resume(Effect.succeed(parseOutput<T>(stdout, stderr, markers)));
                 } catch (error) {
-                    if (error instanceof NamedError) {
-                        resume(Effect.fail(error as ExecuteError));
+                    if (error instanceof StartupError || error instanceof OutputError || error instanceof ParseError) {
+                        resume(Effect.fail(error));
                     } else {
                         resume(
                             Effect.fail(
@@ -329,7 +299,6 @@ export namespace PhpRunner {
             });
 
             proc.on('error', (err) => {
-                clearTimeout(timeoutId);
                 resume(Effect.fail(new SpawnError({ command: project.phpCommand.join(' '), message: err.message })));
             });
         });
@@ -339,11 +308,12 @@ export namespace PhpRunner {
      * Run a PHP script in the context of a Laravel or Jigsaw project.
      * Uses file-based execution for Docker compatibility.
      *
-     * Internally constructs an Effect pipeline with retry
-     * (1 retry, 1s exponential backoff, only for transient errors),
-     * then runs it as a Promise at the boundary.
+     * Returns an `Effect` with a typed error channel (`RunScriptError`).
+     * Execution is bounded by a 30s timeout and retried once on transient
+     * errors with 1s exponential backoff. Callers run it at their own
+     * runtime edge.
      */
-    export async function runScript<T>(options: Options): Promise<T> {
+    export function runScript<T>(options: Options): Effect.Effect<T, RunScriptError> {
         const { project, scriptName } = options;
         const config = FRAMEWORK_CONFIGS[project.type];
 
@@ -365,8 +335,8 @@ export namespace PhpRunner {
             const relativeScriptPath = yield* Effect.try({
                 try: () => writePhpScript(project.root, phpCode, scriptName),
                 catch: (error) => {
-                    if (error instanceof NamedError) {
-                        return error as InstanceType<typeof VendorDirError | typeof WriteError>;
+                    if (error instanceof VendorDirError || error instanceof WriteError) {
+                        return error;
                     }
                     return new WriteError({
                         path: project.root,
@@ -375,18 +345,21 @@ export namespace PhpRunner {
                 },
             });
 
-            return yield* executePhp<T>(project, relativeScriptPath, scriptName, TIMEOUT, config.outputMarkers);
+            return yield* executePhp<T>(project, relativeScriptPath, config.outputMarkers).pipe(
+                Effect.timeoutOrElse({
+                    duration: TIMEOUT,
+                    orElse: () => Effect.fail(new TimeoutError({ timeoutMs: TIMEOUT, scriptName })),
+                }),
+            );
         });
 
         // Retry once on transient errors with 1s backoff
-        const withRetry = effect.pipe(
+        return effect.pipe(
             Effect.retry({
                 times: 1,
                 while: isRetryableError,
                 schedule: Schedule.exponential('1 seconds'),
             }),
         );
-
-        return Effect.runPromise(withRetry);
     }
 }

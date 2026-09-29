@@ -19,10 +19,10 @@ import {
     type Range,
     type WorkspaceEdit,
 } from 'vscode-languageserver/node';
+import { Readiness } from './readiness';
 
 export namespace PhpBridgeBackend {
     const execFileAsync = promisify(execFile);
-    type ProgressToken = string | number;
     type ReadyCallback = () => void;
 
     export type BackendName = 'intelephense' | 'phpactor' | 'phpantom';
@@ -99,16 +99,9 @@ export namespace PhpBridgeBackend {
         connection: ReturnType<typeof createProtocolConnection>;
         openVersions: Map<string, number>;
         readyCallbacks: ReadyCallback[];
-        readiness: ReadinessState;
-        indexingLifecycle: 'unknown' | 'started' | 'ended';
+        readiness: Readiness.State;
+        indexingLifecycle: Readiness.IndexingLifecycle;
     }
-
-    type ReadinessState =
-        | { kind: 'awaiting-index-signal' }
-        | { kind: 'indexing-running'; progressTokens: Set<ProgressToken> }
-        | { kind: 'indexing-finishing'; progressTokens: Set<ProgressToken> }
-        | { kind: 'ready' }
-        | { kind: 'degraded'; reason: string };
 
     type ClientState =
         | { kind: 'idle' }
@@ -199,10 +192,6 @@ export namespace PhpBridgeBackend {
         const pendingReadyCallbacks: ReadyCallback[] = [];
         const diagnosticsCallbacks: Array<(params: DiagnosticsParams) => void> = [];
 
-        function isReadyState(readiness: ReadinessState): boolean {
-            return readiness.kind === 'ready' || readiness.kind === 'degraded';
-        }
-
         function flushReadyCallbacks(session: BackendSession): void {
             const count = session.readyCallbacks.length;
             for (const callback of session.readyCallbacks.splice(0)) {
@@ -213,114 +202,24 @@ export namespace PhpBridgeBackend {
             }
         }
 
-        function transitionToReady(session: BackendSession): void {
-            if (isReadyState(session.readiness)) {
-                return;
-            }
-
-            session.readiness = { kind: 'ready' };
-            flushReadyCallbacks(session);
-        }
-
-        function transitionToDegraded(session: BackendSession, reason: string): void {
-            session.readiness = { kind: 'degraded', reason };
-            flushReadyCallbacks(session);
-        }
-
-        function handleIndexingStarted(session: BackendSession): void {
-            session.indexingLifecycle = 'started';
-
-            switch (session.readiness.kind) {
-                case 'awaiting-index-signal':
-                    session.readiness = { kind: 'indexing-running', progressTokens: new Set<ProgressToken>() };
-                    return;
-                case 'indexing-finishing':
-                    session.readiness = {
-                        kind: 'indexing-running',
-                        progressTokens: new Set(session.readiness.progressTokens),
-                    };
-                    return;
-                case 'indexing-running':
-                case 'ready':
-                case 'degraded':
-                    return;
-            }
-        }
-
-        function handleIndexingEnded(session: BackendSession): void {
-            session.indexingLifecycle = 'ended';
-
-            switch (session.readiness.kind) {
-                case 'awaiting-index-signal':
-                    transitionToReady(session);
-                    return;
-                case 'indexing-running':
-                    if (session.readiness.progressTokens.size === 0) {
-                        transitionToReady(session);
-                        return;
-                    }
-
-                    session.readiness = {
-                        kind: 'indexing-finishing',
-                        progressTokens: new Set(session.readiness.progressTokens),
-                    };
-                    return;
-                case 'indexing-finishing':
-                    if (session.readiness.progressTokens.size === 0) {
-                        transitionToReady(session);
-                    }
-                    return;
-                case 'ready':
-                case 'degraded':
-                    return;
-            }
-        }
-
-        function handleProgressBegin(session: BackendSession, token: ProgressToken): void {
-            switch (session.readiness.kind) {
-                case 'awaiting-index-signal':
-                    session.readiness = { kind: 'indexing-running', progressTokens: new Set<ProgressToken>([token]) };
-                    return;
-                case 'indexing-running':
-                    session.readiness.progressTokens.add(token);
-                    return;
-                case 'indexing-finishing': {
-                    const progressTokens = new Set(session.readiness.progressTokens);
-                    progressTokens.add(token);
-                    session.readiness = { kind: 'indexing-running', progressTokens };
-                    return;
-                }
-                case 'ready':
-                case 'degraded':
-                    return;
-            }
-        }
-
-        function handleProgressEnd(session: BackendSession, token: ProgressToken): void {
-            switch (session.readiness.kind) {
-                case 'indexing-running':
-                case 'indexing-finishing':
-                    session.readiness.progressTokens.delete(token);
-                    if (session.readiness.progressTokens.size === 0 && session.indexingLifecycle !== 'started') {
-                        transitionToReady(session);
-                        return;
-                    }
-                    if (
-                        session.readiness.kind === 'indexing-finishing' &&
-                        session.readiness.progressTokens.size === 0
-                    ) {
-                        transitionToReady(session);
-                    }
-                    return;
-                case 'awaiting-index-signal':
-                case 'ready':
-                case 'degraded':
-                    return;
+        /**
+         * Apply a readiness event through the pure reducer and flush ready
+         * callbacks when the state settles (ready or degraded).
+         */
+        function dispatchReadiness(session: BackendSession, event: Readiness.Event): void {
+            const { next, settled } = Readiness.reduce(
+                { readiness: session.readiness, indexingLifecycle: session.indexingLifecycle },
+                event,
+            );
+            session.readiness = next.readiness;
+            session.indexingLifecycle = next.indexingLifecycle;
+            if (settled) {
+                flushReadyCallbacks(session);
             }
         }
 
         function registerReadyCallback(session: BackendSession, callback: ReadyCallback): void {
-            if (isReadyState(session.readiness)) {
+            if (Readiness.isSettled(session.readiness)) {
                 callback();
                 return;
             }
@@ -402,11 +301,11 @@ export namespace PhpBridgeBackend {
                     return null;
                 });
                 connection.onNotification('indexingStarted', () => {
-                    handleIndexingStarted(session);
+                    dispatchReadiness(session, { type: 'indexing-started' });
                     config.logger?.log(`[php-bridge:${config.backendName}] indexing started`);
                 });
                 connection.onNotification('indexingEnded', () => {
-                    handleIndexingEnded(session);
+                    dispatchReadiness(session, { type: 'indexing-ended' });
                     config.logger?.log(`[php-bridge:${config.backendName}] indexing ended`);
                 });
                 connection.onNotification(
@@ -421,12 +320,12 @@ export namespace PhpBridgeBackend {
                         };
                     }) => {
                         if (params.value.kind === 'begin') {
-                            handleProgressBegin(session, params.token);
+                            dispatchReadiness(session, { type: 'progress-begin', token: params.token });
                             config.logger?.log(
                                 `[php-bridge:${config.backendName}] progress begin: ${params.value.title ?? ''} (${String(params.token)})`,
                             );
                         } else if (params.value.kind === 'end') {
-                            handleProgressEnd(session, params.token);
+                            dispatchReadiness(session, { type: 'progress-end', token: params.token });
                             config.logger?.log(
                                 `[php-bridge:${config.backendName}] progress end: (${String(params.token)})`,
                             );
@@ -465,7 +364,7 @@ export namespace PhpBridgeBackend {
                         config.logger?.error(
                             `[php-bridge:${config.backendName}] indexer service crashed — treating as degraded ready`,
                         );
-                        transitionToDegraded(session, 'indexer-crash');
+                        dispatchReadiness(session, { type: 'degrade', reason: 'indexer-crash' });
                     }
                 });
                 connection.listen();
@@ -644,7 +543,7 @@ export namespace PhpBridgeBackend {
             async waitForReady(timeoutMs = 180_000) {
                 const session = await ensureStarted();
 
-                if (isReadyState(session.readiness)) {
+                if (Readiness.isSettled(session.readiness)) {
                     return true;
                 }
 
@@ -652,7 +551,7 @@ export namespace PhpBridgeBackend {
                     await new Promise<void>((resolve) => setTimeout(resolve, 2000));
                     if (session.readiness.kind === 'awaiting-index-signal') {
                         config.logger?.log(`[php-bridge:${config.backendName}] no indexing detected, assuming ready`);
-                        transitionToReady(session);
+                        dispatchReadiness(session, { type: 'assume-ready' });
                         return true;
                     }
                 }
@@ -677,7 +576,7 @@ export namespace PhpBridgeBackend {
 
                     registerReadyCallback(session, onReady);
 
-                    if (isReadyState(session.readiness)) {
+                    if (Readiness.isSettled(session.readiness)) {
                         clearTimeout(timer);
                         const index = session.readyCallbacks.indexOf(onReady);
                         if (index >= 0) {

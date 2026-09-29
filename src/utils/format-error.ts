@@ -1,4 +1,4 @@
-import { NamedError } from './error';
+import { UnknownError } from './error';
 import { PhpRunner } from '../laravel/php-runner';
 import { Views } from '../laravel/views';
 import { Components } from '../laravel/components';
@@ -8,10 +8,10 @@ import { Laravel } from '../laravel/index';
 export namespace ErrorFormat {
     /**
      * Format a RefreshError with its cause chain for better diagnostics.
-     * Walks the error.cause to find the underlying PhpRunner error and includes its details.
+     * Walks the `cause` field to find the underlying PhpRunner error and includes its details.
      */
-    function formatRefreshError(domain: string, input: Error & { data: { message: string; cause?: string } }): string {
-        const header = `Failed to refresh ${domain}: ${input.data.message}`;
+    function formatRefreshError(domain: string, input: { message: string; cause?: unknown }): string {
+        const header = `Failed to refresh ${domain}: ${input.message}`;
 
         const cause = input.cause;
         if (cause) {
@@ -19,10 +19,9 @@ export namespace ErrorFormat {
             if (causeFormatted) {
                 return `${header}\n${causeFormatted}`;
             }
-        }
-
-        if (input.data.cause) {
-            return `${header} (${input.data.cause})`;
+            if (cause instanceof Error) {
+                return `${header} (${cause.message})`;
+            }
         }
 
         return header;
@@ -43,68 +42,68 @@ export namespace ErrorFormat {
      * ```
      */
     export function format(input: unknown): string | undefined {
-        if (PhpRunner.ScriptNotFoundError.isInstance(input)) {
-            return `PHP script '${input.data.script}' not found at ${input.data.path}`;
+        if (input instanceof PhpRunner.ScriptNotFoundError) {
+            return input.message;
         }
 
-        if (PhpRunner.VendorDirError.isInstance(input)) {
-            return `Failed to create vendor directory: ${input.data.message}`;
+        if (input instanceof PhpRunner.VendorDirError) {
+            return `Failed to create vendor directory: ${input.message}`;
         }
 
-        if (PhpRunner.WriteError.isInstance(input)) {
-            return `Failed to write PHP script: ${input.data.message}`;
+        if (input instanceof PhpRunner.WriteError) {
+            return `Failed to write PHP script: ${input.message}`;
         }
 
-        if (PhpRunner.TimeoutError.isInstance(input)) {
-            return `PHP script '${input.data.scriptName}' timed out after ${input.data.timeoutMs}ms`;
+        if (input instanceof PhpRunner.TimeoutError) {
+            return input.message;
         }
 
-        if (PhpRunner.StartupError.isInstance(input)) {
-            return `Laravel failed to start: ${input.data.message}`;
+        if (input instanceof PhpRunner.StartupError) {
+            return `Laravel failed to start: ${input.message}`;
         }
 
-        if (PhpRunner.OutputError.isInstance(input)) {
-            const parts = [`Invalid PHP output: ${input.data.message}`];
-            if (input.data.stdout) parts.push(`stdout: ${input.data.stdout}`);
-            if (input.data.stderr) parts.push(`stderr: ${input.data.stderr}`);
+        if (input instanceof PhpRunner.OutputError) {
+            const parts = [`Invalid PHP output: ${input.message}`];
+            if (input.stdout) parts.push(`stdout: ${input.stdout}`);
+            if (input.stderr) parts.push(`stderr: ${input.stderr}`);
             return parts.join('\n');
         }
 
-        if (PhpRunner.ParseError.isInstance(input)) {
-            return `Failed to parse PHP output: ${input.data.message}`;
+        if (input instanceof PhpRunner.ParseError) {
+            return `Failed to parse PHP output: ${input.message}`;
         }
 
-        if (PhpRunner.SpawnError.isInstance(input)) {
-            return `Failed to run PHP command '${input.data.command}': ${input.data.message}`;
+        if (input instanceof PhpRunner.SpawnError) {
+            return `Failed to run PHP command '${input.command}': ${input.message}`;
         }
 
-        if (Views.RefreshError.isInstance(input)) {
+        if (input instanceof Views.RefreshError) {
             return formatRefreshError('views', input);
         }
 
-        if (Components.RefreshError.isInstance(input)) {
+        if (input instanceof Components.RefreshError) {
             return formatRefreshError('components', input);
         }
 
-        if (Directives.RefreshError.isInstance(input)) {
+        if (input instanceof Directives.RefreshError) {
             return formatRefreshError('directives', input);
         }
 
-        if (Laravel.NotDetectedError.isInstance(input)) {
-            return `No Laravel project detected in ${input.data.workspaceRoot}`;
+        if (input instanceof Laravel.NotDetectedError) {
+            return `No Laravel project detected in ${input.workspaceRoot}`;
         }
 
-        if (Laravel.ValidationError.isInstance(input)) {
-            const msg = input.data.message ? `: ${input.data.message}` : '';
-            return `Laravel project validation failed at ${input.data.projectRoot}${msg}`;
+        if (input instanceof Laravel.ValidationError) {
+            const msg = input.message ? `: ${input.message}` : '';
+            return `Laravel project validation failed at ${input.projectRoot}${msg}`;
         }
 
-        if (Laravel.NotAvailableError.isInstance(input)) {
-            return input.data.message || 'Laravel integration not available';
+        if (input instanceof Laravel.NotAvailableError) {
+            return input.message || 'Laravel integration not available';
         }
 
-        if (NamedError.Unknown.isInstance(input)) {
-            return input.data.message;
+        if (input instanceof UnknownError) {
+            return input.message;
         }
 
         return undefined;
@@ -131,11 +130,17 @@ export namespace ErrorFormat {
 
     /**
      * Convert an error to a structured object for logging.
-     * Uses toObject() for NamedErrors, extracts useful info from regular Errors.
+     * Serializes tagged errors as `{ name, data }`, extracts useful info from regular Errors.
      */
     export function toObject(input: unknown): Record<string, unknown> {
-        if (input instanceof NamedError) {
-            return input.toObject();
+        // Effect Schema tagged errors: own enumerable props are `_tag` + fields.
+        if (input instanceof Error && '_tag' in input && typeof input._tag === 'string') {
+            const { _tag, cause, ...fields } = { ...(input as Error & { _tag: string; cause?: unknown }) };
+            return {
+                name: _tag,
+                data: fields,
+                ...(cause !== undefined ? { cause: toObject(cause) } : {}),
+            };
         }
 
         if (input instanceof Error) {

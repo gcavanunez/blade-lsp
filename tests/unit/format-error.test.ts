@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ErrorFormat } from '../../src/utils/format-error';
-import { NamedError } from '../../src/utils/error';
+import { UnknownError } from '../../src/utils/error';
 import { PhpRunner } from '../../src/laravel/php-runner';
 import { Views } from '../../src/laravel/views';
 import { Components } from '../../src/laravel/components';
@@ -73,10 +73,7 @@ describe('ErrorFormat.format', () => {
 
         it('formats Views.RefreshError with cause chain', () => {
             const phpErr = new PhpRunner.SpawnError({ command: 'php', message: 'ENOENT' });
-            const err = new Views.RefreshError(
-                { message: 'Failed to refresh views', cause: 'ENOENT' },
-                { cause: phpErr },
-            );
+            const err = new Views.RefreshError({ message: 'Failed to refresh views', cause: phpErr });
             const result = ErrorFormat.format(err)!;
             expect(result).toContain('Failed to refresh views: Failed to refresh views');
             expect(result).toContain("Failed to run PHP command 'php': ENOENT");
@@ -122,8 +119,8 @@ describe('ErrorFormat.format', () => {
     });
 
     describe('Unknown errors', () => {
-        it('formats NamedError.Unknown', () => {
-            const err = new NamedError.Unknown({ message: 'Something unexpected' });
+        it('formats UnknownError', () => {
+            const err = new UnknownError({ message: 'Something unexpected' });
             expect(ErrorFormat.format(err)).toBe('Something unexpected');
         });
 
@@ -171,7 +168,7 @@ describe('ErrorFormat.forLog', () => {
         expect(ErrorFormat.forLog(42)).toBe('42');
     });
 
-    it('walks cause chain with NamedError cause', () => {
+    it('walks cause chain with tagged error cause', () => {
         const phpErr = new PhpRunner.SpawnError({ command: 'php', message: 'ENOENT' });
         const err = new Error('wrapper', { cause: phpErr });
         const result = ErrorFormat.forLog(err);
@@ -182,7 +179,7 @@ describe('ErrorFormat.forLog', () => {
 });
 
 describe('ErrorFormat.toObject', () => {
-    it('uses toObject() for NamedError', () => {
+    it('serializes tagged errors as { name, data }', () => {
         const err = new PhpRunner.TimeoutError({ timeoutMs: 5000, scriptName: 'test' });
         const obj = ErrorFormat.toObject(err);
         expect(obj.name).toBe('PhpRunnerTimeoutError');

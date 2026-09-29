@@ -1,53 +1,51 @@
-import z from 'zod';
-import { NamedError } from '../utils/error';
-import { Lock } from '../utils/lock';
+import { Effect, Schema, Semaphore } from 'effect';
 import { PhpRunner } from './php-runner';
 import { LaravelContext } from './context';
 import { CustomDirective } from './types';
 
 export namespace Directives {
-    export const RefreshError = NamedError.create(
-        'DirectivesRefreshError',
-        z.object({
-            message: z.string(),
-            cause: z.string().optional(),
-        }),
-    );
+    export class RefreshError extends Schema.TaggedErrorClass<RefreshError>()('DirectivesRefreshError', {
+        message: Schema.String,
+        // Schema.Defect is preferred, but it crashes class construction in
+        // effect 4.0.0-beta.93 — revisit on the next beta bump.
+        cause: Schema.optional(Schema.Unknown),
+    }) {}
 
-    const REFRESH_LOCK = 'directives-refresh';
+    /** Serializes refreshes so concurrent calls queue instead of overlapping. */
+    const refreshLock = Semaphore.makeUnsafe(1);
 
     /**
      * Refresh directives from Laravel.
-     * Uses a write lock to prevent concurrent refreshes.
+     * Holds a single-permit semaphore to prevent concurrent refreshes.
      *
-     * @throws RefreshError if refresh fails
+     * Error channel: `RefreshError` (the failed load state is recorded
+     * before failing).
      */
-    export async function refresh(): Promise<void> {
-        using _ = await Lock.write(REFRESH_LOCK);
+    export function refresh(): Effect.Effect<void, InstanceType<typeof RefreshError>> {
+        return Semaphore.withPermit(
+            refreshLock,
+            Effect.gen(function* () {
+                const state = LaravelContext.use();
+                state.directives.loadState = LaravelContext.createLoadingLoadState();
 
-        const state = LaravelContext.use();
-        state.directives.loadState = LaravelContext.createLoadingLoadState();
+                const data = yield* PhpRunner.runScript<CustomDirective[]>({
+                    project: state.project,
+                    scriptName: 'blade-directives',
+                }).pipe(
+                    Effect.tapError((error) =>
+                        Effect.sync(() => {
+                            state.directives.loadState = LaravelContext.createFailedLoadState(error.message);
+                        }),
+                    ),
+                    Effect.mapError(
+                        (error) => new RefreshError({ message: 'Failed to refresh directives', cause: error }),
+                    ),
+                );
 
-        try {
-            const data = await PhpRunner.runScript<CustomDirective[]>({
-                project: state.project,
-                scriptName: 'blade-directives',
-            });
-
-            state.directives.items = data;
-            state.directives.loadState = LaravelContext.createReadyLoadState();
-        } catch (error) {
-            const cause = error instanceof Error ? error.message : String(error);
-            state.directives.loadState = LaravelContext.createFailedLoadState(cause);
-
-            throw new RefreshError(
-                {
-                    message: 'Failed to refresh directives',
-                    cause,
-                },
-                { cause: error },
-            );
-        }
+                state.directives.items = data;
+                state.directives.loadState = LaravelContext.createReadyLoadState();
+            }),
+        );
     }
 
     /**
